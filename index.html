@@ -43,7 +43,7 @@
 <body>
   <div class="wrap">
     <h1>דשבורד BI • פניות פתוחות</h1>
-    <div class="sub">כל החישובים מתבססים על <b>“תאריך/שעת פתיחה”</b> בלבד (לא משתמשים ב־“שונה לאחרונה”).</div>
+    <div class="sub">כל החישובים מתבססים על <b>“תאריך/שעת פתיחה”</b> בלבד (לא משתמשים ב־“שונה לאחרונה”). הקריאה מנטרלת שעות אוטומטית.</div>
 
     <div class="panel" id="uipanel">
       <div class="row">
@@ -95,40 +95,56 @@
   </div>
 
 <script>
-/* ============ קבועים ועזרים ============ */
-const tz = 'Asia/Jerusalem';
-const onlyDate = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+/* ===================== עזרים ===================== */
+const TZ = 'Asia/Jerusalem';
 
-/* תרגום תאריך מכל פורמט: Date, טקסט, או Serial של Excel */
+/** מחזיר Date בחצות של אזור הזמן המבוקש עבור תאריך קיים */
+function dateOnlyInTZ(d, tz=TZ){
+  if (!(d instanceof Date) || isNaN(d)) return null;
+  const fmt = new Intl.DateTimeFormat('he-IL',
+    {year:'numeric',month:'2-digit',day:'2-digit',timeZone:tz}
+  );
+  const parts = fmt.formatToParts(d).reduce((a,p)=>{a[p.type]=p.value;return a;},{});
+  const y = +parts.year, m = +parts.month, day = +parts.day;
+  // בונים אובייקט Date מקומי (הייצוג הלוגי הוא יום-חודש-שנה ללא שעה)
+  return new Date(y, m-1, day, 0, 0, 0, 0);
+}
+
+/** פרסר תאריכים חזק: Serial, טקסט (עם/בלי שעה), ISO, Date */
 function parseHebDate(val){
-  if (val == null || val === '') return null;
+  if (val==null || val==='') return null;
 
   // כבר Date
-  if (val instanceof Date && !isNaN(val)) return val;
+  if (val instanceof Date && !isNaN(val)) return dateOnlyInTZ(val);
 
-  // Serial מספרי של Excel
+  // Excel serial
   if (typeof val === 'number'){
-    // Excel serial -> milliseconds
-    const ms = (val - 25569) * 86400000; // 25569 = 1970-01-01
+    // מחשבים יום מדויק ואז מנרמלים ל־TZ כדי לא לאבד יום בגלל UTC
+    const ms = (val - 25569) * 86400000;
     const d = new Date(ms);
-    return isNaN(d) ? null : d;
+    return dateOnlyInTZ(d);
   }
 
-  // טקסט – הסרת סימני RTL נסתרים
+  // טקסט – הסרת RTL נסתרים
   const s = String(val).trim().replace(/\u200f|\u200e/g,'');
   // dd/mm/yyyy[ hh:mm[:ss]] או dd.mm.yyyy / dd-mm-yyyy
   let m = s.match(/^(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (m){
-    const dd=+m[1], mm=+m[2]-1, yyyy = (+m[3] < 100 ? 2000+ +m[3] : +m[3]);
+    const dd=+m[1], mm=+m[2]-1, yyyy=(+m[3]<100?2000+ +m[3]:+m[3]);
     const hh=+(m[4]??'0'), mi=+(m[5]??'0'), ss=+(m[6]??'0');
-    return new Date(yyyy,mm,dd,hh,mi,ss);
+    return dateOnlyInTZ(new Date(yyyy,mm,dd,hh,mi,ss));
   }
   // ISO ודומיו
   const d = new Date(s);
-  return isNaN(d) ? null : d;
+  return isNaN(d) ? null : dateOnlyInTZ(d);
 }
 
-/* ============ DOM ============ */
+/** עוזר להצגת טקסט תאריך */
+const fmtDate = d => d
+  ? d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric', timeZone:TZ})
+  : '';
+
+/* ===================== DOM ===================== */
 const fileInput  = document.getElementById('fileInput');
 const pickBtn    = document.getElementById('pickBtn');
 const clearBtn   = document.getElementById('clearBtn');
@@ -149,12 +165,12 @@ const kpiDeltaPct  = document.getElementById('kpiDeltaPct');
 const diagCard  = document.getElementById('diagCard');
 const diagText  = document.getElementById('diagText');
 
-/* ============ מצב נתונים ============ */
-let RAW = [];         // שורות מקוריות (אובייקטים)
-let COLS = [];        // שמות עמודות
-let COL_DATE = null;  // שם העמודה שנבחרה לתאריך/שעת פתיחה
+/* ===================== מצב ===================== */
+let RAW = [];
+let COLS = [];
+let COL_DATE = null;
 
-/* ============ UI ============ */
+/* ===================== UI ===================== */
 pickBtn.onclick = ()=> fileInput.click();
 clearBtn.onclick = ()=> {
   RAW=[]; COLS=[]; COL_DATE=null;
@@ -167,122 +183,111 @@ clearBtn.onclick = ()=> {
   diagCard.style.display='none';
 };
 
-/* מילוי רשימת עמודות */
-function fillColumns(cols){
-  dateSelect.innerHTML = '';
-  const opt0 = document.createElement('option');
-  opt0.value = '';
-  opt0.textContent = 'זיהוי אוטומטי (מומלץ)';
-  dateSelect.appendChild(opt0);
-  cols.forEach(c=>{
-    const opt = document.createElement('option');
-    opt.value=c; opt.textContent=c;
-    dateSelect.appendChild(opt);
-  });
-}
-
-/* בחירת עמודת תאריך ידנית */
-dateSelect.onchange = ()=>{
-  const v = dateSelect.value || null;
-  COL_DATE = v;  // null => אוטומטי
-  if (RAW.length) buildDashboard();
-};
-
-/* ============ קריאת הקובץ ============ */
-fileInput.addEventListener('change', async (e)=>{
-  const f = e.target.files?.[0];
-  if (!f) return;
-  fileNameEl.textContent = f.name;
-
-  try{
-    const data = await f.arrayBuffer();
-    const wb = XLSX.read(data, {type:'array', cellDates:false, cellNF:false, cellText:false});
-    const sheetName = wb.SheetNames[0];
-    const ws = wb.Sheets[sheetName];
-    const json = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true}); // raw=true כדי לשמור Serial
-    RAW = json;
-    COLS = Object.keys(json[0] || {});
-    rowsChip.textContent = `שורות ${json.length.toLocaleString('he-IL')}`;
-
-    // זיהוי אוטומטי לעמודת תאריך אם קיימת
-    const auto = COLS.find(c=>/תאריך.?\/?שעת.? פתיחה|תאריך.? פתיחה/i.test(c)) ||
-                 COLS.find(c=>/פתיחה/i.test(c));
-    COL_DATE = auto || null;
-
-    fillColumns(COLS);
-    if (COL_DATE){
-      // מסמן ב־select אם זוהה
-      [...dateSelect.options].forEach(o=>{ if (o.value===COL_DATE) o.selected=true; });
-      setStatus('ok', `הקובץ נטען. עמודת תאריך זוהתה: “${COL_DATE}”.`);
-    } else {
-      setStatus('warn', 'הקובץ נטען. לא זוהתה עמודת תאריך – בחרי מהרשימה.');
-    }
-    buildDashboard();
-  }catch(err){
-    console.error(err);
-    setStatus('err','שגיאה בקריאת הקובץ. נסי לשמור כ-Excel רגיל (Workbook), להסיר נוסחאות/מיזוגים ולוודא שהכותרות בשורה הראשונה.');
-  }
-});
-
-/* ============ סטטוס ============ */
 function setStatus(kind, msg){
   statusLine.className = 'status ' + kind;
   statusLine.style.display='';
   statusLine.textContent = msg;
 }
 
-/* ============ חישובי KPI ובניית דשבורד ============ */
+function fillColumns(cols){
+  dateSelect.innerHTML='';
+  const opt0=document.createElement('option');
+  opt0.value=''; opt0.textContent='זיהוי אוטומטי (מומלץ)';
+  dateSelect.appendChild(opt0);
+  cols.forEach(c=>{
+    const o=document.createElement('option');
+    o.value=c; o.textContent=c; dateSelect.appendChild(o);
+  });
+}
+
+dateSelect.onchange = ()=>{
+  COL_DATE = dateSelect.value || null;
+  if (RAW.length) buildDashboard();
+};
+
+/* ===================== קריאת קובץ ===================== */
+fileInput.addEventListener('change', async (e)=>{
+  const f = e.target.files?.[0];
+  if (!f) return;
+  fileNameEl.textContent = f.name;
+
+  try{
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:false, cellNF:false, cellText:false});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
+    RAW = json;
+    COLS = Object.keys(json[0] || {});
+    rowsChip.textContent = `שורות ${json.length.toLocaleString('he-IL')}`;
+
+    // זיהוי אוטומטי
+    const auto = COLS.find(c=>/תאריך.?\/?שעת.? פתיחה|תאריך.? פתיחה/i.test(c)) ||
+                 COLS.find(c=>/פתיחה/i.test(c));
+    COL_DATE = auto || null;
+
+    fillColumns(COLS);
+    if (COL_DATE){
+      [...dateSelect.options].forEach(o=>{ if (o.value===COL_DATE) o.selected=true; });
+      setStatus('ok', `הקובץ נטען. עמודת תאריך זוהתה: “${COL_DATE}”.`);
+    } else {
+      setStatus('warn','הקובץ נטען. לא זוהתה עמודת תאריך – בחרי מהרשימה.');
+    }
+    buildDashboard();
+  }catch(err){
+    console.error(err);
+    setStatus('err','שגיאה בקריאת הקובץ. שמרי כ-Workbook רגיל, הסירי מיזוגים/נוסחאות, וודאי שהכותרות בשורה הראשונה.');
+  }
+});
+
+/* ===================== חישובים ===================== */
+function guessDateKey(cols){
+  return cols.find(c=>/תאריך.?\/?שעת.? פתיחה|תאריך.? פתיחה/i.test(c)) ||
+         cols.find(c=>/date|opened/i.test(c));
+}
+
 function buildDashboard(){
   if (!RAW.length){ kpisWrap.style.display='none'; return; }
 
   const dateKey = COL_DATE || guessDateKey(COLS);
   if (!dateKey){ setStatus('warn','בחרי עמודת תאריך / שעת פתיחה.'); kpisWrap.style.display='none'; return; }
 
-  // הוספת _openDate + דיאגנוסטיקה
+  // מנרמלים כל שורה ל-Date-Only ב-Asia/Jerusalem
   let ok=0, empty=0, bad=0, serial=0;
   const rows = RAW.map(r=>{
     const raw = r[dateKey];
     const d = parseHebDate(raw);
-    if (raw == null || raw === '') empty++;
-    else if (typeof raw === 'number'){ if (d) serial++; else bad++; }
+    if (raw==null || raw==='') empty++;
+    else if (typeof raw==='number'){ if (d) serial++; else bad++; }
     else if (d) ok++; else bad++;
-    return {...r, _openDate: d};
+    return {...r, _openDate:d};
   });
 
   diagText.textContent = `זוהו תאריכים: ${ok.toLocaleString('he-IL')} • ריקים: ${empty.toLocaleString('he-IL')} • לא קריאים: ${bad.toLocaleString('he-IL')} • serial: ${serial.toLocaleString('he-IL')}`;
   diagCard.style.display='';
 
-  // KPI סה"כ שורות
-  kpiTotal.textContent = RAW.length.toLocaleString('he-IL');
-
-  // היום (לפי Asia/Jerusalem)
-  const now = new Date();
-  const today = onlyDate(now);
+  // היום והאתמול בחצות TZ
+  const today = dateOnlyInTZ(new Date());
   const prev  = new Date(today); prev.setDate(prev.getDate()-1);
 
-  const todayCount = rows.filter(r => r._openDate && onlyDate(r._openDate).getTime() === today.getTime()).length;
-  const prevCount  = rows.filter(r => r._openDate && onlyDate(r._openDate).getTime() === prev.getTime()).length;
+  const sameDay = (a,b)=> a && b && a.getTime()===b.getTime();
 
+  const todayCount = rows.filter(r => sameDay(r._openDate, today)).length;
+  const prevCount  = rows.filter(r => sameDay(r._openDate, prev)).length;
+
+  // KPIs
+  kpiTotal.textContent = RAW.length.toLocaleString('he-IL');
   kpiToday.textContent = todayCount.toLocaleString('he-IL');
   kpiPrev.textContent  = prevCount.toLocaleString('he-IL');
-
-  const fmt = (d)=> d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric', timeZone: 'Asia/Jerusalem'});
-  kpiTodayDate.textContent = `נכון ל־${fmt(today)}`;
-  kpiPrevDate.textContent  = `נכון ל־${fmt(prev)}`;
+  kpiTodayDate.textContent = `נכון ל־${fmtDate(today)}`;
+  kpiPrevDate.textContent  = `נכון ל־${fmtDate(prev)}`;
 
   const delta = todayCount - prevCount;
-  kpiDelta.textContent = (delta>=0? '':'') + delta.toLocaleString('he-IL');
+  kpiDelta.textContent   = (delta>=0?'':'') + delta.toLocaleString('he-IL');
   const pct = prevCount ? (delta/prevCount*100) : 0;
   kpiDeltaPct.textContent = `${pct.toFixed(1)}% :אחוזים`;
 
   kpisWrap.style.display='';
-  setStatus('ok', `הקובץ נטען בהצלחה • עמודת תאריך: “${dateKey}”`);
-}
-
-/* ניחוש עמודת תאריך במקרה שלא נבחרה ידנית */
-function guessDateKey(cols){
-  return cols.find(c=>/תאריך.?\/?שעת.? פתיחה|תאריך.? פתיחה/i.test(c)) ||
-         cols.find(c=>/date|opened/i.test(c));
+  setStatus('ok', `הקובץ נטען בהצלחה • עמודת תאריך: “${dateKey}” (שעות נוטרלו)`);
 }
 </script>
 </body>
