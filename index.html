@@ -941,4 +941,187 @@
   // אם הנתונים הוטענו אחרי שהסקריפט נטען – אין צורך בפעולה מיוחדת; המאזינים כבר יושבים.
 })();
 </script>
+  <!-- === STEP 4: SLA rules + derived columns (Asia/Jerusalem) === -->
+<script>
+(() => {
+  const TZ = 'Asia/Jerusalem';
+
+  // ----- זיהוי עמודות -----
+  const OPEN_DATE_COL_KEYS   = ['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'];
+  const DEPT_COL_KEYS        = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
+  const SUBJECT_COL_KEYS     = ['סיווג נושא','נושא','סיווג נושא '];
+  const PROBLEM_COL_KEYS     = ['סיווג בעיה','בעיה','סיווג בעיה '];
+  const STATUS_COL_KEYS      = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+
+  function findCol(row, keys) {
+    if (!row) return null;
+    for (const k of keys) if (k in row) return k;
+    // התאמה רכה
+    const norm = s => String(s).replace(/\s+/g,'').toLowerCase();
+    const targets = keys.map(norm);
+    for (const k in row) if (targets.includes(norm(k))) return k;
+    return null;
+  }
+
+  function isOpenRow(row) {
+    const key = findCol(row, STATUS_COL_KEYS);
+    if (!key) return true;
+    const val = String(row[key] ?? '').trim();
+    const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+    return !closed.some(c => val === c || val.includes(c));
+  }
+
+  // ----- תאריכים (ישראל) -----
+  function toPartsTZ(date) {
+    const d = (date instanceof Date) ? date : new Date(date);
+    const parts = new Intl.DateTimeFormat('he-IL', {
+      timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit'
+    }).formatToParts(d);
+    const m = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    return { y:+m.year, M:+m.month, d:+m.day, H:+(m.hour||'0'), i:+(m.minute||'0') };
+  }
+  function fmtDateTimeTZ(date) {
+    const p = toPartsTZ(date);
+    const dd = String(p.d).padStart(2,'0');
+    const mm = String(p.M).padStart(2,'0');
+    const HH = String(p.H).padStart(2,'0');
+    const II = String(p.i).padStart(2,'0');
+    return `${dd}/${mm}/${p.y} ${HH}:${II}`;
+  }
+  function parseOpenDate(row) {
+    const key = findCol(row, OPEN_DATE_COL_KEYS);
+    if (!key) return null;
+    const v = row[key];
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') {
+      // Excel serial
+      const excelEpoch = new Date(Date.UTC(1899,11,30));
+      return new Date(excelEpoch.getTime() + v*24*60*60*1000);
+    }
+    const d = new Date(v);
+    if (!isNaN(d)) return d;
+    const m = String(v).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (m) {
+      let [_, dd, mm, yyyy, HH='00', II='00'] = m;
+      if (String(yyyy).length===2) yyyy = '20'+yyyy;
+      return new Date(`${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${String(HH).padStart(2,'0')}:${II}:00`);
+    }
+    return null;
+  }
+
+  // ----- כללי SLA (עדיפויות לפי הסדר שנמסר — "מה שלא הוחרג למעלה") -----
+  function normTxt(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
+
+  function getDept(row){
+    const k = findCol(row, DEPT_COL_KEYS);
+    return k ? String(row[k]).trim() : '';
+  }
+  function getSubject(row){
+    const k = findCol(row, SUBJECT_COL_KEYS);
+    return k ? String(row[k]).trim() : '';
+  }
+  function getProblem(row){
+    const k = findCol(row, PROBLEM_COL_KEYS);
+    return k ? String(row[k]).trim() : '';
+  }
+
+  // מחזיר אובייקט {ms,label} או null אם אין כלל
+  function pickSLARule(row){
+    const dept = normTxt(getDept(row));            // 'פניםארצי' | 'שליחים' | 'בינלאומי' ...
+    const subject = normTxt(getSubject(row));      // 'חלוקתדואר', 'יחידותדואר', ...
+    const problem = normTxt(getProblem(row));      // 'תקלבפורטל', 'איסוף', 'הזמנה' ...
+
+    // 1) סיווג נושא: חלוקת דואר / יחידות דואר + מחלקה מטפלת פנים ארצי → 8 ימים
+    if (dept.includes('פנים') && dept.includes('ארצי') &&
+        (subject.includes('חלוקתדואר') || subject.includes('יחידותדואר'))) {
+      return { ms: 8*24*60*60*1000, label: '8 ימים — נושא חלוקת/יחידות דואר בפנים-ארצי' };
+    }
+
+    // 2) סיווג בעיה: תקלה בפורטל + מחלקה מטפלת שליחים/בינלאומי → 24 שעות
+    if (problem.includes('תקל') && problem.includes('פורטל') &&
+        (dept.includes('שליח') || dept.includes('בינלאומי'))) {
+      return { ms: 24*60*60*1000, label: '24 שעות — תקלה בפורטל (שליחים/בינלאומי)' };
+    }
+
+    // 3) סיווג בעיה: איסוף/הזמנה + מחלקה מטפלת שליחים → 24 שעות
+    if ((problem.includes('איסוף') || problem.includes('הזמנה')) &&
+         dept.includes('שליח')) {
+      return { ms: 24*60*60*1000, label: '24 שעות — איסוף/הזמנה (שליחים)' };
+    }
+
+    // 4) ברירת מחדל: פנים-ארצי או שליחים → 30 ימים (למעט מה שהוחרג למעלה)
+    if (dept.includes('פנים') && dept.includes('ארצי') || dept.includes('שליח')) {
+      return { ms: 30*24*60*60*1000, label: '30 ימים — ברירת מחדל (פנים-ארצי/שליחים)' };
+    }
+
+    // 5) ברירת מחדל: בינלאומי → 60 ימים (למעט מה שהוחרג למעלה)
+    if (dept.includes('בינלאומי')) {
+      return { ms: 60*24*60*60*1000, label: '60 ימים — ברירת מחדל (בינלאומי)' };
+    }
+
+    return null;
+  }
+
+  function fmtDuration(ms){
+    const abs = Math.abs(ms);
+    const days = Math.floor(abs / (24*60*60*1000));
+    const hours = Math.floor((abs % (24*60*60*1000)) / (60*60*1000));
+    if (days >= 1) return `${days.toLocaleString('he-IL')} יום${days!==1?'ים':''}` + (hours?` ו-${hours} שעות`:``);
+    return `${Math.round(abs/(60*60*1000)).toLocaleString('he-IL')} שעות`;
+  }
+
+  function annotateRowWithSLA(row){
+    const rule = pickSLARule(row);
+    const openedAt = parseOpenDate(row);
+
+    // ברירת מחדל לשדות
+    row['SLA כלל']   = rule ? rule.label : '—';
+    row['SLA משך']   = rule ? (rule.ms === 24*60*60*1000 ? '24 שעות' :
+                                rule.ms%(24*60*60*1000)===0 ? `${rule.ms/(24*60*60*1000)} ימים` :
+                                fmtDuration(rule.ms)) : '—';
+    row['SLA יעד']    = '—';
+    row['SLA נותר/איחור'] = '—';
+    row['SLA סטטוס']  = '—';
+
+    if (!rule || !openedAt || !isOpenRow(row)) return row;
+
+    const due = new Date(openedAt.getTime() + rule.ms);
+    const now = new Date();
+    const delta = due.getTime() - now.getTime();
+
+    row['SLA יעד'] = fmtDateTimeTZ(due);
+    row['SLA נותר/איחור'] = (delta >= 0)
+      ? `נותרו ${fmtDuration(delta)}`
+      : `באיחור ${fmtDuration(delta)}`;
+    row['SLA סטטוס'] = (delta >= 0) ? 'בזמן' : 'חריגה';
+
+    return row;
+  }
+
+  async function computeSLAForDataset(){
+    const data = Array.isArray(window.__dataset) ? window.__dataset : [];
+    if (!data.length) return;
+    for (let i=0; i<data.length; i++){
+      annotateRowWithSLA(data[i]);
+    }
+  }
+
+  // לרוץ אחרי קליטת קובץ
+  if (typeof window.updateSuccessUI === 'function') {
+    const __prev = window.updateSuccessUI;
+    window.updateSuccessUI = async function() {
+      __prev.apply(this, arguments);
+      try {
+        await computeSLAForDataset();
+      } catch(e){ console.warn('SLA annotate error', e); }
+    };
+  }
+
+  // אם כבר הוטענו נתונים קודם
+  if (Array.isArray(window.__dataset) && window.__dataset.length){
+    computeSLAForDataset();
+  }
+})();
+</script>
 </body>
