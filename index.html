@@ -1,183 +1,325 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>דשבורד BI • פניות פתוחות</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  html{scroll-behavior:smooth}
+  .num{font-variant-numeric:tabular-nums}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px}
+  @media (prefers-color-scheme:dark){body{background:#0b0c10;color:#e5e7eb}.card{background:#111827;border-color:#334155}}
+  dialog::backdrop{background:rgba(0,0,0,.35)}
+  th,td{white-space:nowrap}
+</style>
 </head>
 <body class="min-h-screen bg-slate-50 p-4">
-  <h1 class="text-xl font-bold mb-4">דשבורד BI • פניות פתוחות</h1>
 
-  <!-- שדה העלאה גלוי -->
-  <input id="fileInput" type="file"
-    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    class="block w-full border rounded-lg p-2 bg-white mb-3" />
+  <h1 class="text-2xl font-extrabold mb-1">דשבורד BI • פניות פתוחות</h1>
+  <p class="text-sm text-slate-500 mb-4">טוען ‎Excel, מזהה עמודות אוטומטית, מפריד שעה מהתאריך ומשווה בין ימים.</p>
 
-  <!-- פס מידע -->
-  <div id="fileInfo" class="hidden border rounded-lg p-2 bg-white mb-4 text-sm">
-    <div>קובץ: <b id="fiName"></b></div>
-    <div>גיליון: <b id="fiSheet"></b> • שורות: <b id="fiRows"></b></div>
-    <div>סטטוס: <span id="fiNote"></span></div>
+  <!-- קלט קובץ גלוי (עובד בוודאות באנדרואיד) -->
+  <div class="card mb-3">
+    <label class="block text-sm mb-2">בחרי קובץ ‎.xlsx (שורת כותרות בשורה הראשונה):</label>
+    <input id="fileInput" type="file"
+      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+      class="block w-full border rounded-lg p-2 bg-white"/>
   </div>
 
-  <!-- מקום לנתונים -->
-  <div id="dashboard" class="hidden">
-    <h2 class="text-lg font-semibold mb-2">תצוגת נתונים</h2>
-    <pre id="dataPreview" class="text-xs bg-gray-100 p-2 rounded"></pre>
+  <!-- פס מידע על הקובץ -->
+  <div id="fileInfo" class="card mb-4 hidden text-sm">
+    <div><b id="fiName"></b></div>
+    <div>גיליון: <b id="fiSheet">—</b> • שורות: <b id="fiRows" class="num">—</b></div>
+    <div>סטטוס: <span id="fiNote">—</span></div>
+    <div id="fiCols" class="text-xs text-slate-500 mt-1"></div>
   </div>
 
-<script>
-const $=id=>document.getElementById(id);
-
-$('fileInput').addEventListener('change', async (e)=>{
-  const f=e.target.files?.[0];
-  if(!f) return;
-  $('fileInfo').classList.remove('hidden');
-  $('fiName').textContent=f.name;
-  $('fiNote').textContent='טוען...';
-
-  try {
-    const buf=await f.arrayBuffer();
-    const wb=XLSX.read(buf,{type:'array'});
-    const sheet=wb.SheetNames[0];
-    $('fiSheet').textContent=sheet;
-    const ws=wb.Sheets[sheet];
-    const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-    $('fiRows').textContent=rows.length;
-    $('fiNote').textContent='הקובץ עלה ✓';
-    
-    // הצגה בסיסית של כמה שורות ראשונות
-    $('dashboard').classList.remove('hidden');
-    $('dataPreview').textContent=JSON.stringify(rows.slice(0,5),null,2);
-  } catch(err) {
-    $('fiNote').textContent='שגיאה: '+err.message;
-  }
-});
-</script>
-</body>
-</html>    </section>
-
-    <!-- גרפים -->
-    <section id="charts" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4 hidden">
-      <div class="card"><h3 class="font-semibold mb-2">מגמת פתוחות</h3><canvas id="trendChart" height="140"></canvas></div>
-      <div class="card"><h3 class="font-semibold mb-2">התפלגות SLA</h3><canvas id="slaPieChart" height="140"></canvas></div>
-    </section>
+  <!-- טאבים למחלקות -->
+  <div id="deptTabsWrap" class="mb-3 hidden">
+    <div id="deptTabs" class="flex flex-wrap gap-2"></div>
   </div>
+
+  <!-- KPIs -->
+  <section id="kpis" class="grid grid-cols-1 md:grid-cols-5 gap-3 hidden">
+    <div class="card">
+      <div class="text-sm text-slate-500">פתוחות היום</div>
+      <div id="kpiToday" class="text-3xl font-extrabold num">—</div>
+      <button id="btnToday" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
+    </div>
+    <div class="card">
+      <div class="text-sm text-slate-500">פתוחות אתמול</div>
+      <div id="kpiPrev" class="text-3xl font-extrabold num">—</div>
+      <button id="btnPrev" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
+    </div>
+    <div class="card">
+      <div class="text-sm text-slate-500">שינוי יומי</div>
+      <div id="kpiDelta" class="text-3xl font-extrabold num">—</div>
+      <div class="text-xs text-slate-500">באחוזים: <span id="kpiPct">—</span></div>
+    </div>
+    <div class="card">
+      <div class="text-sm text-slate-500">SLA — חריגות</div>
+      <div id="kpiSlaBad" class="text-3xl font-extrabold num">—</div>
+      <div class="text-xs text-slate-500">בתוך: <span id="kpiSlaOk">—</span> • לא ניתן: <span id="kpiSlaU">—</span></div>
+      <button id="btnSla" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
+    </div>
+    <div class="card">
+      <div class="text-sm text-slate-500">כפילויות (Tracking/שם/מייל)</div>
+      <div id="kpiDup" class="text-3xl font-extrabold num">—</div>
+      <button id="btnDup" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
+    </div>
+  </section>
+
+  <!-- גרפים -->
+  <section id="charts" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4 hidden">
+    <div class="card"><h3 class="font-semibold mb-2">מגמת פתוחות</h3><canvas id="trendChart" height="150"></canvas></div>
+    <div class="card"><h3 class="font-semibold mb-2">התפלגות לפי מחלקה</h3><canvas id="deptPie" height="150"></canvas></div>
+    <div class="card"><h3 class="font-semibold mb-2">ערים בעייתיות (Top 10)</h3><canvas id="cityBar" height="180"></canvas></div>
+    <div class="card"><h3 class="font-semibold mb-2">SLA — היום</h3><canvas id="slaPie" height="150"></canvas></div>
+  </section>
+
+  <!-- מודאל פירוט -->
+  <dialog id="detailDlg" class="w-[min(98vw,1200px)] rounded-2xl p-0">
+    <form method="dialog" class="card">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 id="detailTitle" class="text-lg font-semibold">פירוט</h3>
+          <p id="detailSub" class="text-xs text-slate-500"></p>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="detailSearch" placeholder="חיפוש..." class="border rounded-lg px-2 py-1 text-sm"/>
+          <button id="btnExport" type="button" class="px-3 py-1.5 rounded-lg border text-sm">יצוא ‎.xlsx</button>
+          <button class="px-3 py-1.5 rounded-lg border text-sm">סגור</button>
+        </div>
+      </div>
+      <div class="overflow-auto max-h-[70vh] mt-3">
+        <table class="min-w-full text-sm">
+          <thead id="detailHead" class="bg-slate-100"></thead>
+          <tbody id="detailBody" class="divide-y"></tbody>
+        </table>
+      </div>
+    </form>
+  </dialog>
 
 <script>
 const $=id=>document.getElementById(id);
 const fmt=d=>String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
-const snap=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
+const dayOnly=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
+
 function parseExcelDate(v){
-  if(v==null||v==='')return null;
-  if(v instanceof Date)return v;
-  if(typeof v==='number'){return new Date(Math.round((v-25569)*86400*1000));}
+  if(v==null||v==='') return null;
+  if(v instanceof Date) return v;
+  if(typeof v==='number') return new Date(Math.round((v-25569)*86400*1000));
   const d=new Date(v); if(!isNaN(d)) return d;
   const m=String(v).trim().match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if(m) return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0));
   return null;
 }
-function guess(cols, arr){ const L=cols.map(c=>c.toLowerCase()); for(const cand of arr){ const i=L.findIndex(x=>x.includes(cand)); if(i>-1) return cols[i]; } return null; }
-function groupCount(arr,keyFn){const m=new Map(); for(const r of arr){const k=keyFn(r); m.set(k,(m.get(k)||0)+1);} return m;}
+function guess(headers, needles){ const L=headers.map(h=>h.toLowerCase()); for(const n of needles){ const i=L.findIndex(x=>x.includes(n)); if(i>-1) return headers[i]; } return null; }
+function uniq(a){return [...new Set(a)];}
+function groupCount(rows, keyOf){const m=new Map(); rows.forEach(r=>{const k=keyOf(r); m.set(k,(m.get(k)||0)+1)}); return m;}
+function topN(map, n=10){ return [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,n); }
+function exportXlsx(name, rows){ if(!rows.length){alert('אין נתונים');return;} const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'data'); XLSX.writeFile(wb,name); }
 
-const OPEN_STATUSES = new Set(['חדש','בתהליך','המתנה לגורם פנימי','המתנה למסמכים מהלקוח','פתוח','בטיפול']);
-const SLA_RULES = (row, cols) => {
-  const dept = (row[cols.dept]||'').toString().toLowerCase();
-  const txt = JSON.stringify(row).toLowerCase();
-  if (txt.includes('תקלה בפורטל')) return 24*60*60*1000;
-  if (dept.includes('בינלאומי')) return 60*24*60*1000;
-  if (dept.includes('פנים') && (txt.includes('חלוקת דואר') || txt.includes('יחידות דואר'))) return 8*24*60*1000;
-  if (dept.includes('שליח') && txt.includes('איסוף והזמנה')) return 24*60*60*1000;
-  if (dept.includes('פנים') || dept.includes('שליח')) return 30*24*60*1000;
+const OPEN = new Set(['חדש','בתהליך','המתנה לגורם פנימי','המתנה למסמכים מהלקוח','פתוח','בטיפול','פתוח/בתהליך']);
+
+const SLA_RULES = (row, COLS) => {
+  const dept = (row[COLS.dept]||'').toString().toLowerCase();
+  const txt  = JSON.stringify(row).toLowerCase();
+  if (txt.includes('תקלה בפורטל')) return 24*60*60*1000;                // 24 שעות
+  if (dept.includes('בינלאומי')) return 60*24*60*1000;                  // 60 יום
+  if (dept.includes('פנים') && (txt.includes('חלוקת דואר')||txt.includes('יחידות דואר'))) return 8*24*60*1000; // 8 ימים
+  if (dept.includes('שליח') && txt.includes('איסוף והזמנה')) return 24*60*60*1000; // 24 שעות
+  if (dept.includes('פנים') || dept.includes('שליח')) return 30*24*60*1000;       // 30 יום
   return null;
 };
 
-let RAW=[], COLS={}, CTX=null, charts={};
+let RAW=[], COLS={}, BASE=[], TODAY=[], YEST=[], CURR_DATE=null, PREV_DATE=null;
+let charts={};
+function makeChart(id,cfg){ if(charts[id]) charts[id].destroy(); charts[id]=new Chart($(id).getContext('2d'), cfg); }
 
 $('fileInput').addEventListener('change', async (e)=>{
   const f=e.target.files?.[0];
+  if(!f) return;
   $('fileInfo').classList.remove('hidden');
-  if(!f){ $('fiNote').textContent='לא נבחר קובץ'; return; }
-  $('fiName').textContent=f.name; $('fiNote').textContent='טוען…';
+  $('fiName').textContent=f.name; $('fiNote').textContent='טוען...';
   try{
     const buf=await f.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array'});
     const sheet=wb.SheetNames[0]; $('fiSheet').textContent=sheet||'—';
-    const ws=wb.Sheets[sheet]; const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-    RAW=rows; $('fiRows').textContent=rows.length.toLocaleString('he-IL');
-    if(!rows.length){ $('fiNote').textContent='אין שורות נתונים'; return; }
+    const ws=wb.Sheets[sheet];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+    $('fiRows').textContent=rows.length.toLocaleString('he-IL');
 
-    const headers=Object.keys(rows[0]);
-    COLS = {
-      snapDate: guess(headers,['שונה לאחרונה','עדכון','תאריך/שעת שונה']),
-      status:   guess(headers,['סטטוס','status']),
-      dept:     guess(headers,['מחלקה','מטפלת','department']),
-      openDate: guess(headers,['פתיחה','נפת','open'])
+    if(!rows.length){ $('fiNote').textContent='אין נתונים'; return; }
+
+    const H=Object.keys(rows[0]);
+    COLS={
+      // סנאפשוט: "תאריך שינוי אחרון", "שונה לאחרונה"
+      snap:    guess(H,['שינוי אחרון','שונה','עדכון','snapshot','שעת שונה']),
+      // פתיחה ל-SLA: "תאריך/שעת פתיחה"
+      open:    guess(H,['פתיחה','נפת','open']),
+      // סטטוס: "סטטוס פניה" (כולל שגיאת כתיב סטאטוס)
+      status:  guess(H,['סטטוס','סטאטוס','status']),
+      // מחלקה מטפלת: יש לפעמים בעמודה "מחלקה מטפלת", או "בעלי מקרה: שם מלא" שמכילה "פנים ארצי"
+      dept:    guess(H,['מחלקה מטפלת','מחלק','department','בעלי מקרה','שם מלא']),
+      city:    guess(H,['עיר']),
+      unit:    guess(H,['יחידת','יחידה']),
+      source:  guess(H,['מקור הפניה','מקור','ערוץ']),
+      track:   guess(H,['מספר מעקב','tracking']),
+      name:    guess(H,['שם לקוח','שם פונה','שם']),
+      mail:    guess(H,['מייל','דוא','email','e-mail'])
     };
-    $('fiCols').innerHTML = [
-      ['סנאפשוט',COLS.snapDate], ['סטטוס',COLS.status], ['מחלקה',COLS.dept], ['תאריך פתיחה',COLS.openDate||'(חסר — SLA חלקי)']
-    ].map(([k,v])=>`<span class="${v?'text-green-600':'text-red-600'}">• ${k}: ${v||'—'}</span>`).join(' &nbsp; ');
-    if(!COLS.snapDate||!COLS.status||!COLS.dept){ $('fiNote').textContent='חסרות עמודות חובה — תקני כותרות'; return; }
 
-    alasql('DROP TABLE IF EXISTS data'); alasql('CREATE TABLE data'); alasql.tables.data.data = RAW;
+    $('fiCols').innerHTML=[
+      ['סנאפשוט',COLS.snap],['תאריך פתיחה (SLA)',COLS.open],['סטטוס',COLS.status],['מחלקה',COLS.dept],
+      ['עיר',COLS.city],['יחידה',COLS.unit],['מקור',COLS.source]
+    ].map(([k,v])=>`<span class="${v?'text-green-600':'text-red-600'}">• ${k}: ${v||'—'}</span>`).join(' &nbsp; ');
+
+    if(!COLS.snap || !COLS.status || !COLS.dept){
+      $('fiNote').textContent='חסרות עמודות חובה (סנאפשוט/סטטוס/מחלקה).';
+      return;
+    }
+
+    RAW = rows;
+
+    // פרה-עיבוד: תאריך-זמן -> רק תאריך
+    BASE = RAW.map(r=>{
+      const d=parseExcelDate(r[COLS.snap]);
+      if(!d) return null;
+      return {...r, __snap:dayOnly(d), __date:fmt(dayOnly(d))};
+    }).filter(Boolean);
+
+    // זיהוי יום אחרון ואתמול
+    const allDays=[...new Set(BASE.map(r=>r.__snap.getTime()))].sort((a,b)=>a-b).map(t=>new Date(t));
+    if(!allDays.length){ $('fiNote').textContent='אין תאריכים תקינים בעמודת הסנאפשוט.'; return; }
+    CURR_DATE = allDays.at(-1);
+    PREV_DATE = allDays.length>1? allDays.at(-2): null;
+
+    // סינון סטטוסים פתוחים
+    const isOpen=s=> s!=null && OPEN.has(String(s).trim());
+
+    TODAY = BASE.filter(r=> r.__snap.getTime()===CURR_DATE.getTime() && isOpen(r[COLS.status]));
+    YEST  = PREV_DATE? BASE.filter(r=> r.__snap.getTime()===PREV_DATE.getTime() && isOpen(r[COLS.status])) : [];
+
     $('fiNote').textContent='הקובץ עלה ✓ — מחשב דשבורד';
-    calc(); $('fiNote').textContent='מוכן ✓';
-  }catch(err){ $('fiNote').textContent='שגיאה: '+err.message; }
+
+    buildDeptsTab();
+    renderAll('__ALL__');
+
+  }catch(err){
+    $('fiNote').textContent='שגיאה: '+err.message;
+  }
 });
 
-$('btnRecalc').onclick=()=>{ if(!RAW.length){$('fiNote').textContent='לא נטען קובץ.';return;} $('fiNote').textContent='מריץ…'; try{calc(); $('fiNote').textContent='מוכן ✓';}catch(e){$('fiNote').textContent='שגיאה: '+e.message;} };
-$('btnReset').onclick=()=>{ RAW=[]; COLS={}; CTX=null; ['fileInfo','kpis','charts'].forEach(id=>$(id).classList.add('hidden')); $('fiName').textContent='—'; $('fiSheet').textContent='—'; $('fiRows').textContent='—'; $('fiNote').textContent=''; $('fiCols').textContent=''; Object.values(charts).forEach(c=>c.destroy()); charts={};};
-$('resSel').onchange=()=>calc();
+/* טאבים למחלקות */
+function buildDeptsTab(){
+  const wrap=$('deptTabs');
+  wrap.innerHTML='';
+  const depts = uniq(BASE.map(r=>(r[COLS.dept]||'').toString().trim()).filter(Boolean)).sort();
+  const mk=(label,val,active)=>{ const b=document.createElement('button'); b.className='px-3 py-1.5 rounded-full border text-sm '+(active?'bg-indigo-600 text-white':'bg-white'); b.textContent=label; b.dataset.val=val; wrap.appendChild(b);
+    b.onclick=()=>{ wrap.querySelectorAll('button').forEach(x=>x.className='px-3 py-1.5 rounded-full border text-sm bg-white'); b.className='px-3 py-1.5 rounded-full border text-sm bg-indigo-600 text-white'; renderAll(val); };
+  };
+  mk('כללי','__ALL__',true);
+  depts.forEach(d=>mk(d,d,false));
+  $('deptTabsWrap').classList.remove('hidden');
+}
 
-function calc(){
-  const base = RAW.map(r=>{ const dt=parseExcelDate(r[COLS.snapDate]); return dt? {...r,__d:dt,__snap:snap(dt)}:null }).filter(Boolean);
-  const days=[...new Set(base.map(r=>r.__snap.getTime()))].sort((a,b)=>a-b).map(t=>new Date(t));
-  if(!days.length){ $('fiNote').textContent='אין תאריך תקין בעמודת הסנאפשוט.'; return; }
-  const current=days.at(-1), prev=days.at(-2);
-  const isOpen=s=> s!=null && OPEN_STATUSES.has(String(s).trim());
-  const today = base.filter(r=>r.__snap.getTime()===current.getTime() && isOpen(r[COLS.status]));
-  const yest  = prev? base.filter(r=>r.__snap.getTime()===prev.getTime() && isOpen(r[COLS.status])) : [];
+/* חישוב ורנדר לכל מחלקה/כללי */
+function renderAll(scope){
+  const inScope = scope==='__ALL__' ? (r=>true) : (r=>(r[COLS.dept]||'').toString().trim()===scope);
 
-  // KPIs
+  const T = TODAY.filter(inScope);
+  const P = YEST.filter(inScope);
+
+  // KPI
   $('kpis').classList.remove('hidden');
-  $('openCurrent').textContent=today.length;
-  $('openPrev').textContent=yest.length||0;
-  const d=today.length-(yest.length||0);
-  $('deltaAbs').textContent=(d>0?'+':'')+d;
-  $('deltaPct').textContent=yest.length?((d/yest.length*100).toFixed(1)+'%'):'—';
+  $('kpiToday').textContent=T.length;
+  $('kpiPrev').textContent=P.length||0;
+  const d=T.length-(P.length||0);
+  $('kpiDelta').textContent=(d>0?'+':'')+d;
+  $('kpiPct').textContent=P.length?((d/P.length*100).toFixed(1)+'%'):'—';
 
   // SLA
   let ok=0,bad=0,unk=0;
-  today.forEach(r=>{
-    const opened=COLS.openDate? parseExcelDate(r[COLS.openDate]):null;
+  T.forEach(r=>{
+    const opened=COLS.open? parseExcelDate(r[COLS.open]) : null;
     const ms=SLA_RULES(r,COLS);
-    if(!opened||ms==null){ unk++; return; }
-    (opened.getTime()+ms >= current.getTime() ? ok:bad)++;
+    if(!opened || ms==null){ unk++; return; }
+    (opened.getTime()+ms >= CURR_DATE.getTime() ? ok:bad)++;
   });
-  $('slaOk').textContent=ok; $('slaBad').textContent=bad;
-  $('slaRate').textContent=(ok+bad? (bad/(ok+bad)*100).toFixed(1)+'%':'—');
+  $('kpiSlaOk').textContent=ok; $('kpiSlaBad').textContent=bad; $('kpiSlaU').textContent=unk;
 
-  // Charts
-  const ctx1=$('trendChart').getContext('2d');
-  const res=$('resSel').value;
-  const keyBy=(d)=> res==='week' ? 'שבוע '+fmt(new Date(d.getFullYear(),d.getMonth(),d.getDate()-((d.getDay()+6)%7)))
-    : res==='month'? (d.getMonth()+1).toString().padStart(2,'0')+'/'+d.getFullYear()
-    : res==='quarter'? 'Q'+(Math.floor(d.getMonth()/3)+1)+' '+d.getFullYear()
-    : res==='year'? ''+d.getFullYear() : fmt(d);
+  // כפילויות
+  function dups(col){
+    if(!col) return [];
+    const m=new Map();
+    BASE.forEach(r=>{ const v=(r[col]||'').toString().trim(); if(!v) return; const a=m.get(v)||[]; a.push(r); m.set(v,a); });
+    return [...m.entries()].filter(([k,a])=>a.length>1).map(([k,a])=>({שדה:col, ערך:k, מופעים:a.length, ...a[0]}));
+  }
+  const byTrack=dups(COLS.track), byName=dups(COLS.name), byMail=dups(COLS.mail);
+  const dupTotal = byTrack.length+byName.length+byMail.length;
+  $('kpiDup').textContent=dupTotal;
 
-  const byBucket={}; base.forEach(r=>{ if(isOpen(r[COLS.status])){ const k=keyBy(r.__snap); byBucket[k]=(byBucket[k]||0)+1; }});
-  const labels=Object.keys(byBucket), data=labels.map(k=>byBucket[k]);
+  // גרפים
+  const isOpen=s=> s!=null && OPEN.has(String(s).trim());
+  const byDay={};
+  BASE.filter(inScope).forEach(r=>{ if(isOpen(r[COLS.status])) byDay[r.__date]=(byDay[r.__date]||0)+1; });
+  const labels=Object.keys(byDay), data=labels.map(k=>byDay[k]);
+  makeChart('trendChart',{type:'line',data:{labels,datasets:[{label:'פתוחות',data,tension:.35,fill:true}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
 
-  if(charts.trend) charts.trend.destroy();
-  charts.trend=new Chart(ctx1,{type:'line',data:{labels,datasets:[{label:'פתוחות',data,tension:.35,fill:true}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+  const deptMap=groupCount(T, r=>(r[COLS.dept]||'לא צוין').toString().trim()||'לא צוין');
+  const deptL=[...deptMap.keys()], deptV=deptL.map(k=>deptMap.get(k));
+  makeChart('deptPie',{type:'doughnut',data:{labels:deptL,datasets:[{data:deptV}]},options:{plugins:{legend:{position:'bottom'}}}});
 
-  const ctx2=$('slaPieChart').getContext('2d');
-  if(charts.pie) charts.pie.destroy();
-  charts.pie=new Chart(ctx2,{type:'doughnut',data:{labels:['בתוך SLA','חרגו SLA','לא ניתן לחשב'],datasets:[{data:[ok,bad,unk]}]},options:{plugins:{legend:{position:'bottom'}}}});
+  const cityMap=groupCount(T, r=>(r[COLS.city]||'לא צוין').toString().trim()||'לא צוין');
+  const cityTop=topN(cityMap,10); 
+  makeChart('cityBar',{type:'bar',data:{labels:cityTop.map(x=>x[0]),datasets:[{label:'פתוחות',data:cityTop.map(x=>x[1])}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+
+  makeChart('slaPie',{type:'doughnut',data:{labels:['בתוך SLA','חרגו SLA','לא ניתן לחשב'],datasets:[{data:[ok,bad,unk]}]},options:{plugins:{legend:{position:'bottom'}}}});
 
   $('charts').classList.remove('hidden');
+
+  // Drill-Down כפתורים
+  $('btnToday').onclick = ()=> openDetail(`פניות פתוחות — ${fmt(CURR_DATE)}${scope==='__ALL__'?'':' | '+scope}`, T);
+  $('btnPrev').onclick  = ()=> openDetail(`פניות פתוחות — ${PREV_DATE?fmt(PREV_DATE):'אין'}${scope==='__ALL__'?'':' | '+scope}`, P);
+  $('btnSla').onclick   = ()=>{
+    const rows=[]; T.forEach(r=>{
+      const opened=COLS.open? parseExcelDate(r[COLS.open]) : null;
+      const ms=SLA_RULES(r,COLS);
+      let סטטוס_SLA='לא ניתן לחשב';
+      if(opened && ms!=null) סטטוס_SLA = (opened.getTime()+ms >= CURR_DATE.getTime() ? 'בתוך SLA' : 'חריגה');
+      rows.push({סטטוס_SLA, ...r});
+    });
+    openDetail(`SLA — ${fmt(CURR_DATE)}${scope==='__ALL__'?'':' | '+scope}`, rows);
+  };
+  $('btnDup').onclick   = ()=>{
+    const rows=[]; byTrack.forEach(r=>rows.push({סוג:'Tracking', ...r}));
+    byName.forEach(r=>rows.push({סוג:'שם', ...r}));
+    byMail.forEach(r=>rows.push({סוג:'מייל', ...r}));
+    openDetail('כפילויות (כלליות)', rows);
+  };
+}
+
+/* מודאל פירוט + יצוא */
+const dlg=$('detailDlg'), dHead=$('detailHead'), dBody=$('detailBody'), dTitle=$('detailTitle'), dSub=$('detailSub');
+let _rows=[];
+function openDetail(title, rows, sub=''){
+  _rows=rows.slice();
+  dTitle.textContent=title; dSub.textContent=sub;
+  dHead.innerHTML=''; dBody.innerHTML='';
+  if(!_rows.length){ dBody.innerHTML='<tr><td class="p-3">אין נתונים</td></tr>'; dlg.showModal(); return; }
+  const headers=Object.keys(_rows[0]);
+  const tr=document.createElement('tr');
+  tr.innerHTML=headers.map(h=>`<th class="p-2 text-right">${h}</th>`).join('');
+  dHead.appendChild(tr);
+  const draw=(arr)=>{ dBody.innerHTML=''; arr.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML=headers.map(h=>`<td class="p-2 ${typeof r[h]==='number'?'num':''}">${r[h]??''}</td>`).join(''); dBody.appendChild(tr);});};
+  draw(_rows);
+  $('detailSearch').value=''; $('detailSearch').oninput=(e)=>{ const q=e.target.value.toLowerCase().trim(); if(!q) return draw(_rows); draw(_rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)))); };
+  $('btnExport').onclick=()=> exportXlsx('details.xlsx', _rows);
+  dlg.showModal();
 }
 </script>
 </body>
