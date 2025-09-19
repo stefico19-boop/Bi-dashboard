@@ -3,57 +3,61 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>דשבורד BI • פניות פתוחות (גרסת תאימות לנייד)</title>
+<title>דשבורד BI • פניות פתוחות</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/alasql@1.7/dist/alasql.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<style>
-  .num{font-variant-numeric:tabular-nums}
-  .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px}
-  @media (prefers-color-scheme:dark){body{background:#0b0c10;color:#e5e7eb}.card{background:#111827;border-color:#334155}}
-</style>
 </head>
-<body class="min-h-screen bg-slate-50">
-  <div class="max-w-5xl mx-auto p-4">
-    <h1 class="text-2xl font-extrabold mb-2">דשבורד BI • פניות פתוחות</h1>
-    <p class="text-sm text-slate-500 mb-4">גרסת תאימות: קלט קובץ <b>גלוי</b> כדי להבטיח בחירה באנדרואיד.</p>
+<body class="min-h-screen bg-slate-50 p-4">
+  <h1 class="text-xl font-bold mb-4">דשבורד BI • פניות פתוחות</h1>
 
-    <!-- קלט קובץ גלוי ממש -->
-    <div class="card mb-3">
-      <label for="fileInput" class="block text-sm mb-2">בחרי קובץ ‎.xlsx (שורת כותרות בשורה הראשונה):</label>
-      <input id="fileInput" type="file"
-        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-        class="block w-full border rounded-lg p-2 bg-white" />
-      <p id="pickHint" class="text-xs text-slate-500 mt-2">
-        אם נפתח מצלמה במקום “קבצים” — בחרי “קבצים” מתפריט העליון של בוחר המדיה, או השתמשי באפליקציית “Files”.
-      </p>
-    </div>
+  <!-- שדה העלאה גלוי -->
+  <input id="fileInput" type="file"
+    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    class="block w-full border rounded-lg p-2 bg-white mb-3" />
 
-    <!-- פס מידע על הקובץ -->
-    <div id="fileInfo" class="card mb-4 hidden">
-      <div class="text-sm">
-        <div class="mb-1">קובץ: <b id="fiName">—</b> • גיליון: <b id="fiSheet">—</b> • שורות: <b id="fiRows" class="num">—</b></div>
-        <div>סטטוס: <span id="fiNote" class="font-medium">—</span></div>
-        <div id="fiCols" class="text-xs text-slate-500 mt-1"></div>
-      </div>
-      <div class="mt-3 flex gap-2">
-        <select id="resSel" class="text-xs border rounded-lg px-2 py-1 bg-white">
-          <option value="day">יום</option><option value="week">שבוע</option>
-          <option value="month">חודש</option><option value="quarter">רבעון</option><option value="year">שנה</option>
-        </select>
-        <button id="btnRecalc" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white">הרץ דוח</button>
-        <button id="btnReset" class="px-3 py-1.5 rounded-lg border">איפוס</button>
-      </div>
-    </div>
+  <!-- פס מידע -->
+  <div id="fileInfo" class="hidden border rounded-lg p-2 bg-white mb-4 text-sm">
+    <div>קובץ: <b id="fiName"></b></div>
+    <div>גיליון: <b id="fiSheet"></b> • שורות: <b id="fiRows"></b></div>
+    <div>סטטוס: <span id="fiNote"></span></div>
+  </div>
 
-    <!-- KPIs -->
-    <section id="kpis" class="grid grid-cols-1 md:grid-cols-4 gap-3 hidden">
-      <div class="card"><div class="text-sm text-slate-500">פתוחות היום</div><div id="openCurrent" class="text-3xl font-bold num">—</div></div>
-      <div class="card"><div class="text-sm text-slate-500">פתוחות אתמול</div><div id="openPrev" class="text-3xl font-bold num">—</div></div>
-      <div class="card"><div class="text-sm text-slate-500">שינוי יומי</div><div id="deltaAbs" class="text-3xl font-bold num">—</div><div class="text-xs text-slate-500">באחוזים: <span id="deltaPct">—</span></div></div>
-      <div class="card"><div class="text-sm text-slate-500">חריגת SLA</div><div id="slaRate" class="text-3xl font-bold num">—</div><div class="text-xs text-slate-500">בתוך: <span id="slaOk">—</span> • חריגות: <span id="slaBad">—</span></div></div>
-    </section>
+  <!-- מקום לנתונים -->
+  <div id="dashboard" class="hidden">
+    <h2 class="text-lg font-semibold mb-2">תצוגת נתונים</h2>
+    <pre id="dataPreview" class="text-xs bg-gray-100 p-2 rounded"></pre>
+  </div>
+
+<script>
+const $=id=>document.getElementById(id);
+
+$('fileInput').addEventListener('change', async (e)=>{
+  const f=e.target.files?.[0];
+  if(!f) return;
+  $('fileInfo').classList.remove('hidden');
+  $('fiName').textContent=f.name;
+  $('fiNote').textContent='טוען...';
+
+  try {
+    const buf=await f.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const sheet=wb.SheetNames[0];
+    $('fiSheet').textContent=sheet;
+    const ws=wb.Sheets[sheet];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+    $('fiRows').textContent=rows.length;
+    $('fiNote').textContent='הקובץ עלה ✓';
+    
+    // הצגה בסיסית של כמה שורות ראשונות
+    $('dashboard').classList.remove('hidden');
+    $('dataPreview').textContent=JSON.stringify(rows.slice(0,5),null,2);
+  } catch(err) {
+    $('fiNote').textContent='שגיאה: '+err.message;
+  }
+});
+</script>
+</body>
+</html>    </section>
 
     <!-- גרפים -->
     <section id="charts" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4 hidden">
