@@ -539,130 +539,162 @@
   function findCol(obj, keys) {
     for (const k of keys) if (k in obj) return k;
     const norm = (s) => s.replace(/\s+/g,'').toLowerCase();
-    const target = keys.map(norm);
-    for (const k in obj) if (target.includes(norm(k))) return k;
+                                                        </script>
+<!-- === STEP 3 (NEW): Open Tickets Lists — By City & By Unit (threshold 100+) === -->
+<script>
+(() => {
+  // ---- תצורה ----
+  const MIN_COUNT = 100; // מציג רק קטגוריות עם 100+ פניות
+
+  // שמות עמודות אפשריות
+  const CITY_COL_KEYS = ['עיר','יישוב','יישוב/עיר','City','ישוב','יישוב לקוח'];
+  const UNIT_COL_KEYS = ['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','Unit','שם-יחידה'];
+
+  // ---- DOM ----
+  const main = document.querySelector('main') || document.body;
+  const blockHTML = `
+    <section id="biStep3Lists" class="max-w-6xl mx-auto px-4 mt-6">
+      <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+        <div class="flex items-center gap-3 mb-6">
+          <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 3 (רשימות)</span>
+          <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מציג רק 100+ פניות</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- By City -->
+          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+            <div class="text-sm font-semibold text-ink-200/85 mb-3">פניות פתוחות לפי עיר (100+)</div>
+            <div id="listByCity" class="divide-y divide-white/10"></div>
+            <div id="msgCity" class="mt-3 text-xs text-ink-200/60"></div>
+          </div>
+
+          <!-- By Unit -->
+          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+            <div class="text-sm font-semibold text-ink-200/85 mb-3">פניות פתוחות לפי "יחידת דואר: שם" (100+)</div>
+            <div id="listByUnit" class="divide-y divide-white/10"></div>
+            <div id="msgUnit" class="mt-3 text-xs text-ink-200/60"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+  main.insertAdjacentHTML('beforeend', blockHTML);
+
+  // ---- Utilities (עצמאיות, לא תלויות בשלבים קודמים) ----
+  function findCol(obj, keys) {
+    if (!obj) return null;
+    for (const k of keys) if (k in obj) return k;
+    const norm = (s) => String(s).replace(/\s+/g,'').toLowerCase();
+    const targets = keys.map(norm);
+    for (const k in obj) if (targets.includes(norm(k))) return k;
     return null;
   }
 
-  function topCounts(rows, colKeys) {
-    if (!rows?.length) return {labels:[],counts:[],col:null};
-    const key = findCol(rows[0], colKeys);
-    if (!key) return {labels:[],counts:[],col:null};
+  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  function isOpenRow(row) {
+    const key = findCol(row, OPEN_STATUS_COL_KEYS);
+    if (!key) return true; // אם אין סטטוס — נחשב כפתוח
+    const val = String(row[key] ?? '').trim();
+    const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+    return !closed.some(c => val === c || val.includes(c));
+  }
+
+  function aggregateOpenCounts(rows, colKeys) {
+    if (!rows?.length) return { col: null, items: [] };
+    const col = findCol(rows[0], colKeys);
+    if (!col) return { col: null, items: [] };
 
     const map = new Map();
     for (const r of rows) {
-      const raw = r[key];
-      const v = (raw == null) ? '' : String(raw).trim();
-      if (!v) continue;
-      map.set(v, (map.get(v) || 0) + 1);
+      if (!isOpenRow(r)) continue;
+      const raw = r[col];
+      const key = (raw == null) ? '' : String(raw).trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) || 0) + 1);
     }
 
-    const arr = Array.from(map.entries())
-      .filter(([_, c]) => c >= MIN_COUNT)
+    // סינון לפי מינימום, מיון יורד
+    const items = Array.from(map.entries())
+      .filter(([, c]) => c >= MIN_COUNT)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, TOP_N);
+      .map(([name, count]) => ({ name, count }));
 
-    return {
-      labels: arr.map(([name]) => name),
-      counts: arr.map(([_, c]) => c),
-      col: key
-    };
+    return { col, items };
   }
 
-  // ---- Charts ----
-  let chartCities = null;
-  let chartUnits  = null;
-
-  function makeBarChart(ctx, labels, data) {
-    if (!ctx) return null;
-    return new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{
-          data,
-          backgroundColor: 'rgba(124,58,237,0.7)', // סגול יוקרתי
-          borderColor: 'rgba(245,158,11,0.9)',    // זהב
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            ticks: { color: '#e5e7eb' },
-            grid: { color: 'rgba(255,255,255,0.05)' }
-          },
-          y: {
-            beginAtZero: true,
-            ticks: { color: '#e5e7eb' },
-            grid: { color: 'rgba(255,255,255,0.05)' }
-          }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => `${ctx.raw.toLocaleString('he-IL')} פניות`
-            }
-          }
-        }
-      }
-    });
-  }
-
-  function renderOrMessage(canvasId, labels, data, messageIfEmpty) {
-    const wrap = document.getElementById(canvasId)?.parentElement;
-    if (!wrap) return;
-    const oldMsg = wrap.querySelector('[data-empty]');
-    if (oldMsg) oldMsg.remove();
-
-    if (!labels.length) {
-      const div = document.createElement('div');
-      div.setAttribute('data-empty', '1');
-      div.className = 'mt-3 text-xs text-ink-200/60';
-      div.textContent = messageIfEmpty;
-      wrap.appendChild(div);
+  function renderList(containerId, items) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = '';
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'py-2 flex items-center gap-3';
+      row.innerHTML = `
+        <span class="text-ink-50/90">${escapeHTML(it.name)}</span>
+        <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10 font-semibold">
+          ${it.count.toLocaleString('he-IL')} פניות
+        </span>
+      `;
+      el.appendChild(row);
     }
   }
 
-  function renderStep3Charts() {
-    const rows = window.__dataset || [];
-    const ctxCities = document.getElementById('chartCities')?.getContext('2d');
-    const ctxUnits  = document.getElementById('chartUnits')?.getContext('2d');
-
-    const cities = topCounts(rows, CITY_COL_KEYS);
-    const units  = topCounts(rows, UNIT_COL_KEYS);
-
-    if (chartCities) chartCities.destroy();
-    if (chartUnits)  chartUnits.destroy();
-
-    if (cities.labels.length) {
-      chartCities = makeBarChart(ctxCities, cities.labels, cities.counts);
-    }
-    if (units.labels.length) {
-      chartUnits = makeBarChart(ctxUnits, units.labels, units.counts);
-    }
-
-    renderOrMessage('chartCities', cities.labels, cities.counts,
-      cities.col ? 'אין ערים עם מספיק פניות' : 'לא נמצאה עמודת עיר/יישוב');
-    renderOrMessage('chartUnits', units.labels, units.counts,
-      units.col ? 'אין יחידות עם מספיק פניות' : 'לא נמצאה עמודת "יחידת דואר: שם" או דומה');
+  function setMessage(msgId, haveCol, itemsLen, missingMsg, emptyMsg) {
+    const m = document.getElementById(msgId);
+    if (!m) return;
+    if (!haveCol) m.textContent = missingMsg;
+    else if (!itemsLen) m.textContent = emptyMsg;
+    else m.textContent = '';
   }
 
-  // ---- חיבור לפלואו ----
+  function escapeHTML(s) {
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
+
+  // ---- רנדר ראשי ----
+  function renderStep3Lists() {
+    const rows = Array.isArray(window.__dataset) ? window.__dataset : [];
+
+    const byCity = aggregateOpenCounts(rows, CITY_COL_KEYS);
+    const byUnit = aggregateOpenCounts(rows, UNIT_COL_KEYS);
+
+    renderList('listByCity', byCity.items);
+    renderList('listByUnit', byUnit.items);
+
+    setMessage(
+      'msgCity',
+      !!byCity.col,
+      byCity.items.length,
+      'לא נמצאה עמודת "עיר/יישוב" בקובץ.',
+      `אין ערים עם לפחות ${MIN_COUNT.toLocaleString('he-IL')} פניות פתוחות.`
+    );
+    setMessage(
+      'msgUnit',
+      !!byUnit.col,
+      byUnit.items.length,
+      'לא נמצאה העמודה "יחידת דואר: שם" (או עמודה דומה) בקובץ.',
+      `אין יחידות דואר עם לפחות ${MIN_COUNT.toLocaleString('he-IL')} פניות פתוחות.`
+    );
+  }
+
+  // ---- חיבור לזרימה של שלב 1/2: לאחר קליטת קובץ נרנדר רשימות ----
   if (typeof window.updateSuccessUI === 'function') {
     const __prev = window.updateSuccessUI;
     window.updateSuccessUI = function() {
       __prev.apply(this, arguments);
-      setTimeout(renderStep3Charts, 0);
+      setTimeout(renderStep3Lists, 0);
     };
   }
 
+  // אם כבר נטען קובץ קודם — ננסה לרנדר כעת
   if (Array.isArray(window.__dataset) && window.__dataset.length) {
-    renderStep3Charts();
+    renderStep3Lists();
   }
 })();
-                                                        </script>
+</script>
 </body>
