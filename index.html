@@ -483,162 +483,107 @@
   }
 })();
         </script>
-  <!-- === STEP 3: Charts — Top Cities & Top Units (with "יחידת דואר: שם") === -->
+  <!-- === STEP 3 (REBUILT): Open tickets lists by City & "יחידת דואר: שם" (100+) === -->
+<section id="biStep3Lists" class="max-w-6xl mx-auto px-4 mt-6">
+  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+    <div class="flex items-center gap-3 mb-6">
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 3 (רשימות)</span>
+      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מציג רק 100+ פניות</span>
+    </div>
 
-<!-- Chart.js CDN -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-<script>
-(() => {
-  // ---- תצורה ----
-  const MIN_COUNT = 5;   // סף מינימום להצגה
-  const TOP_N     = 10;  // מקסימום ערכים להצגה
-
-  // שמות עמודות אפשריות
-  const CITY_COL_KEYS = ['עיר','יישוב','יישוב/עיר','City','ישוב','יישוב לקוח'];
-  const UNIT_COL_KEYS = [
-    'שם יחידה',
-    'יחידה',
-    'שם יחידה מטפלת',
-    'Unit',
-    'שם-יחידה',
-    'יחידת דואר: שם'   // העמודה המדויקת שלך
-  ];
-
-  // הוספת בלוק ל־DOM
-  const main = document.querySelector('main') || document.body;
-  const blockHTML = `
-    <section id="biStep3" class="max-w-6xl mx-auto px-4 mt-6">
-      <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
-        <div class="flex items-center gap-3 mb-6">
-          <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 3</span>
-          <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">Top קטגוריות</span>
-          <span class="ms-auto text-[11px] text-ink-200/60">סף תצוגה: ${MIN_COUNT}+ · עד ${TOP_N}</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-            <div class="text-sm text-ink-200/80 mb-2">Top ערים לפי כמות פניות</div>
-            <canvas id="chartCities" height="220"></canvas>
-          </div>
-          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-            <div class="text-sm text-ink-200/80 mb-2">Top יחידות דואר לפי כמות פניות</div>
-            <canvas id="chartUnits" height="220"></canvas>
-          </div>
-        </div>
-
-        <div class="mt-6 text-[11px] text-ink-200/60">
-          מציג רק ערים/יחידות עם לפחות ${MIN_COUNT} פניות. אם אין נתונים — תופיע הודעה מתאימה.
-        </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- By City -->
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-sm font-semibold text-ink-200/85 mb-3">פניות פתוחות לפי עיר (100+)</div>
+        <div id="listByCity" class="divide-y divide-white/10"></div>
+        <div id="msgCity" class="mt-3 text-xs text-ink-200/60"></div>
       </div>
-    </section>
-  `;
-  main.insertAdjacentHTML('beforeend', blockHTML);
-
-  // ---- Utilities ----
-  function findCol(obj, keys) {
-    for (const k of keys) if (k in obj) return k;
-    const norm = (s) => s.replace(/\s+/g,'').toLowerCase();
-                                                        </script>
-<!-- === STEP 3 (NEW): Open Tickets Lists — By City & By Unit (threshold 100+) === -->
-<script>
-(() => {
-  // ---- תצורה ----
-  const MIN_COUNT = 100; // מציג רק קטגוריות עם 100+ פניות
-
-  // שמות עמודות אפשריות
-  const CITY_COL_KEYS = ['עיר','יישוב','יישוב/עיר','City','ישוב','יישוב לקוח'];
-  const UNIT_COL_KEYS = ['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','Unit','שם-יחידה'];
-
-  // ---- DOM ----
-  const main = document.querySelector('main') || document.body;
-  const blockHTML = `
-    <section id="biStep3Lists" class="max-w-6xl mx-auto px-4 mt-6">
-      <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
-        <div class="flex items-center gap-3 mb-6">
-          <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 3 (רשימות)</span>
-          <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מציג רק 100+ פניות</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <!-- By City -->
-          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-            <div class="text-sm font-semibold text-ink-200/85 mb-3">פניות פתוחות לפי עיר (100+)</div>
-            <div id="listByCity" class="divide-y divide-white/10"></div>
-            <div id="msgCity" class="mt-3 text-xs text-ink-200/60"></div>
-          </div>
-
-          <!-- By Unit -->
-          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-            <div class="text-sm font-semibold text-ink-200/85 mb-3">פניות פתוחות לפי "יחידת דואר: שם" (100+)</div>
-            <div id="listByUnit" class="divide-y divide-white/10"></div>
-            <div id="msgUnit" class="mt-3 text-xs text-ink-200/60"></div>
-          </div>
-        </div>
+      <!-- By Unit -->
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-sm font-semibold text-ink-200/85 mb-3">פניות פתוחות לפי "יחידת דואר: שם" (100+)</div>
+        <div id="listByUnit" class="divide-y divide-white/10"></div>
+        <div id="msgUnit" class="mt-3 text-xs text-ink-200/60"></div>
       </div>
-    </section>
-  `;
-  main.insertAdjacentHTML('beforeend', blockHTML);
+    </div>
+  </div>
+</section>
 
-  // ---- Utilities (עצמאיות, לא תלויות בשלבים קודמים) ----
-  function findCol(obj, keys) {
-    if (!obj) return null;
-    for (const k of keys) if (k in obj) return k;
-    const norm = (s) => String(s).replace(/\s+/g,'').toLowerCase();
-    const targets = keys.map(norm);
-    for (const k in obj) if (targets.includes(norm(k))) return k;
-    return null;
-  }
-
-  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
 <script>
 (() => {
   const MIN_COUNT = 100;
 
-  // ---- עמודות אפשריות (עם התאמה רכה) ----
-  const CITY_KEYWORDS = ['עיר','יישוב'];
-  const UNIT_KEYWORDS = ['יחידת','דואר','שם'];
+  // -------- Normalization helpers (עמודות בעברית לפעמים עם ניקוד/רווחים/נקודתיים) --------
+  const HEB_DIACRITICS = /[\u0591-\u05C7]/g; // ניקוד
+  function normHeader(s) {
+    return String(s)
+      .replace(HEB_DIACRITICS, '')          // בלי ניקוד
+      .replace(/[·•:;|/_\-()\[\]{}]/g,'')   // בלי תווים מפרידים
+      .replace(/\s+/g,'')                   // בלי רווחים
+      .toLowerCase();
+  }
+  // בודק אם שם עמודה מכיל את כל מילות המפתח לאחר נירמול
+  function headerIncludesAll(colName, keywords) {
+    const n = normHeader(colName);
+    return keywords.every(k => n.includes(normHeader(k)));
+  }
 
-  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  // התאמות גמישות לשמות עמודות:
+  // עיר/יישוב
+  const CITY_EXACT = ['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'];
+  const CITY_KEYWORDS = [['עיר'], ['יישוב']]; // מספיק שאחד הסטים יתקיים
+  // יחידה
+  const UNIT_EXACT = ['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'];
+  const UNIT_KEYWORDS = [['יחידת','דואר','שם'], ['שם','יחידה']];
+
+  const OPEN_STATUS_COLS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+
+  function findColumnFlexible(row0, exactList, keywordSets) {
+    if (!row0) return null;
+    const headers = Object.keys(row0);
+    // 1) ניסיון התאמה מדויקת
+    for (const h of headers) {
+      if (exactList.includes(h)) return h;
+      // התאמה מדויקת גם אחרי נירמול בסיסי
+      const hNorm = normHeader(h);
+      for (const ex of exactList) {
+        if (hNorm === normHeader(ex)) return h;
+      }
+    }
+    // 2) ניסיון התאמה לפי מילות מפתח (כל הסט חייב להיות כלול)
+    for (const h of headers) {
+      if (keywordSets.some(kwSet => headerIncludesAll(h, kwSet))) {
+        return h;
+      }
+    }
+    return null;
+  }
+
+  function findCol(row, candidates) {
+    if (!row) return null;
+    for (const c of candidates) if (c in row) return c;
+    // התאמה אחרי נירמול
+    const target = candidates.map(normHeader);
+    for (const k in row) if (target.includes(normHeader(k))) return k;
+    return null;
+  }
 
   function isOpenRow(row) {
-    const key = findCol(row, OPEN_STATUS_COL_KEYS);
+    const key = findCol(row, OPEN_STATUS_COLS);
     if (!key) return true;
     const val = String(row[key] ?? '').trim();
     const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
     return !closed.some(c => val === c || val.includes(c));
   }
 
-  function findCol(obj, keysOrKeywords) {
-    if (!obj) return null;
-    // ניסיון התאמה מדויקת
-    for (const k of keysOrKeywords) if (k in obj) return k;
-
-    // התאמה רכה לפי מילות מפתח
-    const norm = (s) => String(s).replace(/\s+/g,'').toLowerCase();
-    for (const colName in obj) {
-      const n = norm(colName);
-      if (Array.isArray(keysOrKeywords[0])) continue;
-    }
-    return null;
-  }
-
-  // התאמה רכה: מכיל את כל המילים ברשימה
-  function findColByKeywords(obj, keywords) {
-    for (const col in obj) {
-      const low = col.toLowerCase();
-      if (keywords.every(k => low.includes(k.toLowerCase()))) {
-        return col;
-      }
-    }
-    return null;
-  }
-
-  function aggregateOpenCounts(rows, keywords, exactKeys=[]) {
+  function aggregateCounts(rows, which) {
     if (!rows?.length) return { col: null, items: [] };
 
-    let col = findCol(rows[0], exactKeys);
-    if (!col) col = findColByKeywords(rows[0], keywords);
+    let col = null;
+    if (which === 'city') {
+      col = findColumnFlexible(rows[0], CITY_EXACT, CITY_KEYWORDS);
+    } else if (which === 'unit') {
+      col = findColumnFlexible(rows[0], UNIT_EXACT, UNIT_KEYWORDS);
+    }
     if (!col) return { col: null, items: [] };
 
     const map = new Map();
@@ -652,10 +597,16 @@
 
     const items = Array.from(map.entries())
       .filter(([, c]) => c >= MIN_COUNT)
-      .sort((a,b) => b[1]-a[1])
+      .sort((a,b) => b[1] - a[1])
       .map(([name,count]) => ({ name, count }));
 
     return { col, items };
+  }
+
+  function escapeHTML(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
   function renderList(containerId, items) {
@@ -674,39 +625,56 @@
     }
   }
 
-  function escapeHTML(s) {
-    return String(s)
-      .replace(/&/g,'&amp;')
-      .replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;')
-      .replace(/'/g,'&#39;');
+  async function ensureDatasetFromLastFile() {
+    // אם אין __dataset אבל יש קובץ אחרון — נטעין אותו (לא פוגע בזרימה הקיימת)
+    if (Array.isArray(window.__dataset) && window.__dataset.length) return;
+    if (!window.__lastFile || !window.XLSX) return;
+    try {
+      const buf = await window.__lastFile.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const first = wb.SheetNames && wb.SheetNames[0];
+      if (!first) return;
+      const sheet = wb.Sheets[first];
+      window.__dataset = XLSX.utils.sheet_to_json(sheet, { defval: null });
+    } catch (e) {
+      console.warn('ensureDatasetFromLastFile failed:', e);
+    }
   }
 
-  function renderStep3Lists() {
+  async function renderStep3() {
+    await ensureDatasetFromLastFile();
     const rows = Array.isArray(window.__dataset) ? window.__dataset : [];
 
-    const byCity = aggregateOpenCounts(rows, CITY_KEYWORDS, ['עיר','יישוב']);
-    const byUnit = aggregateOpenCounts(rows, UNIT_KEYWORDS, ['יחידת דואר: שם']);
+    const byCity = aggregateCounts(rows, 'city');
+    const byUnit = aggregateCounts(rows, 'unit');
 
     renderList('listByCity', byCity.items);
     renderList('listByUnit', byUnit.items);
 
-    document.getElementById('msgCity').textContent =
-      !byCity.col ? 'לא נמצאה עמודת עם מילים "עיר/יישוב".'
-                  : (!byCity.items.length ? `אין ערים עם ${MIN_COUNT}+ פניות.` : '');
+    const msgCity = document.getElementById('msgCity');
+    const msgUnit = document.getElementById('msgUnit');
 
-    document.getElementById('msgUnit').textContent =
-      !byUnit.col ? 'לא נמצאה עמודת עם מילים "יחידת דואר: שם".'
-                  : (!byUnit.items.length ? `אין יחידות עם ${MIN_COUNT}+ פניות.` : '');
+    msgCity.textContent = !byCity.col
+      ? 'לא נמצאה עמודה מתאימה לעיר/יישוב (ניסינו גם וריאציות וניקוי ניקוד).'
+      : (!byCity.items.length ? `אין ערים עם לפחות ${MIN_COUNT.toLocaleString('he-IL')} פניות פתוחות.` : '');
+
+    msgUnit.textContent = !byUnit.col
+      ? 'לא נמצאה עמודה מתאימה ל"יחידת דואר: שם" (כולל וריאציות כמו "שם יחידה").'
+      : (!byUnit.items.length ? `אין יחידות עם לפחות ${MIN_COUNT.toLocaleString('he-IL')} פניות פתוחות.` : '');
   }
 
+  // להתחבר לפלואו הקיים אחרי קליטת קובץ
   if (typeof window.updateSuccessUI === 'function') {
     const __prev = window.updateSuccessUI;
     window.updateSuccessUI = function() {
       __prev.apply(this, arguments);
-      setTimeout(renderStep3Lists, 0);
+      setTimeout(renderStep3, 0);
     };
+  }
+
+  // אם כבר נטען קובץ בעבר — נרנדר עכשיו
+  if (Array.isArray(window.__dataset) && window.__dataset.length) {
+    renderStep3();
   }
 })();
 </script>
