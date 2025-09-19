@@ -56,39 +56,6 @@ $('fileInput').addEventListener('change', async (e)=>{
     $('note').textContent="שגיאה בקריאה: "+err.message;
   }
 });
-</script>
-</body>
-</html>
-<!DOCTYPE html>
-<html lang="he" dir="rtl">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>דשבורד BI • פניות פתוחות</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<style>
-  html{scroll-behavior:smooth}
-  .num{font-variant-numeric:tabular-nums}
-  .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px}
-  @media (prefers-color-scheme:dark){body{background:#0b0c10;color:#e5e7eb}.card{background:#111827;border-color:#334155}}
-  dialog::backdrop{background:rgba(0,0,0,.35)}
-  th,td{white-space:nowrap}
-</style>
-</head>
-<body class="min-h-screen bg-slate-50 p-4">
-
-  <h1 class="text-2xl font-extrabold mb-1">דשבורד BI • פניות פתוחות</h1>
-  <p class="text-sm text-slate-500 mb-4">העלאת Excel → ניתוח מידי: KPI, גרפים, טאבים לכל מחלקה ו-Drill-Down עם יצוא ‎.xlsx.</p>
-
-  <!-- קלט קובץ -->
-  <div class="card mb-3">
-    <label class="block text-sm mb-2">בחרי קובץ ‎.xlsx (כותרות בשורה הראשונה):</label>
-    <input id="fileInput" type="file"
-      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-      class="block w-full border rounded-lg p-2 bg-white"/>
-  </div>
 
   <!-- פס מידע -->
   <div id="fileInfo" class="card mb-4 hidden text-sm">
