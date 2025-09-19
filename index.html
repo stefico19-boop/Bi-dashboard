@@ -3,544 +3,388 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>BI • פניות פתוחות (לפי תאריך/שעת פתיחה בלבד)</title>
+<title>BI • פניות פתוחות (לפי תאריך/שעת פתיחה)</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body{background:linear-gradient(180deg,#fafaff, #f4f6ff);}
+  body{background:linear-gradient(180deg,#fafaff,#f4f6ff);}
   .card{background:#fff;border-radius:18px;box-shadow:0 10px 30px rgba(59,64,87,.08);padding:16px}
-  .pill{border-radius:9999px}
   .btn{border-radius:14px}
   .grid-auto{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
   .scroll-x{overflow:auto}
 </style>
 </head>
 <body class="text-slate-800">
-  <div class="max-w-5xl mx-auto p-4 sm:p-6">
-    <header class="mb-4">
-      <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight">דשבורד • BI • פניות פתוחות</h1>
-      <p class="mt-2 text-slate-600">
-        ⚠️ כל החישובים מתבססים אך ורק על <b>״תאריך/שעת פתיחה״</b>. אין שימוש ב״תאריך/שעת שונה לאחרונה״.
-      </p>
-    </header>
+<div class="max-w-5xl mx-auto p-4 sm:p-6">
+  <header class="mb-4">
+    <h1 class="text-3xl sm:text-4xl font-extrabold">דשבורד • BI • פניות פתוחות</h1>
+    <p class="mt-2 text-slate-600">כל החישובים מתבססים אך ורק על <b>״תאריך/שעת פתיחה״</b> (לא משתמש ב״שונה לאחרונה״).</p>
+  </header>
 
-    <!-- העלאת קובץ -->
-    <section class="card mb-4">
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <label class="btn px-5 py-3 bg-indigo-600 text-white font-semibold cursor-pointer text-center sm:w-auto"
-               for="fileInput">בחרי קובץ ‎Excel</label>
-        <input id="fileInput" type="file" accept=".xlsx"
-               class="hidden" />
-        <div id="fileName" class="flex-1 pill px-4 py-3 bg-indigo-50 text-indigo-800">
-          לא נבחר קובץ
-        </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
-          <input id="saveLocal" type="checkbox" class="w-4 h-4 rounded">
-          <span>שמור נתונים מקומית (LocalStorage)</span>
-        </label>
-        <div class="ms-auto flex gap-2">
-          <button id="btnSave" class="btn px-4 py-2 bg-slate-100">שמור</button>
-          <button id="btnLoad" class="btn px-4 py-2 bg-slate-100">שחזור</button>
-          <button id="btnClear" class="btn px-4 py-2 bg-rose-50 text-rose-700">ניקוי</button>
-        </div>
+  <!-- העלאה + סטטוס קובץ -->
+  <section class="card mb-4">
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <label for="fileInput"
+             class="btn px-5 py-3 bg-indigo-600 text-white font-semibold cursor-pointer text-center sm:w-auto">
+        העלאת Excel
+      </label>
+      <input id="fileInput" type="file" accept=".xlsx,.xls" class="hidden" />
+      <div id="fileBadge" class="flex-1 px-4 py-3 rounded-2xl bg-indigo-50 text-indigo-800">
+        לא נבחר קובץ
       </div>
+      <button id="btnClear" class="btn px-4 py-2 bg-rose-50 text-rose-700 ms-auto">ניקוי</button>
+    </div>
 
-      <!-- מיפוי עמודות -->
-      <details class="mt-4">
-        <summary class="cursor-pointer text-sm text-slate-600">מיפוי עמודות (במידה ושמות הכותרות שונים)</summary>
-        <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="card">
-            <label class="text-sm">עמודת תאריך/שעת פתיחה</label>
-            <select id="colOpen" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-          <div class="card">
-            <label class="text-sm">עמודת סטטוס פנייה</label>
-            <select id="colStatus" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-          <div class="card">
-            <label class="text-sm">עמודת מחלקה מטפלת</label>
-            <select id="colDept" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-          <div class="card">
-            <label class="text-sm">עמודת סיווג נושא (אופציונלי)</label>
-            <select id="colTopic" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-          <div class="card">
-            <label class="text-sm">עמודת סיווג מוצר (אופציונלי)</label>
-            <select id="colProduct" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-          <div class="card">
-            <label class="text-sm">עמודת מספר מעקב (כפילויות)</label>
-            <select id="colTrack" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-          <div class="card">
-            <label class="text-sm">עמודת שם לקוח (כפילויות)</label>
-            <select id="colName" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-          <div class="card">
-            <label class="text-sm">עמודת אימייל לקוח (כפילויות)</label>
-            <select id="colEmail" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-          </div>
-        </div>
-      </details>
-    </section>
+    <!-- כרטיס סטטוס הקובץ (חזרנו לגרסה שהייתה) -->
+    <div id="fileStatus" class="card mt-4 hidden">
+      <div class="text-sm text-slate-500">
+        <span class="font-bold" id="stFileName">—</span> ·
+        <span>שורות:</span> <b id="stRows">0</b> ·
+        <span id="stStamp"></span>
+      </div>
+      <div id="stOk" class="mt-1 text-emerald-700">✔ הקובץ עלה בהצלחה</div>
+      <div id="stErr" class="mt-1 text-rose-700 hidden">⚠︎ שגיאה בטעינת הקובץ</div>
+    </div>
 
-    <!-- KPIs -->
-    <section id="kpiWrap" class="grid-auto mb-4" hidden>
-      <div class="card">
-        <div class="text-slate-500 text-sm">סה״כ שורות בקובץ</div>
-        <div id="kpiTotal" class="text-4xl font-extrabold">0</div>
-      </div>
-      <div class="card">
-        <div class="text-slate-500 text-sm">פתוחות היום (לפי תאריך פתיחה)</div>
-        <div id="kpiToday" class="text-4xl font-extrabold">0</div>
-        <div id="lblToday" class="text-xs text-slate-500 mt-1"></div>
-      </div>
-      <div class="card">
-        <div class="text-slate-500 text-sm">פתוחות אתמול (לפי תאריך פתיחה)</div>
-        <div id="kpiYesterday" class="text-4xl font-extrabold">0</div>
-        <div id="lblYesterday" class="text-xs text-slate-500 mt-1"></div>
-      </div>
-      <div class="card">
-        <div class="text-slate-500 text-sm">שינוי יומי</div>
-        <div id="kpiDelta" class="text-4xl font-extrabold">0</div>
-        <div id="kpiDeltaPct" class="text-xs text-slate-500 mt-1"></div>
-      </div>
-      <div class="card">
-        <div class="text-slate-500 text-sm">חריגות SLA (לפי תאריך פתיחה)</div>
-        <div id="kpiBreaches" class="text-4xl font-extrabold">0</div>
-        <div id="kpiWithin" class="text-xs text-slate-500 mt-1"></div>
-      </div>
-    </section>
-
-    <!-- סטטוסים / כפילויות -->
-    <section id="panelsWrap" class="grid-auto" hidden>
-      <div class="card">
-        <div class="flex justify-between items-center mb-2">
-          <h3 class="font-bold">פירוט לפי סטטוס</h3>
-          <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('status')">לטבלה</button>
+    <!-- מיפוי עמודות (אם צריך) -->
+    <details class="mt-4">
+      <summary class="cursor-pointer text-sm text-slate-600">מיפוי עמודות (רק אם שמות הכותרות שונים)</summary>
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="card">
+          <label class="text-sm">עמודת תאריך/שעת פתיחה</label>
+          <select id="colOpen" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
         </div>
-        <div id="statusTable" class="scroll-x text-sm"></div>
-      </div>
-
-      <div class="card">
-        <div class="flex justify-between items-center mb-2">
-          <h3 class="font-bold">כפילויות לפי מס' מעקב</h3>
-          <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('dupTrack')">לטבלה</button>
+        <div class="card">
+          <label class="text-sm">עמודת סטטוס פנייה</label>
+          <select id="colStatus" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
         </div>
-        <div id="dupTrackCnt" class="text-2xl font-bold">0</div>
-      </div>
-
-      <div class="card">
-        <div class="flex justify-between items-center mb-2">
-          <h3 class="font-bold">כפילויות לפי שם לקוח</h3>
-          <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('dupName')">לטבלה</button>
+        <div class="card">
+          <label class="text-sm">עמודת מחלקה מטפלת</label>
+          <select id="colDept" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
         </div>
-        <div id="dupNameCnt" class="text-2xl font-bold">0</div>
-      </div>
-
-      <div class="card">
-        <div class="flex justify-between items-center mb-2">
-          <h3 class="font-bold">כפילויות לפי אימייל</h3>
-          <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('dupEmail')">לטבלה</button>
+        <div class="card">
+          <label class="text-sm">מס׳ מעקב (כפילויות)</label>
+          <select id="colTrack" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
         </div>
-        <div id="dupEmailCnt" class="text-2xl font-bold">0</div>
-      </div>
-
-      <div class="card">
-        <div class="flex justify-between items-center mb-2">
-          <h3 class="font-bold">כל הפניות</h3>
-          <button class="btn px-3 py-2 bg-indigo-600 text-white" onclick="openTable('all')">פתחי טבלה</button>
+        <div class="card">
+          <label class="text-sm">שם לקוח (כפילויות)</label>
+          <select id="colName" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
         </div>
-        <div class="text-sm text-slate-500">טבלת Drill-Down עם חיפוש ויצוא ‎.xlsx</div>
-      </div>
-    </section>
-
-    <!-- מודל טבלאות -->
-    <dialog id="dlg" class="w-[min(100vw,1100px)] rounded-2xl p-0">
-      <div class="p-4 sm:p-5">
-        <div class="flex items-center justify-between">
-          <h3 id="dlgTitle" class="text-xl font-extrabold">טבלה</h3>
-          <div class="flex gap-2">
-            <button id="btnExport" class="btn px-3 py-2 bg-indigo-50 text-indigo-700">ייצוא ‎.xlsx</button>
-            <button onclick="dlg.close()" class="btn px-3 py-2 bg-slate-100">סגירה</button>
-          </div>
+        <div class="card">
+          <label class="text-sm">אימייל (כפילויות)</label>
+          <select id="colEmail" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
         </div>
-        <div class="mt-3">
-          <input id="tblSearch" class="w-full border rounded-lg px-3 py-2" placeholder="חיפוש בטבלה..." />
-        </div>
-        <div id="tblWrap" class="scroll-x mt-3"></div>
       </div>
-    </dialog>
+    </details>
+  </section>
 
-  </div>
+  <!-- KPIs -->
+  <section id="kpiWrap" class="grid-auto mb-4" hidden>
+    <div class="card">
+      <div class="text-slate-500 text-sm">סה״כ שורות בקובץ</div>
+      <div id="kpiTotal" class="text-4xl font-extrabold">0</div>
+    </div>
+    <div class="card">
+      <div class="text-slate-500 text-sm">פתוחות היום (לפי תאריך פתיחה)</div>
+      <div id="kpiToday" class="text-4xl font-extrabold">0</div>
+      <div id="lblToday" class="text-xs text-slate-500 mt-1"></div>
+    </div>
+    <div class="card">
+      <div class="text-slate-500 text-sm">פתוחות אתמול (לפי תאריך פתיחה)</div>
+      <div id="kpiYesterday" class="text-4xl font-extrabold">0</div>
+      <div id="lblYesterday" class="text-xs text-slate-500 mt-1"></div>
+    </div>
+    <div class="card">
+      <div class="text-slate-500 text-sm">שינוי יומי</div>
+      <div id="kpiDelta" class="text-4xl font-extrabold">0</div>
+      <div id="kpiDeltaPct" class="text-xs text-slate-500 mt-1"></div>
+    </div>
+  </section>
+
+  <!-- טבלאות קצר -->
+  <section id="panelsWrap" class="grid-auto" hidden>
+    <div class="card">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-bold">פירוט לפי סטטוס</h3>
+        <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('status')">לטבלה</button>
+      </div>
+      <div id="statusTable" class="scroll-x text-sm"></div>
+    </div>
+
+    <div class="card">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-bold">כפילויות לפי מס׳ מעקב</h3>
+        <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('dupTrack')">לטבלה</button>
+      </div>
+      <div id="dupTrackCnt" class="text-2xl font-bold">0</div>
+    </div>
+
+    <div class="card">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-bold">כל הפניות</h3>
+        <button class="btn px-3 py-2 bg-indigo-600 text-white" onclick="openTable('all')">פתחי טבלה</button>
+      </div>
+      <div class="text-sm text-slate-500">טבלת Drill-Down עם חיפוש ויצוא ‎.xlsx</div>
+    </div>
+  </section>
+
+  <!-- מודל טבלאות -->
+  <dialog id="dlg" class="w-[min(100vw,1100px)] rounded-2xl p-0">
+    <div class="p-4 sm:p-5">
+      <div class="flex items-center justify-between">
+        <h3 id="dlgTitle" class="text-xl font-extrabold">טבלה</h3>
+        <div class="flex gap-2">
+          <button id="btnExport" class="btn px-3 py-2 bg-indigo-50 text-indigo-700">ייצוא ‎.xlsx</button>
+          <button onclick="dlg.close()" class="btn px-3 py-2 bg-slate-100">סגירה</button>
+        </div>
+      </div>
+      <div class="mt-3">
+        <input id="tblSearch" class="w-full border rounded-lg px-3 py-2" placeholder="חיפוש בטבלה..." />
+      </div>
+      <div id="tblWrap" class="scroll-x mt-3"></div>
+    </div>
+  </dialog>
+</div>
 
 <script>
-/* ====== עזרה ====== */
-const TZ = 'Asia/Jerusalem';
+/* ===== עזר ===== */
+const TZ='Asia/Jerusalem';
 const fmt = d => new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
 const today = new Date(new Date().toLocaleString('en-CA',{timeZone:TZ}));
-const yest  = new Date(today); yest.setDate(today.getDate()-1);
+const yest = new Date(today); yest.setDate(today.getDate()-1);
 
 function toDateOnly(v){
   if(v==null||v==='')return null;
-  // SheetJS יכול להחזיר תאריך/מספר/טקסט:
-  if(typeof v==='number'){ // Excel date serial
-    const d = XLSX.SSF.parse_date_code(v);
-    return new Date(Date.UTC(d.y,d.m-1,d.d)); // ללא שעה
-  }
-  const s = String(v).trim();
-  // נסה לפצל תאריך ושעה
+  if(typeof v==='number'){ const d=XLSX.SSF.parse_date_code(v); return new Date(Date.UTC(d.y,d.m-1,d.d)); }
+  const s=String(v).trim();
   const justDate = s.split(/[ T]/)[0].replaceAll('.', '/').replaceAll('-', '/');
-  const parts = justDate.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/) || justDate.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
-  let d;
-  if(parts){
-    if(parts[1].length===4){ d = new Date(Date.UTC(+parts[1], +parts[2]-1, +parts[3])); }
-    else { d = new Date(Date.UTC(+parts[3].length===2 ? ('20'+parts[3]) : +parts[3], +parts[2]-1, +parts[1])); }
-  }else{
-    const tryD = new Date(s);
-    if(!isNaN(tryD)) d = new Date(Date.UTC(tryD.getFullYear(), tryD.getMonth(), tryD.getDate()));
-  }
-  return d||null;
+  const p1 = justDate.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  const p2 = justDate.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+  let d=null;
+  if(p2){ d=new Date(Date.UTC(+p2[1],+p2[2]-1,+p2[3])); }
+  else if(p1){ const y=p1[3].length===2? +('20'+p1[3]) : +p1[3]; d=new Date(Date.UTC(y,+p1[2]-1,+p1[1])); }
+  else { const t=new Date(s); if(!isNaN(t)) d=new Date(Date.UTC(t.getFullYear(),t.getMonth(),t.getDate())); }
+  return d;
 }
+const clean = x=>String(x??'').trim();
 
-function cleanStr(x){ return String(x??'').trim(); }
-function normMail(x){ return cleanStr(x).toLowerCase(); }
+/* ===== מצב ===== */
+let rows=[], headers=[], mapped={}, dataOpenOnly=[], tablesCache={};
 
-/* ====== מצב ====== */
-let rows = [];            // כל השורות
-let headers = [];         // שמות כותרות
-let mapped = {};          // מיפוי עמודות
-let dataOpenOnly = [];    // עם תאריך פתיחה בלבד
-let tablesCache = {};     // לטבלאות במודל
+/* ===== DOM ===== */
+const elFile=document.getElementById('fileInput');
+const fileBadge=document.getElementById('fileBadge');
+const fileStatus=document.getElementById('fileStatus');
+const stFileName=document.getElementById('stFileName');
+const stRows=document.getElementById('stRows');
+const stStamp=document.getElementById('stStamp');
+const stOk=document.getElementById('stOk');
+const stErr=document.getElementById('stErr');
+const btnClear=document.getElementById('btnClear');
 
-/* ====== DOM ====== */
-const elFile = document.getElementById('fileInput');
-const elName = document.getElementById('fileName');
-const elSave = document.getElementById('saveLocal');
-const btnSave = document.getElementById('btnSave');
-const btnLoad = document.getElementById('btnLoad');
-const btnClear = document.getElementById('btnClear');
+const selects={
+  colOpen:document.getElementById('colOpen'),
+  colStatus:document.getElementById('colStatus'),
+  colDept:document.getElementById('colDept'),
+  colTrack:document.getElementById('colTrack'),
+  colName:document.getElementById('colName'),
+  colEmail:document.getElementById('colEmail'),
+};
+const kpiWrap=document.getElementById('kpiWrap');
+const panelsWrap=document.getElementById('panelsWrap');
+const kpiTotal=document.getElementById('kpiTotal');
+const kpiToday=document.getElementById('kpiToday');
+const kpiYesterday=document.getElementById('kpiYesterday');
+const kpiDelta=document.getElementById('kpiDelta');
+const kpiDeltaPct=document.getElementById('kpiDeltaPct');
+const lblToday=document.getElementById('lblToday');
+const lblYesterday=document.getElementById('lblYesterday');
+const statusTable=document.getElementById('statusTable');
+const dupTrackCnt=document.getElementById('dupTrackCnt');
 
-const colIds = ['colOpen','colStatus','colDept','colTopic','colProduct','colTrack','colName','colEmail'];
-const selects = Object.fromEntries(colIds.map(id=>[id, document.getElementById(id)]));
+const dlg=document.getElementById('dlg');
+const dlgTitle=document.getElementById('dlgTitle');
+const tblWrap=document.getElementById('tblWrap');
+const tblSearch=document.getElementById('tblSearch');
+const btnExport=document.getElementById('btnExport');
 
-const kpiWrap = document.getElementById('kpiWrap');
-const panelsWrap = document.getElementById('panelsWrap');
-
-const kpiTotal = document.getElementById('kpiTotal');
-const kpiToday = document.getElementById('kpiToday');
-const kpiYesterday = document.getElementById('kpiYesterday');
-const kpiDelta = document.getElementById('kpiDelta');
-const kpiDeltaPct = document.getElementById('kpiDeltaPct');
-const kpiBreaches = document.getElementById('kpiBreaches');
-const kpiWithin = document.getElementById('kpiWithin');
-const lblToday = document.getElementById('lblToday');
-const lblYesterday = document.getElementById('lblYesterday');
-
-const statusTable = document.getElementById('statusTable');
-const dupTrackCnt = document.getElementById('dupTrackCnt');
-const dupNameCnt  = document.getElementById('dupNameCnt');
-const dupEmailCnt = document.getElementById('dupEmailCnt');
-
-const dlg = document.getElementById('dlg');
-const dlgTitle = document.getElementById('dlgTitle');
-const tblWrap = document.getElementById('tblWrap');
-const tblSearch = document.getElementById('tblSearch');
-const btnExport = document.getElementById('btnExport');
-
-/* ====== העלאת קובץ ====== */
+/* ===== העלאה ===== */
 elFile.addEventListener('change', async (e)=>{
-  const file = e.target.files?.[0];
-  if(!file){ elName.textContent='לא נבחר קובץ'; return; }
-  elName.textContent = file.name;
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf,{type:'array'});
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const json = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
-  if(!json.length){ alert('הגיליון ריק'); return; }
-  headers = Object.keys(json[0]);
-  rows = json;
-  autoMap();
-  fillSelects();
-  calcAll();
+  const file=e.target.files?.[0];
+  if(!file){ fileBadge.textContent='לא נבחר קובץ'; return; }
+  fileBadge.textContent=file.name;
+  resetStatus();
+
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const json=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});
+    if(!json.length) throw new Error('הגיליון ריק');
+
+    headers=Object.keys(json[0]);
+    rows=json;
+    stFileName.textContent=file.name;
+    stRows.textContent=rows.length.toLocaleString('he-IL');
+    stStamp.textContent='· נקרא בהצלחה';
+    stOk.classList.remove('hidden');
+    fileStatus.classList.remove('hidden');
+
+    autoMap();
+    fillSelects();
+    calcAll();
+  }catch(err){
+    stStamp.textContent='· נכשלה קריאת קובץ';
+    stOk.classList.add('hidden');
+    stErr.classList.remove('hidden');
+    fileStatus.classList.remove('hidden');
+    alert('לא הצלחתי לקרוא את הקובץ. ודאי שזה ‎.xlsx/.xls והוא לא נעול.\n\n'+(err?.message||''));
+  }
 });
 
-/* ====== שמירה מקומית ====== */
-btnSave.onclick = ()=> {
-  if(!rows.length) return alert('אין נתונים לשמור');
-  if(!elSave.checked) return alert('סמני ״שמור נתונים מקומית״');
-  const payload = { rows, headers, mapped };
-  localStorage.setItem('BI_OPEN_CASES', JSON.stringify(payload));
-  alert('נשמר מקומית ✔');
-};
-btnLoad.onclick = ()=>{
-  const s = localStorage.getItem('BI_OPEN_CASES');
-  if(!s) return alert('לא נמצאו נתונים שמורים');
-  const payload = JSON.parse(s);
-  rows = payload.rows||[];
-  headers = payload.headers||[];
-  mapped = payload.mapped||{};
-  elName.textContent = '(טעון מזיכרון מקומי)';
-  fillSelects();
-  calcAll();
-};
-btnClear.onclick = ()=>{
-  localStorage.removeItem('BI_OPEN_CASES');
-  alert('נוקָה מהזיכרון המקומי');
+btnClear.onclick=()=>{
+  rows=[]; headers=[]; mapped={}; dataOpenOnly=[]; tablesCache={};
+  fileBadge.textContent='לא נבחר קובץ';
+  fileStatus.classList.add('hidden');
+  kpiWrap.hidden=true; panelsWrap.hidden=true;
+  Object.values(selects).forEach(s=>s.innerHTML='');
 };
 
-/* ====== מיפוי עמודות ====== */
+/* ===== מיפוי אוטומטי + בחירה ידנית ===== */
 function autoMap(){
-  const H = headers.map(h=>h.toLowerCase().replace(/\s/g,''));
-  const findByAliases = (aliases)=> {
-    for(let a of aliases){
-      const i = H.findIndex(h=>h.includes(a));
-      if(i>-1) return headers[i];
-    }
+  const H=headers.map(h=>h.toLowerCase().replace(/\s/g,''));
+  const f=aliases=>{
+    for(const a of aliases){ const i=H.findIndex(x=>x.includes(a)); if(i>-1) return headers[i]; }
     return '';
   };
-
-  mapped.open   = findByAliases(['תאריךשעתפתיחה','תאריךפתיחה','פתיחה','opendate']);
-  mapped.status = findByAliases(['סטטוספניה','סטטוס','status']);
-  mapped.dept   = findByAliases(['מחלקהמטפלת','מחלקהמטפלה','department']);
-  mapped.topic  = findByAliases(['סיווגנושא','topic']);
-  mapped.product= findByAliases(['סיווגמוצר','product']);
-  mapped.track  = findByAliases(['מספרמעקב','tracking','מעקב']);
-  mapped.name   = findByAliases(['שמלוקח','שםלקוח','שם']);
-  mapped.email  = findByAliases(['דואראלקטרוני','אימייל','מייל','email']);
+  mapped.open=f(['תאריךשעתפתיחה','תאריךפתיחה','opendate','פתיחה']);
+  mapped.status=f(['סטטוספניה','סטטוס','status']);
+  mapped.dept=f(['מחלקהמטפלת','department','מחלקהמטפלה']);
+  mapped.track=f(['מספרמעקב','tracking','מעקב']);
+  mapped.name=f(['שםלקוח','שמלוקח','שם']);
+  mapped.email=f(['דואראלקטרוני','אימייל','email','מייל']);
 }
-
 function fillSelects(){
-  colIds.forEach(id=>{
-    const sel = selects[id];
-    sel.innerHTML = '';
-    const optEmpty = new Option('(אין)','');
-    sel.add(optEmpty);
-    headers.forEach(h=> sel.add(new Option(h,h)) );
+  Object.values(selects).forEach(sel=>{
+    sel.innerHTML=''; sel.add(new Option('(אין)',''));
+    headers.forEach(h=> sel.add(new Option(h,h)));
   });
-  selects.colOpen.value    = mapped.open    || '';
-  selects.colStatus.value  = mapped.status  || '';
-  selects.colDept.value    = mapped.dept    || '';
-  selects.colTopic.value   = mapped.topic   || '';
-  selects.colProduct.value = mapped.product || '';
-  selects.colTrack.value   = mapped.track   || '';
-  selects.colName.value    = mapped.name    || '';
-  selects.colEmail.value   = mapped.email   || '';
+  selects.colOpen.value=mapped.open||'';
+  selects.colStatus.value=mapped.status||'';
+  selects.colDept.value=mapped.dept||'';
+  selects.colTrack.value=mapped.track||'';
+  selects.colName.value=mapped.name||'';
+  selects.colEmail.value=mapped.email||'';
 
-  // עדכון מיפוי כשהמשתמש משנה
-  Object.entries(selects).forEach(([id,sel])=>{
-    sel.onchange = ()=> {
-      mapped = {
-        open   : selects.colOpen.value,
-        status : selects.colStatus.value,
-        dept   : selects.colDept.value,
-        topic  : selects.colTopic.value,
-        product: selects.colProduct.value,
-        track  : selects.colTrack.value,
-        name   : selects.colName.value,
-        email  : selects.colEmail.value
-      };
+  Object.entries(selects).forEach(([k,sel])=>{
+    sel.onchange=()=>{
+      mapped.open=selects.colOpen.value;
+      mapped.status=selects.colStatus.value;
+      mapped.dept=selects.colDept.value;
+      mapped.track=selects.colTrack.value;
+      mapped.name=selects.colName.value;
+      mapped.email=selects.colEmail.value;
       calcAll();
     };
   });
 }
 
-/* ====== SLA Rules ====== */
-/*
-כללים שסיפקת:
-- "חלוקת דואר" ו"יחידות דואר" בתוך מחלקה מטפלת "פנים ארצי" => 8 ימים
-- "תקלה בפורטל" => 24 שעות
-- "איסוף והזמנה" במחלקה מטפלת "שליחים" => 24 שעות
-- כל מה שב"פנים ארצי" או "שליחים" חוץ מהחריגים למעלה => 30 יום
-- כל מה שב"מחלקה מטפלת בינלאומי" => 60 יום
-*/
-function slaLimitDays(row){
-  const dept  = cleanStr(row[mapped.dept]||'');
-  const topic = cleanStr(row[mapped.topic]||'');
-  const prod  = cleanStr(row[mapped.product]||'');
-
-  const hasWord = (s,words)=> words.some(w=> s.includes(w));
-  // 24 שעות – נחזיר 1/24 ימים כדי לחשב הפרה מול היום
-  if( hasWord(topic,['תקלה בפורטל']) ) return 1/24;
-  if( hasWord(topic,['איסוף','הזמנה']) && hasWord(dept,['שליחים']) ) return 1/24;
-
-  if( hasWord(topic+prod, ['חלוקת דואר','יחידות דואר']) && hasWord(dept,['פנים ארצי','פניםארצי']) ) return 8;
-
-  if( hasWord(dept,['בינלאומי']) ) return 60;
-
-  if( hasWord(dept,['פנים ארצי','שליחים','פניםארצי']) ) return 30;
-
-  // ברירת מחדל – אם לא זוהה: 30 יום
-  return 30;
-}
-
-/* ====== חישובים ====== */
+/* ===== חישובים (תאריך פתיחה בלבד) ===== */
 function calcAll(){
-  if(!rows.length || !mapped.open){
-    kpiWrap.hidden = true; panelsWrap.hidden = true;
-    return;
-  }
+  if(!rows.length||!mapped.open){ kpiWrap.hidden=true; panelsWrap.hidden=true; return; }
 
-  // מרכיבים אובייקט "נקי" שמתבסס רק על תאריך פתיחה
   dataOpenOnly = rows.map(r=>{
-    const dOpen = toDateOnly(r[mapped.open]);
+    const d=toDateOnly(r[mapped.open]);
     return {
-      _raw: r,
-      open: dOpen,
-      status: cleanStr(mapped.status ? r[mapped.status] : ''),
-      dept: cleanStr(mapped.dept ? r[mapped.dept] : ''),
-      topic: cleanStr(mapped.topic ? r[mapped.topic] : ''),
-      product: cleanStr(mapped.product ? r[mapped.product] : ''),
-      track: cleanStr(mapped.track ? r[mapped.track] : ''),
-      name: cleanStr(mapped.name ? r[mapped.name] : ''),
-      email: normMail(mapped.email ? r[mapped.email] : '')
+      open:d,
+      status:clean(mapped.status? r[mapped.status]:''),
+      dept:clean(mapped.dept? r[mapped.dept]:''),
+      track:clean(mapped.track? r[mapped.track]:''),
+      name:clean(mapped.name? r[mapped.name]:''),
+      email:clean(mapped.email? r[mapped.email]:'').toLowerCase(),
+      _raw:r
     };
-  }).filter(x=> x.open); // רק כאלה שיש להם תאריך פתיחה
+  }).filter(x=>x.open);
 
-  // KPI סה״כ
-  kpiTotal.textContent = rows.length.toLocaleString('he-IL');
+  const isSame=(d1,d2)=> d1.getUTCFullYear()===d2.getUTCFullYear() &&
+                         d1.getUTCMonth()===d2.getUTCMonth() &&
+                         d1.getUTCDate()===d2.getUTCDate();
 
-  // לפי תאריך פתיחה בלבד:
-  const isSameDay = (d1,d2)=> d1.getUTCFullYear()===d2.getUTCFullYear()
-    && d1.getUTCMonth()===d2.getUTCMonth()
-    && d1.getUTCDate()===d2.getUTCDate();
+  const openToday=dataOpenOnly.filter(x=>isSame(x.open,today));
+  const openYest =dataOpenOnly.filter(x=>isSame(x.open,yest));
 
-  const openToday = dataOpenOnly.filter(x=> isSameDay(x.open, today));
-  const openYest  = dataOpenOnly.filter(x=> isSameDay(x.open, yest));
+  kpiTotal.textContent=rows.length.toLocaleString('he-IL');
+  kpiToday.textContent=openToday.length.toLocaleString('he-IL');
+  kpiYesterday.textContent=openYest.length.toLocaleString('he-IL');
+  lblToday.textContent=`נכון ל־${fmt(today)}`;
+  lblYesterday.textContent=`נכון ל־${fmt(yest)}`;
 
-  kpiToday.textContent = openToday.length.toLocaleString('he-IL');
-  kpiYesterday.textContent = openYest.length.toLocaleString('he-IL');
-  lblToday.textContent = `נכון ל־${fmt(today)}`;
-  lblYesterday.textContent = `נכון ל־${fmt(yest)}`;
+  const delta=openToday.length-openYest.length;
+  kpiDelta.textContent=(delta>=0?'+':'')+delta.toLocaleString('he-IL');
+  kpiDeltaPct.textContent=`אחוזים: ${openYest.length? (delta/openYest.length*100).toFixed(1):'0.0'}%`;
 
-  const delta = openToday.length - openYest.length;
-  kpiDelta.textContent = (delta>=0?'+':'') + delta.toLocaleString('he-IL');
-  const pct = openYest.length ? (delta/openYest.length*100) : 0;
-  kpiDeltaPct.textContent = `אחוזים: ${pct.toFixed(1)}%`;
+  // סטטוסים
+  const byStatus={};
+  dataOpenOnly.forEach(x=>{ const k=x.status||'(ללא סטטוס)'; byStatus[k]=(byStatus[k]||0)+1; });
+  const statusRows=Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({סטטוס:k,כמות:v}));
+  statusTable.innerHTML=htmlTable(statusRows);
 
-  // SLA
-  let within=0, breach=0;
-  const nowUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-  dataOpenOnly.forEach(x=>{
-    const limitDays = slaLimitDays(x._raw);
-    const ageDays = (nowUTC - x.open) / (1000*60*60*24);
-    if(ageDays > limitDays) breach++; else within++;
-  });
-  kpiBreaches.textContent = breach.toLocaleString('he-IL');
-  kpiWithin.textContent = `בתוך SLA: ${within.toLocaleString('he-IL')}`;
+  // כפילויות (מעקב)
+  const dupTrack = groupDups(x=>x.track);
+  dupTrackCnt.textContent=dupTrack.length.toLocaleString('he-IL');
 
-  // טבלת סטטוסים
-  const byStatus = {};
-  dataOpenOnly.forEach(x=>{
-    const k = x.status || '(ללא סטטוס)';
-    byStatus[k] = (byStatus[k]||0)+1;
-  });
-  const statusRows = Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({סטטוס:k, כמות:v}));
-  statusTable.innerHTML = htmlTable(statusRows);
-
-  // כפילויות – רק בין הפתוחות (לפי תאריך פתיחה יש לנו את כל הרשומות, אם תרצי נוכל לסנן סטטוס ״פתוח״ בלבד)
-  const dupBy = (keyFn)=> {
-    const map = new Map();
-    dataOpenOnly.forEach(x=>{
-      const k = keyFn(x);
-      if(!k) return;
-      if(!map.has(k)) map.set(k,[]);
-      map.get(k).push(x);
-    });
-    const dups = [...map.entries()].filter(([,arr])=>arr.length>1);
-    return dups;
-  };
-  const dupTrack = dupBy(x=>x.track);
-  const dupName  = dupBy(x=>x.name);
-  const dupEmail = dupBy(x=>x.email);
-
-  dupTrackCnt.textContent = dupTrack.length.toLocaleString('he-IL');
-  dupNameCnt.textContent  = dupName.length.toLocaleString('he-IL');
-  dupEmailCnt.textContent = dupEmail.length.toLocaleString('he-IL');
-
-  // הכנה למודל טבלאות
-  tablesCache = {
-    all: dataOpenOnly.map(x=>({
-      'תאריך פתיחה': fmt(x.open),
-      'סטטוס': x.status,
-      'מחלקה מטפלת': x.dept,
-      'סיווג נושא': x.topic,
-      'סיווג מוצר': x.product,
-      'מס׳ מעקב': x.track,
-      'שם לקוח': x.name,
-      'אימייל': x.email
-    })),
-    status: statusRows,
-    dupTrack: dupTrack.flatMap(([val,arr]) => arr.map(x=>({
-      'ערך כפול': val, 'תאריך פתיחה': fmt(x.open), 'סטטוס': x.status, 'מחלקה': x.dept, 'שם': x.name, 'אימייל': x.email, 'מעקב': x.track
-    }))),
-    dupName: dupName.flatMap(([val,arr]) => arr.map(x=>({
-      'ערך כפול': val, 'תאריך פתיחה': fmt(x.open), 'סטטוס': x.status, 'מחלקה': x.dept, 'שם': x.name, 'אימייל': x.email, 'מעקב': x.track
-    }))),
-    dupEmail: dupEmail.flatMap(([val,arr]) => arr.map(x=>({
-      'ערך כפול': val, 'תאריך פתיחה': fmt(x.open), 'סטטוס': x.status, 'מחלקה': x.dept, 'שם': x.name, 'אימייל': x.email, 'מעקב': x.track
-    }))),
+  // טבלאות למודל
+  tablesCache={
+    all:dataOpenOnly.map(x=>({'תאריך פתיחה':fmt(x.open),'סטטוס':x.status,'מחלקה מטפלת':x.dept,'מס׳ מעקב':x.track,'שם לקוח':x.name,'אימייל':x.email})),
+    status:statusRows,
+    dupTrack:dupTrack.flatMap(([val,arr])=>arr.map(x=>({'ערך כפול':val,'תאריך פתיחה':fmt(x.open),'סטטוס':x.status,'מחלקה':x.dept,'שם':x.name,'אימייל':x.email,'מעקב':x.track}))),
   };
 
-  kpiWrap.hidden = false;
-  panelsWrap.hidden = false;
+  kpiWrap.hidden=false; panelsWrap.hidden=false;
 }
 
-/* ====== טבלאות במודל ====== */
+function groupDups(keyFn){
+  const m=new Map();
+  dataOpenOnly.forEach(x=>{ const k=keyFn(x); if(!k) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(x); });
+  return [...m.entries()].filter(([,arr])=>arr.length>1);
+}
+
+/* ===== טבלאות ===== */
 function htmlTable(arr){
   if(!arr.length) return '<div class="text-slate-400">אין נתונים</div>';
-  const cols = Object.keys(arr[0]);
-  let th = cols.map(c=>`<th class="px-3 py-2 text-start border-b">${c}</th>`).join('');
-  let rows = arr.map(r=>`<tr>${cols.map(c=>`<td class="px-3 py-2 border-b">${escapeHtml(r[c])}</td>`).join('')}</tr>`).join('');
-  return `<table class="min-w-[520px] text-sm"><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`;
+  const cols=Object.keys(arr[0]);
+  let th=cols.map(c=>`<th class="px-3 py-2 text-start border-b">${c}</th>`).join('');
+  let trs=arr.map(r=>`<tr>${cols.map(c=>`<td class="px-3 py-2 border-b">${escapeHtml(r[c])}</td>`).join('')}</tr>`).join('');
+  return `<table class="min-w-[520px] text-sm"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
 }
-function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
+function escapeHtml(s){return String(s??'').replace(/[&<>"]/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m]));}
 
 function openTable(key){
-  const data = tablesCache[key]||[];
-  dlgTitle.textContent = ({
-    all:'כל הפניות',
-    status:'פירוט לפי סטטוס',
-    dupTrack:'כפילויות לפי מספר מעקב',
-    dupName:'כפילויות לפי שם לקוח',
-    dupEmail:'כפילויות לפי אימייל',
-  }[key] || 'טבלה');
-
-  // בנה טבלה + חיפוש קליינט
-  let view = [...data];
-  const render = ()=>{
-    const q = tblSearch.value.trim();
-    let filtered = view;
-    if(q){
-      const ql = q.toLowerCase();
-      filtered = view.filter(row => Object.values(row).some(v => String(v).toLowerCase().includes(ql)));
-    }
-    tblWrap.innerHTML = htmlTable(filtered);
+  const data=tablesCache[key]||[];
+  dlgTitle.textContent=({all:'כל הפניות',status:'פירוט לפי סטטוס',dupTrack:'כפילויות לפי מס׳ מעקב'})[key]||'טבלה';
+  let view=[...data];
+  const render=()=>{
+    const q=tblSearch.value.toLowerCase().trim();
+    const f=q? view.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q))) : view;
+    tblWrap.innerHTML=htmlTable(f);
   };
-  tblSearch.oninput = render;
-  render();
+  tblSearch.oninput=render; render();
 
-  // יצוא
-  btnExport.onclick = ()=>{
-    const ws = XLSX.utils.json_to_sheet(view);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'data');
-    const out = XLSX.write(wb, {bookType:'xlsx', type:'array'});
-    saveAs(new Blob([out],{type:"application/octet-stream"}), 'export.xlsx');
+  btnExport.onclick=()=>{
+    const ws=XLSX.utils.json_to_sheet(view);
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'data');
+    const out=XLSX.write(wb,{bookType:'xlsx',type:'array'}); saveAs(new Blob([out],{type:"application/octet-stream"}),'export.xlsx');
   };
 
   dlg.showModal();
 }
 
-/* ====== התחול ====== */
-document.addEventListener('DOMContentLoaded', ()=>{
-  // אם יש שמור – סמן תיבה
-  if(localStorage.getItem('BI_OPEN_CASES')) elSave.checked = true;
-});
-
+/* ===== עזרי UI ===== */
+function resetStatus(){
+  stOk.classList.add('hidden'); stErr.classList.add('hidden'); fileStatus.classList.add('hidden');
+}
 </script>
 </body>
 </html>
