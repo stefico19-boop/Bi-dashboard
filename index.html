@@ -678,4 +678,267 @@
   }
 })();
 </script>
+  <!-- === STEP 4: Click-to-Table + Export to XLSX === -->
+<script>
+(() => {
+  // ----- קבועים ועזרי תאריכים (תואם שלב 2) -----
+  const TZ = 'Asia/Jerusalem';
+  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  const OPEN_DATE_COL_KEYS   = ['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'];
+
+  function toPartsYMDInTZ(date) {
+    const d = (date instanceof Date) ? date : new Date(date);
+    const parts = new Intl.DateTimeFormat('he-IL', {
+      timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(d);
+    const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    return { y: +map.year, m: +map.month, d: +map.day };
+  }
+  function ymdKey(ymd) { return `${ymd.y}-${String(ymd.m).padStart(2,'0')}-${String(ymd.d).padStart(2,'0')}`; }
+  function todayKey(){ return ymdKey(toPartsYMDInTZ(new Date())); }
+  function yesterdayKey(){
+    const t = toPartsYMDInTZ(new Date());
+    const asUTC = new Date(Date.UTC(t.y, t.m-1, t.d));
+    return ymdKey(toPartsYMDInTZ(new Date(asUTC.getTime()-24*60*60*1000)));
+  }
+
+  // התאמות עמודות
+  function findCol(obj, keys) {
+    if (!obj) return null;
+    for (const k of keys) if (k in obj) return k;
+    const norm = (s) => String(s).replace(/\s+/g,'').toLowerCase();
+    const target = keys.map(norm);
+    for (const k in obj) if (target.includes(norm(k))) return k;
+    return null;
+  }
+
+  // נירמול תאריך/שעה של "תאריך/שעת פתיחה" לתאריך בלבד לפי ישראל
+  function normalizeDateOnly(cellVal) {
+    if (cellVal == null || cellVal === '') return null;
+    if (typeof cellVal === 'number') {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const ms = cellVal * 24*60*60*1000;
+      const d = new Date(excelEpoch.getTime() + ms);
+      return ymdKey(toPartsYMDInTZ(d));
+    }
+    const d = new Date(cellVal);
+    if (!isNaN(d)) return ymdKey(toPartsYMDInTZ(d));
+    const m = String(cellVal).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      let [_, dd, mm, yyyy, HH='00', MM='00', SS='00'] = m;
+      if (yyyy.length === 2) yyyy = '20' + yyyy;
+      const d2 = new Date(`${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:${SS || '00'}`);
+      return ymdKey(toPartsYMDInTZ(d2));
+    }
+    return null;
+  }
+
+  function isOpenRow(row) {
+    const key = findCol(row, OPEN_STATUS_COL_KEYS);
+    if (!key) return true;
+    const val = String(row[key] ?? '').trim();
+    const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+    return !closed.some(c => val === c || val.includes(c));
+    }
+
+  // ----- Modal (נוצר פעם אחת) -----
+  const modalHTML = `
+    <div id="biModal" class="fixed inset-0 z-[1000] hidden">
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+        <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+          <div class="text-lg font-bold" id="biModalTitle">נתונים</div>
+          <button id="biExportBtn" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15">
+            ייצוא ל-XLSX
+          </button>
+          <button id="biCloseBtn" class="ms-2 px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
+        </div>
+        <div class="p-4 overflow-auto" style="max-height:70vh">
+          <table id="biTable" class="w-full text-sm border-separate border-spacing-0">
+            <thead id="biThead"></thead>
+            <tbody id="biTbody"></tbody>
+          </table>
+          <div id="biEmpty" class="text-ink-200/70 text-sm p-4 hidden">אין נתונים להצגה.</div>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+  const modal = document.getElementById('biModal');
+  const tHead = document.getElementById('biThead');
+  const tBody = document.getElementById('biTbody');
+  const empty = document.getElementById('biEmpty');
+  const title = document.getElementById('biModalTitle');
+  const btnClose = document.getElementById('biCloseBtn');
+  const btnExport = document.getElementById('biExportBtn');
+
+  btnClose.addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+
+  // ----- רנדר טבלה + יצוא -----
+  let currentRows = [];
+  function renderTable(rows) {
+    currentRows = rows || [];
+    if (!rows.length) {
+      tHead.innerHTML = ''; tBody.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+
+    // כותרות לפי איחוד כל המפתחות הראשונים (שומר על סדר עמודות כפי שבקובץ לרוב)
+    const headers = Array.from(rows.reduce((set, r) => {
+      Object.keys(r).forEach(k => set.add(k));
+      return set;
+    }, new Set()));
+
+    // THEAD
+    tHead.innerHTML = `<tr>${
+      headers.map(h => `<th class="sticky top-0 bg-[#0b1220] text-ink-200/80 font-semibold px-3 py-2 border-b border-white/10 text-right">${escapeHTML(h)}</th>`).join('')
+    }</tr>`;
+
+    // TBODY
+    tBody.innerHTML = rows.map(r => `
+      <tr class="hover:bg-white/5">
+        ${headers.map(h => `<td class="px-3 py-2 border-b border-white/5 align-top">${escapeHTML(r[h] ?? '')}</td>`).join('')}
+      </tr>
+    `).join('');
+  }
+
+  function exportXLSX(filename='export.xlsx') {
+    if (!window.XLSX) return alert('ספריית XLSX לא נטענה.');
+    const ws = XLSX.utils.json_to_sheet(currentRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data');
+    XLSX.writeFile(wb, filename);
+  }
+  btnExport.addEventListener('click', () => exportXLSX(title.dataset.filename || 'export.xlsx'));
+
+  function openModal(rows, modalTitle, fileNameBase='export') {
+    title.textContent = modalTitle;
+    title.dataset.filename = `${fileNameBase}.xlsx`;
+    renderTable(rows);
+    modal.classList.remove('hidden');
+  }
+
+  function escapeHTML(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  // ----- פילטרים לפי הקלקה -----
+  function getDataset() {
+    return Array.isArray(window.__dataset) ? window.__dataset : [];
+  }
+
+  // 1) KPI-ים
+  const elTotal = document.getElementById('kpiOpenTotal');
+  const elToday = document.getElementById('kpiOpenedToday');
+  const elYest  = document.getElementById('kpiOpenedYesterday');
+
+  function rowsOpenTotal() {
+    const rows = getDataset();
+    return rows.filter(isOpenRow);
+  }
+  function rowsOpenedDay(key) {
+    const rows = getDataset();
+    const dateCol = rows.length ? findCol(rows[0], OPEN_DATE_COL_KEYS) : null;
+    if (!dateCol) return [];
+    return rows.filter(r => isOpenRow(r) && normalizeDateOnly(r[dateCol]) === key);
+  }
+
+  // UX: להפוך את המספרים ל"קליקאבלים"
+  [elTotal, elToday, elYest].forEach(el => {
+    if (el) {
+      el.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
+      el.setAttribute('title','לחיצה להצגת הטבלה');
+    }
+  });
+
+  elTotal?.addEventListener('click', () => {
+    const rows = rowsOpenTotal();
+    openModal(rows, 'כל הפניות הפתוחות', 'open_tickets');
+  });
+  elToday?.addEventListener('click', () => {
+    const rows = rowsOpenedDay(todayKey());
+    openModal(rows, 'פניות שנפתחו היום', 'opened_today');
+  });
+  elYest?.addEventListener('click', () => {
+    const rows = rowsOpenedDay(yesterdayKey());
+    openModal(rows, 'פניות שנפתחו אתמול', 'opened_yesterday');
+  });
+
+  // 2) רשימות שלב 3 – עיר / יחידה
+  //    מאזינים ב-delegation לקונטיינרים שהוגדרו בשלב 3: listByCity, listByUnit
+  function attachListClick(containerId, nameSelectorIndex, filterFn, titlePrefix, filePrefix) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    box.addEventListener('click', (e) => {
+      // השורה היא div עם שני span-ים; ניקח את הטקסט של הראשון (שם הקטגוריה)
+      const row = e.target.closest('div.py-2');
+      if (!row) return;
+      const nameEl = row.querySelector('span');
+      if (!nameEl) return;
+      const name = nameEl.textContent.trim();
+      if (!name) return;
+      const rows = filterFn(name);
+      openModal(rows, `${titlePrefix} — ${name}`, `${filePrefix}_${sanitizeFileName(name)}`);
+    });
+    // עכבר מצביע
+    box.classList.add('cursor-pointer');
+  }
+
+  function sanitizeFileName(s) {
+    return s.replace(/[\\/:*?"<>|]+/g,'_').slice(0,60);
+  }
+
+  // מסננים לפי עיר/יחידה
+  // התאמות עמודות גמישות (תואם שלב 3 החדש)
+  const HEB_DIACRITICS = /[\u0591-\u05C7]/g;
+  function normHeader(s) {
+    return String(s).replace(HEB_DIACRITICS,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  }
+  function headerIncludesAll(colName, keywords) {
+    const n = normHeader(colName);
+    return keywords.every(k => n.includes(normHeader(k)));
+  }
+  const CITY_EXACT = ['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'];
+  const CITY_KEYWORDS = [['עיר'], ['יישוב']];
+  const UNIT_EXACT = ['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'];
+  const UNIT_KEYWORDS = [['יחידת','דואר','שם'], ['שם','יחידה']];
+
+  function findColumnFlexible(row0, exactList, keywordSets) {
+    if (!row0) return null;
+    const headers = Object.keys(row0);
+    for (const h of headers) {
+      if (exactList.includes(h)) return h;
+      const hNorm = normHeader(h);
+      for (const ex of exactList) if (hNorm === normHeader(ex)) return h;
+    }
+    for (const h of headers) {
+      if (keywordSets.some(kwSet => headerIncludesAll(h, kwSet))) return h;
+    }
+    return null;
+  }
+
+  function filterByCity(name) {
+    const rows = getDataset();
+    const col = rows.length ? findColumnFlexible(rows[0], CITY_EXACT, CITY_KEYWORDS) : null;
+    if (!col) return [];
+    return rows.filter(r => isOpenRow(r) && String(r[col] ?? '').trim() === name);
+  }
+  function filterByUnit(name) {
+    const rows = getDataset();
+    const col = rows.length ? findColumnFlexible(rows[0], UNIT_EXACT, UNIT_KEYWORDS) : null;
+    if (!col) return [];
+    return rows.filter(r => isOpenRow(r) && String(r[col] ?? '').trim() === name);
+  }
+
+  attachListClick('listByCity', 0, filterByCity, 'פניות פתוחות לפי עיר', 'city');
+  attachListClick('listByUnit', 0, filterByUnit, 'פניות פתוחות לפי יחידה', 'unit');
+
+  // אם הנתונים הוטענו אחרי שהסקריפט נטען – אין צורך בפעולה מיוחדת; המאזינים כבר יושבים.
+})();
+</script>
 </body>
