@@ -261,6 +261,228 @@
       if (file) handleFile(file);
     });
   </script>
+  <!-- === STEP 2: KPIs + Department Tabs (Asia/Jerusalem) === -->
+<script>
+(() => {
+  const TZ = 'Asia/Jerusalem';
+  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה'];
+  const DEPT_COL = 'מחלקה מטפלת';
+  const OPEN_DATE_COL_KEYS = ['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'];
+
+  // ---------- DOM: insert KPIs + tabs block ----------
+  const main = document.querySelector('main') || document.body;
+  const blockHTML = `
+    <section id="biStep2" class="max-w-6xl mx-auto px-4 mt-6">
+      <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 2</span>
+          <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">TZ: Asia/Jerusalem</span>
+        </div>
+
+        <!-- Tabs (departments) -->
+        <div>
+          <div class="text-sm text-ink-200/80 mb-2">טאבים לפי מחלקה מטפלת</div>
+          <div id="deptTabs" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6" id="kpiRow">
+          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+            <div class="text-xs text-ink-200/70">סה״כ פניות פתוחות</div>
+            <div id="kpiOpenTotal" class="text-3xl font-bold mt-1">—</div>
+          </div>
+          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+            <div class="text-xs text-ink-200/70">נפתחו היום</div>
+            <div id="kpiOpenedToday" class="text-3xl font-bold mt-1">—</div>
+          </div>
+          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+            <div class="text-xs text-ink-200/70">נפתחו אתמול</div>
+            <div id="kpiOpenedYesterday" class="text-3xl font-bold mt-1">—</div>
+          </div>
+        </div>
+
+        <div class="mt-6 text-[11px] text-ink-200/60">
+          תאריכים מעובדים לפי אזור זמן ישראל ומנורמלים לתאריך בלבד (dd/mm/yyyy) עבור החישובים של היום/אתמול.
+        </div>
+      </div>
+    </section>
+  `;
+  main.insertAdjacentHTML('beforeend', blockHTML);
+
+  // ---------- Utilities ----------
+  const $ = (id) => document.getElementById(id);
+  const kpiOpenTotal       = $('kpiOpenTotal');
+  const kpiOpenedToday     = $('kpiOpenedToday');
+  const kpiOpenedYesterday = $('kpiOpenedYesterday');
+  const deptTabs           = $('deptTabs');
+
+  function toPartsYMDInTZ(date) {
+    const d = (date instanceof Date) ? date : new Date(date);
+    const parts = new Intl.DateTimeFormat('he-IL', {
+      timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(d);
+    const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    return { y: +map.year, m: +map.month, d: +map.day };
+  }
+  function ymdKey(ymd) { return `${ymd.y}-${String(ymd.m).padStart(2,'0')}-${String(ymd.d).padStart(2,'0')}`; }
+
+  function todayYMD() { return toPartsYMDInTZ(new Date()); }
+  function yesterdayYMD() {
+    // בונים תאריך מקומי של היום ב־TZ ואז מחסרים יום אחד
+    const t = todayYMD();
+    const asUTC = new Date(Date.UTC(t.y, t.m - 1, t.d)); // חצות מקומי בקירוב
+    const y = new Date(asUTC.getTime() - 24*60*60*1000);
+    return toPartsYMDInTZ(y);
+  }
+
+  function normalizeDateOnly(cellVal) {
+    // מקבל מחרוזת/מספר/Date מתוך העמודה "תאריך/שעת פתיחה" ומחזיר מפתח תאריך (yyyy-mm-dd) לפי TZ
+    if (cellVal == null || cellVal === '') return null;
+
+    // אם זה מספר אקסל (serial)
+    if (typeof cellVal === 'number') {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const ms = cellVal * 24*60*60*1000;
+      const d = new Date(excelEpoch.getTime() + ms);
+      return ymdKey(toPartsYMDInTZ(d));
+    }
+
+    // אם זה מחרוזת תאריך/שעה — נותן ל־Date לפרש, ואז מנרמל לפי TZ
+    const d = new Date(cellVal);
+    if (!isNaN(d)) {
+      return ymdKey(toPartsYMDInTZ(d));
+    }
+
+    // ניסיון לפורמט dd/mm/yyyy hh:mm
+    const m = String(cellVal).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      let [_, dd, mm, yyyy, HH='00', MM='00', SS='00'] = m;
+      if (yyyy.length === 2) yyyy = '20' + yyyy;
+      const d2 = new Date(`${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:${SS || '00'}`);
+      return ymdKey(toPartsYMDInTZ(d2));
+    }
+    return null;
+  }
+
+  function findCol(obj, keys) {
+    for (const k of keys) if (k in obj) return k;
+    // נסיון התאמה רכה בלי ניקוד/רווחים
+    const norm = (s) => s.replace(/\s+/g,'').toLowerCase();
+    const target = keys.map(norm);
+    for (const k in obj) if (target.includes(norm(k))) return k;
+    return null;
+  }
+
+  function isOpenRow(row) {
+    const key = findCol(row, OPEN_STATUS_COL_KEYS);
+    if (!key) return true; // אם אין סטטוס – נספר כפתוח
+    const val = String(row[key] ?? '').trim();
+    const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+    return !closed.some(c => val === c || val.includes(c));
+  }
+
+  function deptOf(row) {
+    return row[DEPT_COL] ?? row['מחלקה'] ?? row['מחלקה מטפלת '] ?? 'לא מוגדר';
+  }
+
+  // ---------- Data store ----------
+  let __dataset = [];        // כל השורות (JSON)
+  let __departments = [];    // רשימת מחלקות
+  let __activeDept = 'כללי'; // טאב נוכחי
+
+  function renderTabs() {
+    deptTabs.innerHTML = '';
+    const all = ['כללי', ...__departments];
+    for (const name of all) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = [
+        'px-3 py-1.5 rounded-full border text-sm',
+        (__activeDept === name)
+          ? 'bg-gradient-to-r from-brand-600 to-gold-500 border-transparent font-semibold'
+          : 'bg-white/5 border-white/10 hover:border-white/20'
+      ].join(' ');
+      btn.textContent = name;
+      btn.addEventListener('click', () => {
+        __activeDept = name;
+        renderTabs();
+        computeAndRenderKPIs();
+      });
+      deptTabs.appendChild(btn);
+    }
+  }
+
+  function computeAndRenderKPIs() {
+    const todayKey = ymdKey(todayYMD());
+    const yestKey  = ymdKey(yesterdayYMD());
+
+    // סינון לפי טאב (לא מסנן גלובלי, רק לתצוגה)
+    const scoped = __activeDept === 'כללי'
+      ? __dataset
+      : __dataset.filter(r => String(deptOf(r)) === __activeDept);
+
+    // תאריך פתיחה מקומי (תאריך בלבד)
+    const dateKeyOf = (row) => {
+      const col = findCol(row, OPEN_DATE_COL_KEYS);
+      return col ? normalizeDateOnly(row[col]) : null;
+    };
+
+    const openRows = scoped.filter(isOpenRow);
+    const openedToday = openRows.filter(r => dateKeyOf(r) === todayKey);
+    const openedYesterday = openRows.filter(r => dateKeyOf(r) === yestKey);
+
+    kpiOpenTotal.textContent       = openRows.length.toLocaleString('he-IL');
+    kpiOpenedToday.textContent     = openedToday.length.toLocaleString('he-IL');
+    kpiOpenedYesterday.textContent = openedYesterday.length.toLocaleString('he-IL');
+  }
+
+  // ---------- Hook into existing upload flow without modifying it ----------
+  // נשמור את הקובץ האחרון כדי שנוכל לנתח מחדש (לא מתערבים בפונקציות הקיימות)
+  window.__lastFile = null;
+  const fileInput = document.getElementById('fileInput');
+  const dropzone  = document.getElementById('dropzone');
+
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) window.__lastFile = e.target.files[0];
+    });
+  }
+  if (dropzone) {
+    dropzone.addEventListener('drop', (e) => {
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) window.__lastFile = f;
+    });
+  }
+
+  // עוטפים את updateSuccessUI כדי להריץ עיבוד אנליטי לאחר שהקובץ נקלט בהצלחה
+  if (typeof window.updateSuccessUI === 'function') {
+    const __origUpdateSuccessUI = window.updateSuccessUI;
+    window.updateSuccessUI = async function(filename, rows) {
+      __origUpdateSuccessUI.apply(this, arguments);
+      try {
+        if (!window.__lastFile) return; // ביטחון כפול
+        const buf = await window.__lastFile.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const first = wb.SheetNames && wb.SheetNames[0];
+        if (!first) return;
+        const sheet = wb.Sheets[first];
+        const json  = XLSX.utils.sheet_to_json(sheet, { defval: null });
+
+        __dataset = json;
+
+        // מחלקות לטאבים
+        const depts = new Set();
+        for (const r of __dataset) depts.add(String(deptOf(r)));
+        __departments = Array.from(depts).filter(x => x && x !== 'undefined');
+        renderTabs();
+        computeAndRenderKPIs();
+      } catch (e) {
+        console.error('BI step2 processing error:', e);
+      }
+    };
+  }
+})();
+        </script>
 </body>
 </html>    </div>
     <div class="card kpi">
