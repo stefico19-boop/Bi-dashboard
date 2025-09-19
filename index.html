@@ -2,292 +2,283 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>דשבורד BI • פניות פתוחות</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;600;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>BI • פניות פתוחות</title>
+<link href="https://unpkg.com/@fontsource/assistant@5.0.16/400.css" rel="stylesheet">
+<link href="https://unpkg.com/@fontsource/assistant@5.0.16/600.css" rel="stylesheet">
 <style>
   :root{
-    --bg:#f7f8ff; --card:#fff; --ink:#1c2033; --muted:#70788a; --brand:#5b4bff;
-    --ok:#e6fbef; --ok-ink:#0f7a4f; --warn:#fff4e5; --warn-ink:#8a5600; --err:#ffe9ea; --err-ink:#9b1c2e;
+    --bg:#f7f8fc; --card:#fff; --ink:#0f1226; --sub:#6b6f80; --pri:#5b5ce2; --ok:#22c55e; --err:#ef4444;
     --radius:18px;
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:Heebo,system-ui,Arial,sans-serif}
-  .wrap{max-width:960px;margin:28px auto;padding:0 16px}
-  h1{font-size:32px;margin:0 0 10px}
-  .sub{color:var(--muted);margin-bottom:18px}
-  .panel{background:var(--card);border-radius:var(--radius);padding:18px;box-shadow:0 10px 28px rgba(28,32,51,.06)}
-  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-  .btn{background:var(--brand);color:#fff;border:none;border-radius:14px;height:48px;padding:0 18px;font-weight:700;cursor:pointer}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
-  .ghost{background:#efeefe;color:#2f2a78}
-  .chip{height:44px;padding:0 14px;border-radius:12px;display:inline-flex;align-items:center;background:#f1f2f8;color:#333;min-width:120px}
-  .file{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .status{margin-top:12px;border-radius:12px;padding:12px 14px;font-size:14px}
-  .status.ok{background:var(--ok);color:var(--ok-ink)}
-  .status.warn{background:var(--warn);color:var(--warn-ink)}
-  .status.err{background:var(--err);color:var(--err-ink)}
-  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}
-  @media (max-width:720px){.grid{grid-template-columns:1fr}}
-  .card{background:var(--card);border-radius:var(--radius);padding:18px;box-shadow:0 10px 28px rgba(28,32,51,.06)}
-  .kpi{font-size:40px;font-weight:800}
-  .muted{color:var(--muted);font-size:14px}
-  select{height:44px;border-radius:12px;border:1px solid #e5e7f2;background:#fff;padding:0 12px;min-width:220px}
-  .hint{font-size:13px;color:var(--muted);margin-top:10px}
-  .hr{height:1px;background:#eceff6;margin:16px 0}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);font-family:"Assistant",system-ui,Segoe UI,Arial;color:var(--ink)}
+  .wrap{max-width:980px;margin:auto;padding:28px 18px 96px}
+  h1{margin:6px 0 8px;font-size:34px;letter-spacing:.3px}
+  .sub{color:var(--sub);font-size:15px;margin-bottom:18px}
+  .row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .btn{background:var(--pri);color:#fff;border:none;border-radius:14px;padding:14px 18px;font-size:16px;cursor:pointer}
+  .btn.ghost{background:#eef0ff;color:#3b3dd6}
+  .pill{background:#eef0ff;border-radius:999px;padding:10px 14px;color:#3b3dd6}
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:0 10px 28px rgba(15,18,38,.06);padding:16px 18px;margin-top:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .kpi{padding:18px 18px 20px}
+  .kpi h3{margin:0 0 8px;font-size:15px;color:var(--sub);font-weight:600}
+  .kpi .v{font-size:44px;font-weight:700;letter-spacing:1px}
+  .muted{color:var(--sub);font-size:13px}
+  .ok{color:var(--ok)} .err{color:var(--err)}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .status{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .fade{opacity:.88}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>דשבורד BI • פניות פתוחות</h1>
-    <div class="sub">כל החישובים מתבססים על <b>“תאריך/שעת פתיחה”</b> בלבד (לא משתמשים ב־“שונה לאחרונה”). הקריאה מנטרלת שעות אוטומטית.</div>
+<div class="wrap">
+  <h1>דשבורד • BI • פניות פתוחות</h1>
+  <div class="sub">כל החישובים מתבססים על השדה <b>“תאריך/שעת פתיחה”</b> בלבד. אין שימוש ב“שונה לאחרונה”.</div>
 
-    <div class="panel" id="uipanel">
-      <div class="row">
-        <button class="btn" id="pickBtn">העלאת Excel</button>
-        <div class="chip file" id="fileName">לא נבחר קובץ</div>
-        <div class="chip" id="rowsChip">שורות 0</div>
-        <button class="btn ghost" id="clearBtn">ניקוי</button>
-        <input id="fileInput" type="file" accept=".xlsx,.xls" hidden>
-      </div>
-
-      <div class="status warn" id="statusLine" style="display:none"></div>
-
-      <div class="hr"></div>
-
-      <div class="row">
-        <label>עמודת תאריכים (אם הזיהוי האוטומטי לא זיהה)</label>
-        <select id="dateSelect"></select>
-      </div>
-      <div class="hint">טיפ: אם יש בקובץ כמה גיליונות – נטען את הראשון. אפשר לשנות בגיליון לפני שמירה.</div>
+  <!-- העלאת קובץ -->
+  <div class="card">
+    <div class="row">
+      <label class="btn" for="file">העלאת Excel</label>
+      <input id="file" type="file" accept=".xlsx,.xls" style="display:none">
+      <button id="clear" class="btn ghost">ניקוי</button>
+      <div id="fileInfo" class="pill">לא נבחר קובץ</div>
     </div>
-
-    <div class="grid" id="kpis" style="display:none">
-      <div class="card">
-        <div class="muted">סה״כ פניות (כל השורות בקובץ)</div>
-        <div class="kpi" id="kpiTotal">0</div>
-      </div>
-      <div class="card">
-        <div class="muted">פניות — יום אחרון (לפי תאריך פתיחה)</div>
-        <div class="kpi" id="kpiToday">0</div>
-        <div class="muted" id="kpiTodayDate"></div>
-      </div>
-      <div class="card">
-        <div class="muted">פניות — היום הקודם</div>
-        <div class="kpi" id="kpiPrev">0</div>
-        <div class="muted" id="kpiPrevDate"></div>
-      </div>
-      <div class="card">
-        <div class="muted">שינוי יומי</div>
-        <div class="kpi" id="kpiDelta">0</div>
-        <div class="muted" id="kpiDeltaPct">— אחוזים</div>
-      </div>
-    </div>
-
-    <div class="card" id="diagCard" style="display:none;margin-top:16px">
-      <div class="muted">דיאגנוסטיקה תאריכים</div>
-      <div id="diagText" style="font-weight:600;margin-top:6px"></div>
-    </div>
-
+    <div id="ingestMsg" class="status" style="margin-top:12px"></div>
   </div>
 
+  <!-- KPI -->
+  <div class="grid" id="kpis" style="display:none">
+    <div class="card kpi">
+      <h3>סה״כ שורות (בקובץ)</h3>
+      <div class="v" id="totalRows">–</div>
+    </div>
+    <div class="card kpi">
+      <h3>פניות – יום אחרון <span class="muted">(לפי תאריך פתיחה)</span></h3>
+      <div class="v" id="lastCount">–</div>
+      <div class="muted" id="lastDateLbl">–</div>
+    </div>
+    <div class="card kpi">
+      <h3>פניות – היום הקודם <span class="muted">(לפי תאריך פתיחה)</span></h3>
+      <div class="v" id="prevCount">–</div>
+      <div class="muted" id="prevDateLbl">–</div>
+    </div>
+    <div class="card kpi">
+      <h3>שינוי יומי</h3>
+      <div class="v" id="deltaCount">–</div>
+      <div class="muted" id="deltaPct">–</div>
+    </div>
+  </div>
+
+  <!-- דיאגנוסטיקה -->
+  <div id="diag" class="card" style="display:none">
+    <div class="muted">דיאגנוסטיקה שדות תאריך:</div>
+    <div id="diagBody" class="mono fade" style="margin-top:6px"></div>
+  </div>
+</div>
+
+<!-- SheetJS -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-/* ===================== עזרים ===================== */
-const TZ = 'Asia/Jerusalem';
+const tz = 'Asia/Jerusalem';
+const fmt = new Intl.DateTimeFormat('he-IL',{timeZone:tz, day:'2-digit', month:'2-digit', year:'numeric'});
 
-/** מחזיר Date בחצות של אזור הזמן המבוקש עבור תאריך קיים */
-function dateOnlyInTZ(d, tz=TZ){
-  if (!(d instanceof Date) || isNaN(d)) return null;
-  const fmt = new Intl.DateTimeFormat('he-IL',
-    {year:'numeric',month:'2-digit',day:'2-digit',timeZone:tz}
-  );
-  const parts = fmt.formatToParts(d).reduce((a,p)=>{a[p.type]=p.value;return a;},{});
-  const y = +parts.year, m = +parts.month, day = +parts.day;
-  // בונים אובייקט Date מקומי (הייצוג הלוגי הוא יום-חודש-שנה ללא שעה)
-  return new Date(y, m-1, day, 0, 0, 0, 0);
+// --------- עזרי תאריכים ----------
+function dateOnly(d){                 // יוצר תאריך "נקי" ללא שעה (ב־UTC כדי למנוע קפיצות TZ)
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+function keyFromDate(d){              // מפתח YYYY-MM-DD
+  return d.toISOString().slice(0,10);
+}
+function labelFromKey(k){             // תצוגה יפה ל־he-IL
+  const [y,m,d] = k.split('-').map(Number);
+  return fmt.format(new Date(Date.UTC(y, m-1, d)));
 }
 
-/** פרסר תאריכים חזק: Serial, טקסט (עם/בלי שעה), ISO, Date */
-function parseHebDate(val){
-  if (val==null || val==='') return null;
+// Excel serial בטוח (מעדיף SSF, נופל לפורמולה אם צריך)
+function dateFromExcelSerial(n){
+  try{
+    const o = XLSX.SSF.parse_date_code(n);
+    if(o && o.y && o.m && o.d) return dateOnly(new Date(o.y, o.m-1, o.d));
+  }catch(_){}
+  // נפילה לשיטה הארוכה
+  const ms = (n - 25569) * 86400 * 1000;   // 25569 = 1899-12-30
+  return dateOnly(new Date(ms));
+}
 
-  // כבר Date
-  if (val instanceof Date && !isNaN(val)) return dateOnlyInTZ(val);
+// פרסור כללי לשדה “תאריך/שעת פתיחה”
+function parseOpenDate(v){
+  if(v == null || v === '') return null;
 
-  // Excel serial
-  if (typeof val === 'number'){
-    // מחשבים יום מדויק ואז מנרמלים ל־TZ כדי לא לאבד יום בגלל UTC
-    const ms = (val - 25569) * 86400000;
-    const d = new Date(ms);
-    return dateOnlyInTZ(d);
+  // 1) מספר => Excel serial
+  if(typeof v === 'number') return dateFromExcelSerial(v);
+
+  // 2) טקסט: "dd/mm/yyyy hh:mm" או "dd/mm/yyyy"
+  if(typeof v === 'string'){
+    const s = v.trim().replace(/[.,]/g,'/');      // מקרים של "19.09.2025 10:47"
+    // dd/mm/yyyy(...*) → הולך רק על התאריך ומתעלם משעה
+    const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+    if(m){
+      const d = parseInt(m[1],10), mo = parseInt(m[2],10), y = parseInt(m[3].length===2 ? ('20'+m[3]) : m[3],10);
+      return dateOnly(new Date(y, mo-1, d));
+    }
+    // yyyy-mm-dd...
+    const m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if(m2){
+      const y = +m2[1], mo = +m2[2], d = +m2[3];
+      return dateOnly(new Date(y, mo-1, d));
+    }
+    // ניסיון אחרון: Date רגיל
+    const t = new Date(s);
+    if(!Number.isNaN(t.getTime())) return dateOnly(t);
   }
 
-  // טקסט – הסרת RTL נסתרים
-  const s = String(val).trim().replace(/\u200f|\u200e/g,'');
-  // dd/mm/yyyy[ hh:mm[:ss]] או dd.mm.yyyy / dd-mm-yyyy
-  let m = s.match(/^(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
-  if (m){
-    const dd=+m[1], mm=+m[2]-1, yyyy=(+m[3]<100?2000+ +m[3]:+m[3]);
-    const hh=+(m[4]??'0'), mi=+(m[5]??'0'), ss=+(m[6]??'0');
-    return dateOnlyInTZ(new Date(yyyy,mm,dd,hh,mi,ss));
+  return null;
+}
+
+// --------- מצב UI ----------
+const el = {
+  file: document.getElementById('file'),
+  clear: document.getElementById('clear'),
+  fileInfo: document.getElementById('fileInfo'),
+  ingestMsg: document.getElementById('ingestMsg'),
+  kpis: document.getElementById('kpis'),
+  totalRows: document.getElementById('totalRows'),
+  lastCount: document.getElementById('lastCount'),
+  prevCount: document.getElementById('prevCount'),
+  deltaCount: document.getElementById('deltaCount'),
+  lastDateLbl: document.getElementById('lastDateLbl'),
+  prevDateLbl: document.getElementById('prevDateLbl'),
+  deltaPct: document.getElementById('deltaPct'),
+  diag: document.getElementById('diag'),
+  diagBody: document.getElementById('diagBody'),
+};
+
+let rows = [];             // כל השורות כ־Objects
+let dateKey = null;        // שם העמודה שנבחרה
+const wantedDateNames = [
+  'תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','תאריך פתיחה פניה',
+  'Open Date','Opened','Create Date','Created'
+];
+
+// איתור עמודת תאריך פתיחה
+function pickDateColumn(headers){
+  // איתור לפי שמות נפוצים בעברית/אנגלית
+  for(const name of wantedDateNames){
+    const idx = headers.findIndex(h => (h||'').toString().trim() === name);
+    if(idx !== -1) return headers[idx];
   }
-  // ISO ודומיו
-  const d = new Date(s);
-  return isNaN(d) ? null : dateOnlyInTZ(d);
+  // חיפוש לפי מפתח שמכיל "פתיחה" או "open"
+  const h2 = headers.find(h => /פתיחה|open/i.test((h||'')+''));
+  return h2 || headers[0]; // נפילה: הראשון
 }
 
-/** עוזר להצגת טקסט תאריך */
-const fmtDate = d => d
-  ? d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric', timeZone:TZ})
-  : '';
-
-/* ===================== DOM ===================== */
-const fileInput  = document.getElementById('fileInput');
-const pickBtn    = document.getElementById('pickBtn');
-const clearBtn   = document.getElementById('clearBtn');
-const fileNameEl = document.getElementById('fileName');
-const rowsChip   = document.getElementById('rowsChip');
-const statusLine = document.getElementById('statusLine');
-const dateSelect = document.getElementById('dateSelect');
-
-const kpisWrap   = document.getElementById('kpis');
-const kpiTotal   = document.getElementById('kpiTotal');
-const kpiToday   = document.getElementById('kpiToday');
-const kpiPrev    = document.getElementById('kpiPrev');
-const kpiTodayDate = document.getElementById('kpiTodayDate');
-const kpiPrevDate  = document.getElementById('kpiPrevDate');
-const kpiDelta     = document.getElementById('kpiDelta');
-const kpiDeltaPct  = document.getElementById('kpiDeltaPct');
-
-const diagCard  = document.getElementById('diagCard');
-const diagText  = document.getElementById('diagText');
-
-/* ===================== מצב ===================== */
-let RAW = [];
-let COLS = [];
-let COL_DATE = null;
-
-/* ===================== UI ===================== */
-pickBtn.onclick = ()=> fileInput.click();
-clearBtn.onclick = ()=> {
-  RAW=[]; COLS=[]; COL_DATE=null;
-  fileInput.value='';
-  fileNameEl.textContent='לא נבחר קובץ';
-  rowsChip.textContent='שורות 0';
-  dateSelect.innerHTML='';
-  kpisWrap.style.display='none';
-  statusLine.style.display='none';
-  diagCard.style.display='none';
-};
-
-function setStatus(kind, msg){
-  statusLine.className = 'status ' + kind;
-  statusLine.style.display='';
-  statusLine.textContent = msg;
-}
-
-function fillColumns(cols){
-  dateSelect.innerHTML='';
-  const opt0=document.createElement('option');
-  opt0.value=''; opt0.textContent='זיהוי אוטומטי (מומלץ)';
-  dateSelect.appendChild(opt0);
-  cols.forEach(c=>{
-    const o=document.createElement('option');
-    o.value=c; o.textContent=c; dateSelect.appendChild(o);
-  });
-}
-
-dateSelect.onchange = ()=>{
-  COL_DATE = dateSelect.value || null;
-  if (RAW.length) buildDashboard();
-};
-
-/* ===================== קריאת קובץ ===================== */
-fileInput.addEventListener('change', async (e)=>{
-  const f = e.target.files?.[0];
-  if (!f) return;
-  fileNameEl.textContent = f.name;
+// קריאת קובץ
+el.file.addEventListener('change', async (e)=>{
+  resetUI(true);
+  const file = e.target.files?.[0];
+  if(!file){el.fileInfo.textContent='לא נבחר קובץ';return;}
+  el.fileInfo.textContent = file.name;
 
   try{
-    const buf = await f.arrayBuffer();
-    const wb = XLSX.read(buf, {type:'array', cellDates:false, cellNF:false, cellText:false});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const json = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
-    RAW = json;
-    COLS = Object.keys(json[0] || {});
-    rowsChip.textContent = `שורות ${json.length.toLocaleString('he-IL')}`;
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, {type:'array', cellDates:false, cellNF:true, cellText:false});
+    const ws  = wb.Sheets[wb.SheetNames[0]];
+    const arr = XLSX.utils.sheet_to_json(ws, {defval:null, raw:true});
 
-    // זיהוי אוטומטי
-    const auto = COLS.find(c=>/תאריך.?\/?שעת.? פתיחה|תאריך.? פתיחה/i.test(c)) ||
-                 COLS.find(c=>/פתיחה/i.test(c));
-    COL_DATE = auto || null;
+    if(!arr.length) return fail('הקובץ ריק');
 
-    fillColumns(COLS);
-    if (COL_DATE){
-      [...dateSelect.options].forEach(o=>{ if (o.value===COL_DATE) o.selected=true; });
-      setStatus('ok', `הקובץ נטען. עמודת תאריך זוהתה: “${COL_DATE}”.`);
-    } else {
-      setStatus('warn','הקובץ נטען. לא זוהתה עמודת תאריך – בחרי מהרשימה.');
-    }
-    buildDashboard();
+    // כותרות
+    const headers = Object.keys(arr[0]||{});
+    dateKey = pickDateColumn(headers);
+
+    // בניית מערך שורות + סטטיסטיקה
+    let serial=0, textOk=0, blanks=0;
+    rows = arr.map(r=>{
+      const v = r[dateKey];
+      const d = parseOpenDate(v);
+      if(v==null || v==='') blanks++;
+      else if(typeof v === 'number') serial++;
+      else textOk++;
+      return {...r, __openDate__: d, __openKey__: d ? keyFromDate(d) : null};
+    });
+
+    // הצגת דיאגנוסטיקה
+    el.diag.style.display = 'block';
+    el.diagBody.textContent =
+      `עמודת תאריך שנבחרה: ${dateKey}\n`+
+      `זוהו תאריכים כטקסט: ${textOk.toLocaleString('he-IL')}\n`+
+      `זוהו serial של Excel: ${serial.toLocaleString('he-IL')}\n`+
+      `לא קריאים/ריקים: ${blanks.toLocaleString('he-IL')}`;
+
+    // KPI לפי התאריכים שנמצאים בקובץ (לא היום!)
+    buildKPIs();
+
+    ok(`הקובץ נטען בהצלחה • שורות ${rows.length.toLocaleString('he-IL')}`);
   }catch(err){
     console.error(err);
-    setStatus('err','שגיאה בקריאת הקובץ. שמרי כ-Workbook רגיל, הסירי מיזוגים/נוסחאות, וודאי שהכותרות בשורה הראשונה.');
+    fail('שגיאה בקריאת הקובץ. ודאי שזה ‎.xlsx‎ רגיל, בגליון הראשון יש כותרות, ואין נוסחאות תאריך לא סטנדרטיות.');
   }
 });
 
-/* ===================== חישובים ===================== */
-function guessDateKey(cols){
-  return cols.find(c=>/תאריך.?\/?שעת.? פתיחה|תאריך.? פתיחה/i.test(c)) ||
-         cols.find(c=>/date|opened/i.test(c));
+el.clear.addEventListener('click', ()=>{
+  el.file.value = '';
+  resetUI();
+});
+
+function resetUI(keepFile=false){
+  if(!keepFile){ el.fileInfo.textContent = 'לא נבחר קובץ'; }
+  el.ingestMsg.innerHTML = '';
+  el.kpis.style.display = 'none';
+  el.diag.style.display = 'none';
+  rows = [];
+  dateKey = null;
 }
 
-function buildDashboard(){
-  if (!RAW.length){ kpisWrap.style.display='none'; return; }
+function ok(msg){
+  el.ingestMsg.innerHTML = `<span class="ok">✓</span> <span>${msg}</span>`;
+}
+function fail(msg){
+  el.ingestMsg.innerHTML = `<span class="err">⚠</span> <span>${msg}</span>`;
+}
 
-  const dateKey = COL_DATE || guessDateKey(COLS);
-  if (!dateKey){ setStatus('warn','בחרי עמודת תאריך / שעת פתיחה.'); kpisWrap.style.display='none'; return; }
+// בניית KPI על בסיס היום האחרון/הקודם שקיימים בנתונים (לא לפי היום במכשיר)
+function buildKPIs(){
+  const valid = rows.filter(r => !!r.__openKey__);
+  el.totalRows.textContent = rows.length.toLocaleString('he-IL');
 
-  // מנרמלים כל שורה ל-Date-Only ב-Asia/Jerusalem
-  let ok=0, empty=0, bad=0, serial=0;
-  const rows = RAW.map(r=>{
-    const raw = r[dateKey];
-    const d = parseHebDate(raw);
-    if (raw==null || raw==='') empty++;
-    else if (typeof raw==='number'){ if (d) serial++; else bad++; }
-    else if (d) ok++; else bad++;
-    return {...r, _openDate:d};
-  });
+  if(!valid.length){
+    el.kpis.style.display='grid';
+    el.lastCount.textContent = el.prevCount.textContent = el.deltaCount.textContent = '0';
+    el.lastDateLbl.textContent = el.prevDateLbl.textContent = 'אין תאריכים קריאים';
+    el.deltaPct.textContent = '—';
+    return;
+  }
 
-  diagText.textContent = `זוהו תאריכים: ${ok.toLocaleString('he-IL')} • ריקים: ${empty.toLocaleString('he-IL')} • לא קריאים: ${bad.toLocaleString('he-IL')} • serial: ${serial.toLocaleString('he-IL')}`;
-  diagCard.style.display='';
+  // צבירה לפי תאריך
+  const byDate = new Map();
+  for(const r of valid){
+    byDate.set(r.__openKey__, (byDate.get(r.__openKey__)||0)+1);
+  }
+  const keys = [...byDate.keys()].sort(); // עולה
+  const lastKey = keys[keys.length-1];            // המאוחר ביותר בקובץ
+  // היום הקודם שקיים בקובץ (לא בהכרח last-1, אלא התאריך הקודם שקיים)
+  const prevKey = keys.length>=2 ? keys[keys.length-2] : null;
 
-  // היום והאתמול בחצות TZ
-  const today = dateOnlyInTZ(new Date());
-  const prev  = new Date(today); prev.setDate(prev.getDate()-1);
+  const lastCnt = byDate.get(lastKey) || 0;
+  const prevCnt = prevKey ? (byDate.get(prevKey)||0) : 0;
+  const delta   = lastCnt - prevCnt;
+  const pct     = prevCnt ? (delta/prevCnt*100) : 0;
 
-  const sameDay = (a,b)=> a && b && a.getTime()===b.getTime();
+  el.lastCount.textContent = lastCnt.toLocaleString('he-IL');
+  el.prevCount.textContent = prevCnt.toLocaleString('he-IL');
+  el.deltaCount.textContent = (delta>0?'+':'') + delta.toLocaleString('he-IL');
+  el.deltaPct.textContent = prevKey ? (pct.toFixed(1)+'%') : '—';
 
-  const todayCount = rows.filter(r => sameDay(r._openDate, today)).length;
-  const prevCount  = rows.filter(r => sameDay(r._openDate, prev)).length;
-
-  // KPIs
-  kpiTotal.textContent = RAW.length.toLocaleString('he-IL');
-  kpiToday.textContent = todayCount.toLocaleString('he-IL');
-  kpiPrev.textContent  = prevCount.toLocaleString('he-IL');
-  kpiTodayDate.textContent = `נכון ל־${fmtDate(today)}`;
-  kpiPrevDate.textContent  = `נכון ל־${fmtDate(prev)}`;
-
-  const delta = todayCount - prevCount;
-  kpiDelta.textContent   = (delta>=0?'':'') + delta.toLocaleString('he-IL');
-  const pct = prevCount ? (delta/prevCount*100) : 0;
-  kpiDeltaPct.textContent = `${pct.toFixed(1)}% :אחוזים`;
-
-  kpisWrap.style.display='';
-  setStatus('ok', `הקובץ נטען בהצלחה • עמודת תאריך: “${dateKey}” (שעות נוטרלו)`);
+  el.lastDateLbl.textContent = 'נכון ל־ ' + labelFromKey(lastKey);
+  el.prevDateLbl.textContent = prevKey ? ('נכון ל־ ' + labelFromKey(prevKey)) : 'אין תאריך קודם בקובץ';
+  el.kpis.style.display='grid';
 }
 </script>
 </body>
