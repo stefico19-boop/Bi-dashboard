@@ -483,234 +483,186 @@
   }
 })();
         </script>
-</body>
-</html>    </div>
-    <div class="card kpi">
-      <h3>פניות – יום אחרון <span class="muted">(לפי תאריך פתיחה)</span></h3>
-      <div class="v" id="lastCount">–</div>
-      <div class="muted" id="lastDateLbl">–</div>
-    </div>
-    <div class="card kpi">
-      <h3>פניות – היום הקודם <span class="muted">(לפי תאריך פתיחה)</span></h3>
-      <div class="v" id="prevCount">–</div>
-      <div class="muted" id="prevDateLbl">–</div>
-    </div>
-    <div class="card kpi">
-      <h3>שינוי יומי</h3>
-      <div class="v" id="deltaCount">–</div>
-      <div class="muted" id="deltaPct">–</div>
-    </div>
-  </div>
+  <!-- === STEP 3: Charts — Top Cities & Top Units (with "יחידת דואר: שם") === -->
 
-  <!-- דיאגנוסטיקה -->
-  <div id="diag" class="card" style="display:none">
-    <div class="muted">דיאגנוסטיקה שדות תאריך:</div>
-    <div id="diagBody" class="mono fade" style="margin-top:6px"></div>
-  </div>
-</div>
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-<!-- SheetJS -->
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-const tz = 'Asia/Jerusalem';
-const fmt = new Intl.DateTimeFormat('he-IL',{timeZone:tz, day:'2-digit', month:'2-digit', year:'numeric'});
+(() => {
+  // ---- תצורה ----
+  const MIN_COUNT = 5;   // סף מינימום להצגה
+  const TOP_N     = 10;  // מקסימום ערכים להצגה
 
-// --------- עזרי תאריכים ----------
-function dateOnly(d){                 // יוצר תאריך "נקי" ללא שעה (ב־UTC כדי למנוע קפיצות TZ)
-  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-}
-function keyFromDate(d){              // מפתח YYYY-MM-DD
-  return d.toISOString().slice(0,10);
-}
-function labelFromKey(k){             // תצוגה יפה ל־he-IL
-  const [y,m,d] = k.split('-').map(Number);
-  return fmt.format(new Date(Date.UTC(y, m-1, d)));
-}
+  // שמות עמודות אפשריות
+  const CITY_COL_KEYS = ['עיר','יישוב','יישוב/עיר','City','ישוב','יישוב לקוח'];
+  const UNIT_COL_KEYS = [
+    'שם יחידה',
+    'יחידה',
+    'שם יחידה מטפלת',
+    'Unit',
+    'שם-יחידה',
+    'יחידת דואר: שם'   // העמודה המדויקת שלך
+  ];
 
-// Excel serial בטוח (מעדיף SSF, נופל לפורמולה אם צריך)
-function dateFromExcelSerial(n){
-  try{
-    const o = XLSX.SSF.parse_date_code(n);
-    if(o && o.y && o.m && o.d) return dateOnly(new Date(o.y, o.m-1, o.d));
-  }catch(_){}
-  // נפילה לשיטה הארוכה
-  const ms = (n - 25569) * 86400 * 1000;   // 25569 = 1899-12-30
-  return dateOnly(new Date(ms));
-}
+  // הוספת בלוק ל־DOM
+  const main = document.querySelector('main') || document.body;
+  const blockHTML = `
+    <section id="biStep3" class="max-w-6xl mx-auto px-4 mt-6">
+      <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+        <div class="flex items-center gap-3 mb-6">
+          <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 3</span>
+          <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">Top קטגוריות</span>
+          <span class="ms-auto text-[11px] text-ink-200/60">סף תצוגה: ${MIN_COUNT}+ · עד ${TOP_N}</span>
+        </div>
 
-// פרסור כללי לשדה “תאריך/שעת פתיחה”
-function parseOpenDate(v){
-  if(v == null || v === '') return null;
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+            <div class="text-sm text-ink-200/80 mb-2">Top ערים לפי כמות פניות</div>
+            <canvas id="chartCities" height="220"></canvas>
+          </div>
+          <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+            <div class="text-sm text-ink-200/80 mb-2">Top יחידות דואר לפי כמות פניות</div>
+            <canvas id="chartUnits" height="220"></canvas>
+          </div>
+        </div>
 
-  // 1) מספר => Excel serial
-  if(typeof v === 'number') return dateFromExcelSerial(v);
+        <div class="mt-6 text-[11px] text-ink-200/60">
+          מציג רק ערים/יחידות עם לפחות ${MIN_COUNT} פניות. אם אין נתונים — תופיע הודעה מתאימה.
+        </div>
+      </div>
+    </section>
+  `;
+  main.insertAdjacentHTML('beforeend', blockHTML);
 
-  // 2) טקסט: "dd/mm/yyyy hh:mm" או "dd/mm/yyyy"
-  if(typeof v === 'string'){
-    const s = v.trim().replace(/[.,]/g,'/');      // מקרים של "19.09.2025 10:47"
-    // dd/mm/yyyy(...*) → הולך רק על התאריך ומתעלם משעה
-    const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
-    if(m){
-      const d = parseInt(m[1],10), mo = parseInt(m[2],10), y = parseInt(m[3].length===2 ? ('20'+m[3]) : m[3],10);
-      return dateOnly(new Date(y, mo-1, d));
-    }
-    // yyyy-mm-dd...
-    const m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if(m2){
-      const y = +m2[1], mo = +m2[2], d = +m2[3];
-      return dateOnly(new Date(y, mo-1, d));
-    }
-    // ניסיון אחרון: Date רגיל
-    const t = new Date(s);
-    if(!Number.isNaN(t.getTime())) return dateOnly(t);
+  // ---- Utilities ----
+  function findCol(obj, keys) {
+    for (const k of keys) if (k in obj) return k;
+    const norm = (s) => s.replace(/\s+/g,'').toLowerCase();
+    const target = keys.map(norm);
+    for (const k in obj) if (target.includes(norm(k))) return k;
+    return null;
   }
 
-  return null;
-}
+  function topCounts(rows, colKeys) {
+    if (!rows?.length) return {labels:[],counts:[],col:null};
+    const key = findCol(rows[0], colKeys);
+    if (!key) return {labels:[],counts:[],col:null};
 
-// --------- מצב UI ----------
-const el = {
-  file: document.getElementById('file'),
-  clear: document.getElementById('clear'),
-  fileInfo: document.getElementById('fileInfo'),
-  ingestMsg: document.getElementById('ingestMsg'),
-  kpis: document.getElementById('kpis'),
-  totalRows: document.getElementById('totalRows'),
-  lastCount: document.getElementById('lastCount'),
-  prevCount: document.getElementById('prevCount'),
-  deltaCount: document.getElementById('deltaCount'),
-  lastDateLbl: document.getElementById('lastDateLbl'),
-  prevDateLbl: document.getElementById('prevDateLbl'),
-  deltaPct: document.getElementById('deltaPct'),
-  diag: document.getElementById('diag'),
-  diagBody: document.getElementById('diagBody'),
-};
+    const map = new Map();
+    for (const r of rows) {
+      const raw = r[key];
+      const v = (raw == null) ? '' : String(raw).trim();
+      if (!v) continue;
+      map.set(v, (map.get(v) || 0) + 1);
+    }
 
-let rows = [];             // כל השורות כ־Objects
-let dateKey = null;        // שם העמודה שנבחרה
-const wantedDateNames = [
-  'תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','תאריך פתיחה פניה',
-  'Open Date','Opened','Create Date','Created'
-];
+    const arr = Array.from(map.entries())
+      .filter(([_, c]) => c >= MIN_COUNT)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, TOP_N);
 
-// איתור עמודת תאריך פתיחה
-function pickDateColumn(headers){
-  // איתור לפי שמות נפוצים בעברית/אנגלית
-  for(const name of wantedDateNames){
-    const idx = headers.findIndex(h => (h||'').toString().trim() === name);
-    if(idx !== -1) return headers[idx];
+    return {
+      labels: arr.map(([name]) => name),
+      counts: arr.map(([_, c]) => c),
+      col: key
+    };
   }
-  // חיפוש לפי מפתח שמכיל "פתיחה" או "open"
-  const h2 = headers.find(h => /פתיחה|open/i.test((h||'')+''));
-  return h2 || headers[0]; // נפילה: הראשון
-}
 
-// קריאת קובץ
-el.file.addEventListener('change', async (e)=>{
-  resetUI(true);
-  const file = e.target.files?.[0];
-  if(!file){el.fileInfo.textContent='לא נבחר קובץ';return;}
-  el.fileInfo.textContent = file.name;
+  // ---- Charts ----
+  let chartCities = null;
+  let chartUnits  = null;
 
-  try{
-    const buf = await file.arrayBuffer();
-    const wb  = XLSX.read(buf, {type:'array', cellDates:false, cellNF:true, cellText:false});
-    const ws  = wb.Sheets[wb.SheetNames[0]];
-    const arr = XLSX.utils.sheet_to_json(ws, {defval:null, raw:true});
-
-    if(!arr.length) return fail('הקובץ ריק');
-
-    // כותרות
-    const headers = Object.keys(arr[0]||{});
-    dateKey = pickDateColumn(headers);
-
-    // בניית מערך שורות + סטטיסטיקה
-    let serial=0, textOk=0, blanks=0;
-    rows = arr.map(r=>{
-      const v = r[dateKey];
-      const d = parseOpenDate(v);
-      if(v==null || v==='') blanks++;
-      else if(typeof v === 'number') serial++;
-      else textOk++;
-      return {...r, __openDate__: d, __openKey__: d ? keyFromDate(d) : null};
+  function makeBarChart(ctx, labels, data) {
+    if (!ctx) return null;
+    return new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: 'rgba(124,58,237,0.7)', // סגול יוקרתי
+          borderColor: 'rgba(245,158,11,0.9)',    // זהב
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            ticks: { color: '#e5e7eb' },
+            grid: { color: 'rgba(255,255,255,0.05)' }
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: '#e5e7eb' },
+            grid: { color: 'rgba(255,255,255,0.05)' }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.raw.toLocaleString('he-IL')} פניות`
+            }
+          }
+        }
+      }
     });
-
-    // הצגת דיאגנוסטיקה
-    el.diag.style.display = 'block';
-    el.diagBody.textContent =
-      `עמודת תאריך שנבחרה: ${dateKey}\n`+
-      `זוהו תאריכים כטקסט: ${textOk.toLocaleString('he-IL')}\n`+
-      `זוהו serial של Excel: ${serial.toLocaleString('he-IL')}\n`+
-      `לא קריאים/ריקים: ${blanks.toLocaleString('he-IL')}`;
-
-    // KPI לפי התאריכים שנמצאים בקובץ (לא היום!)
-    buildKPIs();
-
-    ok(`הקובץ נטען בהצלחה • שורות ${rows.length.toLocaleString('he-IL')}`);
-  }catch(err){
-    console.error(err);
-    fail('שגיאה בקריאת הקובץ. ודאי שזה ‎.xlsx‎ רגיל, בגליון הראשון יש כותרות, ואין נוסחאות תאריך לא סטנדרטיות.');
-  }
-});
-
-el.clear.addEventListener('click', ()=>{
-  el.file.value = '';
-  resetUI();
-});
-
-function resetUI(keepFile=false){
-  if(!keepFile){ el.fileInfo.textContent = 'לא נבחר קובץ'; }
-  el.ingestMsg.innerHTML = '';
-  el.kpis.style.display = 'none';
-  el.diag.style.display = 'none';
-  rows = [];
-  dateKey = null;
-}
-
-function ok(msg){
-  el.ingestMsg.innerHTML = `<span class="ok">✓</span> <span>${msg}</span>`;
-}
-function fail(msg){
-  el.ingestMsg.innerHTML = `<span class="err">⚠</span> <span>${msg}</span>`;
-}
-
-// בניית KPI על בסיס היום האחרון/הקודם שקיימים בנתונים (לא לפי היום במכשיר)
-function buildKPIs(){
-  const valid = rows.filter(r => !!r.__openKey__);
-  el.totalRows.textContent = rows.length.toLocaleString('he-IL');
-
-  if(!valid.length){
-    el.kpis.style.display='grid';
-    el.lastCount.textContent = el.prevCount.textContent = el.deltaCount.textContent = '0';
-    el.lastDateLbl.textContent = el.prevDateLbl.textContent = 'אין תאריכים קריאים';
-    el.deltaPct.textContent = '—';
-    return;
   }
 
-  // צבירה לפי תאריך
-  const byDate = new Map();
-  for(const r of valid){
-    byDate.set(r.__openKey__, (byDate.get(r.__openKey__)||0)+1);
+  function renderOrMessage(canvasId, labels, data, messageIfEmpty) {
+    const wrap = document.getElementById(canvasId)?.parentElement;
+    if (!wrap) return;
+    const oldMsg = wrap.querySelector('[data-empty]');
+    if (oldMsg) oldMsg.remove();
+
+    if (!labels.length) {
+      const div = document.createElement('div');
+      div.setAttribute('data-empty', '1');
+      div.className = 'mt-3 text-xs text-ink-200/60';
+      div.textContent = messageIfEmpty;
+      wrap.appendChild(div);
+    }
   }
-  const keys = [...byDate.keys()].sort(); // עולה
-  const lastKey = keys[keys.length-1];            // המאוחר ביותר בקובץ
-  // היום הקודם שקיים בקובץ (לא בהכרח last-1, אלא התאריך הקודם שקיים)
-  const prevKey = keys.length>=2 ? keys[keys.length-2] : null;
 
-  const lastCnt = byDate.get(lastKey) || 0;
-  const prevCnt = prevKey ? (byDate.get(prevKey)||0) : 0;
-  const delta   = lastCnt - prevCnt;
-  const pct     = prevCnt ? (delta/prevCnt*100) : 0;
+  function renderStep3Charts() {
+    const rows = window.__dataset || [];
+    const ctxCities = document.getElementById('chartCities')?.getContext('2d');
+    const ctxUnits  = document.getElementById('chartUnits')?.getContext('2d');
 
-  el.lastCount.textContent = lastCnt.toLocaleString('he-IL');
-  el.prevCount.textContent = prevCnt.toLocaleString('he-IL');
-  el.deltaCount.textContent = (delta>0?'+':'') + delta.toLocaleString('he-IL');
-  el.deltaPct.textContent = prevKey ? (pct.toFixed(1)+'%') : '—';
+    const cities = topCounts(rows, CITY_COL_KEYS);
+    const units  = topCounts(rows, UNIT_COL_KEYS);
 
-  el.lastDateLbl.textContent = 'נכון ל־ ' + labelFromKey(lastKey);
-  el.prevDateLbl.textContent = prevKey ? ('נכון ל־ ' + labelFromKey(prevKey)) : 'אין תאריך קודם בקובץ';
-  el.kpis.style.display='grid';
-}
-</script>
+    if (chartCities) chartCities.destroy();
+    if (chartUnits)  chartUnits.destroy();
+
+    if (cities.labels.length) {
+      chartCities = makeBarChart(ctxCities, cities.labels, cities.counts);
+    }
+    if (units.labels.length) {
+      chartUnits = makeBarChart(ctxUnits, units.labels, units.counts);
+    }
+
+    renderOrMessage('chartCities', cities.labels, cities.counts,
+      cities.col ? 'אין ערים עם מספיק פניות' : 'לא נמצאה עמודת עיר/יישוב');
+    renderOrMessage('chartUnits', units.labels, units.counts,
+      units.col ? 'אין יחידות עם מספיק פניות' : 'לא נמצאה עמודת "יחידת דואר: שם" או דומה');
+  }
+
+  // ---- חיבור לפלואו ----
+  if (typeof window.updateSuccessUI === 'function') {
+    const __prev = window.updateSuccessUI;
+    window.updateSuccessUI = function() {
+      __prev.apply(this, arguments);
+      setTimeout(renderStep3Charts, 0);
+    };
+  }
+
+  if (Array.isArray(window.__dataset) && window.__dataset.length) {
+    renderStep3Charts();
+  }
+})();
+                                                        </script>
 </body>
-</html>
