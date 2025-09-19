@@ -6,6 +6,67 @@
 <title>דשבורד BI • פניות פתוחות</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-slate-50 p-4">
+
+<h1 class="text-2xl font-bold mb-4">דשבורד BI • פניות פתוחות</h1>
+
+<!-- בחירת קובץ -->
+<div class="mb-4">
+  <input id="fileInput" type="file"
+    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+    class="border rounded-lg p-2 bg-white"/>
+</div>
+
+<!-- שורת סטטוס -->
+<div id="statusBox" class="hidden p-3 rounded-lg bg-white border shadow">
+  <p><b id="fileName"></b></p>
+  <p>שורות: <span id="rowCount"></span></p>
+  <p id="note"></p>
+</div>
+
+<!-- אזור לדשבורד (יופיע אחרי טעינה) -->
+<div id="dashboard" class="hidden mt-4">
+  <h2 class="text-lg font-semibold mb-2">כאן יופיעו נתוני הדשבורד…</h2>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+
+$('fileInput').addEventListener('change', async (e)=>{
+  const file=e.target.files?.[0];
+  if(!file) return;
+
+  $('statusBox').classList.remove('hidden');
+  $('fileName').textContent=file.name;
+  $('note').textContent="טוען...";
+
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const sheet=wb.SheetNames[0];
+    const ws=wb.Sheets[sheet];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+
+    $('rowCount').textContent=rows.length.toLocaleString('he-IL');
+    $('note').textContent="✓ הקובץ עלה בהצלחה";
+    $('dashboard').classList.remove('hidden');
+
+  }catch(err){
+    $('note').textContent="שגיאה בקריאה: "+err.message;
+  }
+});
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>דשבורד BI • פניות פתוחות</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   html{scroll-behavior:smooth}
