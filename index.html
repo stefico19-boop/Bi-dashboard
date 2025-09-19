@@ -6,310 +6,56 @@
 <title>דשבורד BI • פניות פתוחות</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<style>
-  html{scroll-behavior:smooth}
-  .num{font-variant-numeric:tabular-nums}
-  .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px}
-  @media (prefers-color-scheme:dark){body{background:#0b0c10;color:#e5e7eb}.card{background:#111827;border-color:#334155}}
-  dialog::backdrop{background:rgba(0,0,0,.35)}
-  th,td{white-space:nowrap}
-</style>
 </head>
-<body class="min-h-screen bg-slate-50 p-4">
+<body class="bg-slate-50 p-4">
 
-  <h1 class="text-2xl font-extrabold mb-1">דשבורד BI • פניות פתוחות</h1>
-  <p class="text-sm text-slate-500 mb-4">טוען Excel, ממפה עמודות לפי שמות מדויקים, מפריד שעה מהתאריך ומשווה בין ימים.</p>
+<h1 class="text-2xl font-bold mb-4">דשבורד BI • פניות פתוחות</h1>
 
-  <!-- קלט קובץ גלוי (אנדרואיד-פרנדלי) -->
-  <div class="card mb-3">
-    <label class="block text-sm mb-2">בחרי קובץ ‎.xlsx (שורת כותרות בשורה הראשונה):</label>
-    <input id="fileInput" type="file"
-      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-      class="block w-full border rounded-lg p-2 bg-white"/>
-  </div>
+<!-- בחירת קובץ -->
+<div class="mb-4">
+  <input id="fileInput" type="file"
+    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+    class="border rounded-lg p-2 bg-white"/>
+</div>
 
-  <!-- פס מידע על הקובץ -->
-  <div id="fileInfo" class="card mb-4 hidden text-sm">
-    <div><b id="fiName"></b></div>
-    <div>גיליון: <b id="fiSheet">—</b> • שורות: <b id="fiRows" class="num">—</b></div>
-    <div>סטטוס: <span id="fiNote">—</span></div>
-    <div id="fiCols" class="text-xs text-slate-500 mt-1"></div>
-  </div>
+<!-- שורת סטטוס -->
+<div id="statusBox" class="hidden p-3 rounded-lg bg-white border shadow">
+  <p><b id="fileName"></b></p>
+  <p>שורות: <span id="rowCount"></span></p>
+  <p id="note"></p>
+</div>
 
-  <!-- טאבים למחלקות -->
-  <div id="deptTabsWrap" class="mb-3 hidden">
-    <div id="deptTabs" class="flex flex-wrap gap-2"></div>
-  </div>
-
-  <!-- KPIs -->
-  <section id="kpis" class="grid grid-cols-1 md:grid-cols-5 gap-3 hidden">
-    <div class="card">
-      <div class="text-sm text-slate-500">פתוחות היום</div>
-      <div id="kpiToday" class="text-3xl font-extrabold num">—</div>
-      <button id="btnToday" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
-    </div>
-    <div class="card">
-      <div class="text-sm text-slate-500">פתוחות אתמול</div>
-      <div id="kpiPrev" class="text-3xl font-extrabold num">—</div>
-      <button id="btnPrev" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
-    </div>
-    <div class="card">
-      <div class="text-sm text-slate-500">שינוי יומי</div>
-      <div id="kpiDelta" class="text-3xl font-extrabold num">—</div>
-      <div class="text-xs text-slate-500">באחוזים: <span id="kpiPct">—</span></div>
-    </div>
-    <div class="card">
-      <div class="text-sm text-slate-500">SLA — חריגות</div>
-      <div id="kpiSlaBad" class="text-3xl font-extrabold num">—</div>
-      <div class="text-xs text-slate-500">בתוך: <span id="kpiSlaOk">—</span> • לא ניתן: <span id="kpiSlaU">—</span></div>
-      <button id="btnSla" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
-    </div>
-    <div class="card">
-      <div class="text-sm text-slate-500">כפילויות (Tracking/שם/מייל)</div>
-      <div id="kpiDup" class="text-3xl font-extrabold num">—</div>
-      <button id="btnDup" class="mt-2 text-xs px-2 py-1 rounded-lg border">טבלה</button>
-    </div>
-  </section>
-
-  <!-- גרפים -->
-  <section id="charts" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4 hidden">
-    <div class="card"><h3 class="font-semibold mb-2">מגמת פתוחות</h3><canvas id="trendChart" height="150"></canvas></div>
-    <div class="card"><h3 class="font-semibold mb-2">התפלגות לפי מחלקה</h3><canvas id="deptPie" height="150"></canvas></div>
-    <div class="card"><h3 class="font-semibold mb-2">ערים בעייתיות (Top 10)</h3><canvas id="cityBar" height="180"></canvas></div>
-    <div class="card"><h3 class="font-semibold mb-2">SLA — היום</h3><canvas id="slaPie" height="150"></canvas></div>
-  </section>
-
-  <!-- מודאל פירוט -->
-  <dialog id="detailDlg" class="w-[min(98vw,1200px)] rounded-2xl p-0">
-    <form method="dialog" class="card">
-      <div class="flex items-center justify-between">
-        <div>
-          <h3 id="detailTitle" class="text-lg font-semibold">פירוט</h3>
-          <p id="detailSub" class="text-xs text-slate-500"></p>
-        </div>
-        <div class="flex items-center gap-2">
-          <input id="detailSearch" placeholder="חיפוש..." class="border rounded-lg px-2 py-1 text-sm"/>
-          <button id="btnExport" type="button" class="px-3 py-1.5 rounded-lg border text-sm">יצוא ‎.xlsx</button>
-          <button class="px-3 py-1.5 rounded-lg border text-sm">סגור</button>
-        </div>
-      </div>
-      <div class="overflow-auto max-h-[70vh] mt-3">
-        <table class="min-w-full text-sm">
-          <thead id="detailHead" class="bg-slate-100"></thead>
-          <tbody id="detailBody" class="divide-y"></tbody>
-        </table>
-      </div>
-    </form>
-  </dialog>
+<!-- אזור לדשבורד (יופיע אחרי טעינה) -->
+<div id="dashboard" class="hidden mt-4">
+  <h2 class="text-lg font-semibold mb-2">כאן יופיעו נתוני הדשבורד…</h2>
+</div>
 
 <script>
 const $=id=>document.getElementById(id);
-const fmt=d=>String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
-const dayOnly=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
-
-function parseExcelDate(v){
-  if(v==null||v==='') return null;
-  if(v instanceof Date) return v;
-  if(typeof v==='number') return new Date(Math.round((v-25569)*86400*1000));
-  const d=new Date(v); if(!isNaN(d)) return d;
-  const m=String(v).trim().match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
-  if(m) return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0));
-  return null;
-}
-function uniq(a){return [...new Set(a)];}
-function groupCount(rows, keyOf){const m=new Map(); rows.forEach(r=>{const k=keyOf(r); m.set(k,(m.get(k)||0)+1)}); return m;}
-function topN(map, n=10){ return [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,n); }
-function exportXlsx(name, rows){ if(!rows.length){alert('אין נתונים');return;} const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'data'); XLSX.writeFile(wb,name); }
-
-const OPEN = new Set(['חדש','בתהליך','המתנה לגורם פנימי','המתנה למסמכים מהלקוח','פתוח','בטיפול','פתוח/בתהליך']);
-
-/* מיפוי קבוע לפי הכותרות שמצאנו אצלך */
-const MAP = {
-  snap:  'תאריך שינוי אחרון',       // עמודת ה"סנאפשוט" להשוואה יומית
-  open:  'תאריך/שעת פתיחה',         // לתחשיב SLA
-  status:'סטאטוס פנייה',
-  dept:  'מחלקה מטפלת',
-  city:  'עיר',
-  unit:  'יחידת דואר: שם',
-  source:'מקור הפנייה',
-  track: 'מספר מעקב',
-  name:  'שם לקוח: שם לקוח',
-  mail:  'דואר אלקטרוני',
-  prod:  'סיווג מוצר',
-  topic: 'סיווג נושא',
-  issue: 'סיווג בעיה'
-};
-
-/* כללי SLA — כמו שסיכמנו */
-const SLA_RULES = (row) => {
-  const dept = (row[MAP.dept]||'').toString().toLowerCase();
-  const txt  = JSON.stringify(row).toLowerCase();
-  if (txt.includes('תקלה בפורטל')) return 24*60*60*1000;                // 24 שעות
-  if (dept.includes('בינלאומי')) return 60*24*60*1000;                  // 60 יום
-  if (dept.includes('פנים') && (txt.includes('חלוקת דואר')||txt.includes('יחידות דואר'))) return 8*24*60*1000; // 8 ימים
-  if (dept.includes('שליח') && txt.includes('איסוף והזמנה')) return 24*60*60*1000; // 24 שעות
-  if (dept.includes('פנים') || dept.includes('שליח')) return 30*24*60*1000;       // 30 יום
-  return null;
-};
-
-let RAW=[], BASE=[], TODAY=[], YEST=[], CURR_DATE=null, PREV_DATE=null;
-let charts={};
-function makeChart(id,cfg){ if(charts[id]) charts[id].destroy(); charts[id]=new Chart($(id).getContext('2d'), cfg); }
 
 $('fileInput').addEventListener('change', async (e)=>{
-  const f=e.target.files?.[0];
-  if(!f) return;
-  $('fileInfo').classList.remove('hidden');
-  $('fiName').textContent=f.name; $('fiNote').textContent='טוען...';
+  const file=e.target.files?.[0];
+  if(!file) return;
+
+  $('statusBox').classList.remove('hidden');
+  $('fileName').textContent=file.name;
+  $('note').textContent="טוען...";
+
   try{
-    const buf=await f.arrayBuffer();
+    const buf=await file.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array'});
-    const sheet=wb.SheetNames[0]; $('fiSheet').textContent=sheet||'—';
+    const sheet=wb.SheetNames[0];
     const ws=wb.Sheets[sheet];
     const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-    $('fiRows').textContent=rows.length.toLocaleString('he-IL');
 
-    if(!rows.length){ $('fiNote').textContent='אין נתונים (בקובץ יש רק כותרות).'; return; }
-
-    // בדיקת עמודות חובה
-    const headers=Object.keys(rows[0]);
-    const must=[MAP.snap, MAP.status, MAP.dept];
-    const missing=must.filter(k=>!headers.includes(k));
-    $('fiCols').innerHTML=headers.map(h=>'• '+h).join(' &nbsp; ');
-    if(missing.length){ $('fiNote').textContent='חסרות עמודות חובה: '+missing.join(', '); return; }
-
-    RAW = rows;
-
-    // פרה-עיבוד: תאריך-זמן -> תאריך בלבד (לפי "תאריך שינוי אחרון")
-    BASE = RAW.map(r=>{
-      const d=parseExcelDate(r[MAP.snap]);
-      if(!d) return null;
-      return {...r, __snap:dayOnly(d), __date:fmt(dayOnly(d))};
-    }).filter(Boolean);
-
-    const allDays=[...new Set(BASE.map(r=>r.__snap.getTime()))].sort((a,b)=>a-b).map(t=>new Date(t));
-    if(!allDays.length){ $('fiNote').textContent='אין תאריכים תקינים בעמודת "'+MAP.snap+'".'; return; }
-    CURR_DATE = allDays.at(-1);
-    PREV_DATE = allDays.length>1? allDays.at(-2): null;
-
-    const isOpen=s=> s!=null && OPEN.has(String(s).trim());
-    TODAY = BASE.filter(r=> r.__snap.getTime()===CURR_DATE.getTime() && isOpen(r[MAP.status]));
-    YEST  = PREV_DATE? BASE.filter(r=> r.__snap.getTime()===PREV_DATE.getTime() && isOpen(r[MAP.status])) : [];
-
-    $('fiNote').textContent='הקובץ עלה ✓ — מחשב דשבורד';
-    buildDeptsTab();
-    renderAll('__ALL__');
+    $('rowCount').textContent=rows.length.toLocaleString('he-IL');
+    $('note').textContent="✓ הקובץ עלה בהצלחה";
+    $('dashboard').classList.remove('hidden');
 
   }catch(err){
-    $('fiNote').textContent='שגיאה: '+err.message;
+    $('note').textContent="שגיאה בקריאה: "+err.message;
   }
 });
-
-/* טאבים למחלקות */
-function buildDeptsTab(){
-  const wrap=$('deptTabs');
-  wrap.innerHTML='';
-  const depts = uniq(BASE.map(r=>(r[MAP.dept]||'').toString().trim()).filter(Boolean)).sort();
-  const mk=(label,val,active)=>{ const b=document.createElement('button'); b.className='px-3 py-1.5 rounded-full border text-sm '+(active?'bg-indigo-600 text-white':'bg-white'); b.textContent=label; b.dataset.val=val; wrap.appendChild(b);
-    b.onclick=()=>{ wrap.querySelectorAll('button').forEach(x=>x.className='px-3 py-1.5 rounded-full border text-sm bg-white'); b.className='px-3 py-1.5 rounded-full border text-sm bg-indigo-600 text-white'; renderAll(val); };
-  };
-  mk('כללי','__ALL__',true);
-  depts.forEach(d=>mk(d,d,false));
-  $('deptTabsWrap').classList.remove('hidden');
-}
-
-/* חישוב ורנדר לפי טאב */
-function renderAll(scope){
-  const inScope = scope==='__ALL__' ? (r=>true) : (r=>(r[MAP.dept]||'').toString().trim()===scope);
-  const T = TODAY.filter(inScope);
-  const P = YEST.filter(inScope);
-
-  // KPI
-  $('kpis').classList.remove('hidden');
-  $('kpiToday').textContent=T.length;
-  $('kpiPrev').textContent=P.length||0;
-  const d=T.length-(P.length||0);
-  $('kpiDelta').textContent=(d>0?'+':'')+d;
-  $('kpiPct').textContent=P.length?((d/P.length*100).toFixed(1)+'%'):'—';
-
-  // SLA
-  let ok=0,bad=0,unk=0;
-  T.forEach(r=>{
-    const opened=MAP.open? parseExcelDate(r[MAP.open]) : null;
-    const ms=SLA_RULES(r);
-    if(!opened || ms==null){ unk++; return; }
-    (opened.getTime()+ms >= CURR_DATE.getTime() ? ok:bad)++;
-  });
-  $('kpiSlaOk').textContent=ok; $('kpiSlaBad').textContent=bad; $('kpiSlaU').textContent=unk;
-
-  // כפילויות (Tracking/Name/Mail)
-  function dups(col){
-    if(!col) return [];
-    const m=new Map();
-    BASE.forEach(r=>{ const v=(r[col]||'').toString().trim(); if(!v) return; const a=m.get(v)||[]; a.push(r); m.set(v,a); });
-    return [...m.entries()].filter(([k,a])=>a.length>1).map(([k,a])=>({שדה:col, ערך:k, מופעים:a.length, ...a[0]}));
-  }
-  const byTrack=dups(MAP.track), byName=dups(MAP.name), byMail=dups(MAP.mail);
-  $('kpiDup').textContent=byTrack.length+byName.length+byMail.length;
-
-  // גרפים
-  const isOpen=s=> s!=null && OPEN.has(String(s).trim());
-  const byDay={};
-  BASE.filter(inScope).forEach(r=>{ if(isOpen(r[MAP.status])) byDay[r.__date]=(byDay[r.__date]||0)+1; });
-  const labels=Object.keys(byDay), data=labels.map(k=>byDay[k]);
-  makeChart('trendChart',{type:'line',data:{labels,datasets:[{label:'פתוחות',data,tension:.35,fill:true}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
-
-  const deptMap=groupCount(T, r=>(r[MAP.dept]||'לא צוין').toString().trim()||'לא צוין');
-  makeChart('deptPie',{type:'doughnut',data:{labels:[...deptMap.keys()],datasets:[{data:[...deptMap.values()]}]},options:{plugins:{legend:{position:'bottom'}}}});
-
-  const cityMap=groupCount(T, r=>(r[MAP.city]||'לא צוין').toString().trim()||'לא צוין');
-  const cityTop=topN(cityMap,10);
-  makeChart('cityBar',{type:'bar',data:{labels:cityTop.map(x=>x[0]),datasets:[{label:'פתוחות',data:cityTop.map(x=>x[1])}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
-
-  makeChart('slaPie',{type:'doughnut',data:{labels:['בתוך SLA','חרגו SLA','לא ניתן לחשב'],datasets:[{data:[ok,bad,unk]}]},options:{plugins:{legend:{position:'bottom'}}}});
-
-  $('charts').classList.remove('hidden');
-
-  // Drill-Down
-  $('btnToday').onclick = ()=> openDetail(`פניות פתוחות — ${fmt(CURR_DATE)}${scope==='__ALL__'?'':' | '+scope}`, T);
-  $('btnPrev').onclick  = ()=> openDetail(`פניות פתוחות — ${PREV_DATE?fmt(PREV_DATE):'אין'}${scope==='__ALL__'?'':' | '+scope}`, P);
-  $('btnSla').onclick   = ()=>{
-    const rows=[]; T.forEach(r=>{
-      const opened=MAP.open? parseExcelDate(r[MAP.open]) : null;
-      const ms=SLA_RULES(r);
-      let סטטוס_SLA='לא ניתן לחשב';
-      if(opened && ms!=null) סטטוס_SLA = (opened.getTime()+ms >= CURR_DATE.getTime() ? 'בתוך SLA' : 'חריגה');
-      rows.push({סטטוס_SLA, ...r});
-    });
-    openDetail(`SLA — ${fmt(CURR_DATE)}${scope==='__ALL__'?'':' | '+scope}`, rows);
-  };
-  $('btnDup').onclick   = ()=>{
-    const rows=[]; byTrack.forEach(r=>rows.push({סוג:'Tracking', ...r}));
-    byName.forEach(r=>rows.push({סוג:'שם', ...r}));
-    byMail.forEach(r=>rows.push({סוג:'מייל', ...r}));
-    openDetail('כפילויות (כלליות)', rows);
-  };
-}
-
-/* מודאל פירוט + יצוא */
-const dlg=$('detailDlg'), dHead=$('detailHead'), dBody=$('detailBody'), dTitle=$('detailTitle'), dSub=$('detailSub');
-let _rows=[];
-function openDetail(title, rows, sub=''){
-  _rows=rows.slice();
-  dTitle.textContent=title; dSub.textContent=sub;
-  dHead.innerHTML=''; dBody.innerHTML='';
-  if(!_rows.length){ dBody.innerHTML='<tr><td class="p-3">אין נתונים</td></tr>'; dlg.showModal(); return; }
-  const headers=Object.keys(_rows[0]);
-  const tr=document.createElement('tr');
-  tr.innerHTML=headers.map(h=>`<th class="p-2 text-right">${h}</th>`).join('');
-  dHead.appendChild(tr);
-  const draw=(arr)=>{ dBody.innerHTML=''; arr.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML=headers.map(h=>`<td class="p-2 ${typeof r[h]==='number'?'num':''}">${r[h]??''}</td>`).join(''); dBody.appendChild(tr);});};
-  draw(_rows);
-  $('detailSearch').value=''; $('detailSearch').oninput=(e)=>{ const q=e.target.value.toLowerCase().trim(); if(!q) return draw(_rows); draw(_rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)))); };
-  $('btnExport').onclick=()=> exportXlsx('details.xlsx', _rows);
-  dlg.showModal();
-}
 </script>
 </body>
 </html>
