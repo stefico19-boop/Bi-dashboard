@@ -1,390 +1,413 @@
 <!doctype html>
 <html lang="he" dir="rtl">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>BI • פניות פתוחות (לפי תאריך/שעת פתיחה)</title>
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-  body{background:linear-gradient(180deg,#fafaff,#f4f6ff);}
-  .card{background:#fff;border-radius:18px;box-shadow:0 10px 30px rgba(59,64,87,.08);padding:16px}
-  .btn{border-radius:14px}
-  .grid-auto{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
-  .scroll-x{overflow:auto}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>דשבורד BI • פניות פתוחות</title>
+  <!-- SheetJS (קריאה/כתיבה של xlsx בדפדפן) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --bg:#f7f8fc; --card:#ffffff; --ink:#0e0f18; --muted:#6c738a;
+      --brand:#5b50ff; --brand2:#9a54ff; --ok:#12b886; --warn:#ffb703; --err:#e03131;
+      --shadow:0 10px 24px rgba(17,23,41,.06);
+      --radius:18px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:linear-gradient(180deg,#f5f7ff 0%, #f7f8fc 100%);
+      font-family: system-ui, "Segoe UI", "Heebo", "Rubik", "Noto Sans Hebrew", Arial, sans-serif;
+      color:var(--ink);
+    }
+    .container{max-width:980px; margin:0 auto; padding:24px 16px 120px}
+    h1{font-size:clamp(24px,5vw,38px); margin:8px 0 6px; letter-spacing:.3px}
+    .subtitle{color:var(--muted); font-size:14px; margin-bottom:18px}
+    .u-row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+    .btn{
+      background:linear-gradient(135deg,var(--brand),var(--brand2));
+      color:#fff; border:none; border-radius:16px; padding:14px 22px;
+      font-weight:700; box-shadow:var(--shadow); cursor:pointer;
+    }
+    .btn.light{background:#eef; color:#2b2e66}
+    .btn.gray{background:#edf0f7; color:#2b2e66}
+    .pill{padding:10px 14px; border-radius:999px; background:#eef; color:#2b2e66; font-weight:600}
+    .filebox{display:flex; align-items:center; justify-content:space-between; gap:10px;
+      background:#f1f3ff; border:1px solid #e5e7ff; border-radius:16px; padding:12px 14px; min-height:52px}
+    .filebox .name{font-weight:700}
+    .card{
+      background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
+      padding:16px 18px; margin:14px 0;
+    }
+    .kpi{display:flex; align-items:flex-end; justify-content:space-between; gap:10px}
+    .kpi .label{color:var(--muted); font-weight:700}
+    .kpi .num{font-size:40px; font-weight:900}
+    .muted{color:var(--muted)}
+    .status.ok{color:var(--ok)} .status.err{color:var(--err)} .status.warn{color:var(--warn)}
+    .small{font-size:12px}
+    .divider{height:1px; background:#eceff5; margin:10px 0}
+    .chips{display:flex; gap:8px; flex-wrap:wrap}
+    .chip{background:#f2f4f8; border-radius:12px; padding:6px 10px; font-size:12px; color:#334}
+    /* טבלה מודאלית */
+    dialog{
+      width:min(100vw,980px); border:none; border-radius:20px; padding:0; box-shadow:0 24px 60px rgba(20,27,49,.25);
+    }
+    dialog::backdrop{background:rgba(10,12,28,.45)}
+    .modalHead{padding:14px 16px; display:flex; align-items:center; gap:10px; justify-content:space-between; border-bottom:1px solid #eef1f6}
+    .modalBody{padding:12px; max-height:min(70vh,680px); overflow:auto; background:#fff}
+    table{border-collapse:collapse; width:100%}
+    th,td{border-bottom:1px solid #eef1f6; padding:10px 8px; text-align:right; white-space:nowrap}
+    th{position:sticky; top:0; background:#fafbff; z-index:1}
+    .search{width:260px; padding:10px 12px; border-radius:12px; background:#f4f6fb; border:1px solid #e7eaf3}
+    .footerNote{color:var(--muted); font-size:12px; margin-top:8px}
+  </style>
 </head>
-<body class="text-slate-800">
-<div class="max-w-5xl mx-auto p-4 sm:p-6">
-  <header class="mb-4">
-    <h1 class="text-3xl sm:text-4xl font-extrabold">דשבורד • BI • פניות פתוחות</h1>
-    <p class="mt-2 text-slate-600">כל החישובים מתבססים אך ורק על <b>״תאריך/שעת פתיחה״</b> (לא משתמש ב״שונה לאחרונה״).</p>
-  </header>
-
-  <!-- העלאה + סטטוס קובץ -->
-  <section class="card mb-4">
-    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-      <label for="fileInput"
-             class="btn px-5 py-3 bg-indigo-600 text-white font-semibold cursor-pointer text-center sm:w-auto">
-        העלאת Excel
-      </label>
-      <input id="fileInput" type="file" accept=".xlsx,.xls" class="hidden" />
-      <div id="fileBadge" class="flex-1 px-4 py-3 rounded-2xl bg-indigo-50 text-indigo-800">
-        לא נבחר קובץ
-      </div>
-      <button id="btnClear" class="btn px-4 py-2 bg-rose-50 text-rose-700 ms-auto">ניקוי</button>
+<body>
+  <div class="container">
+    <h1>דשבורד BI • פניות פתוחות</h1>
+    <div class="subtitle">
+      כל החישובים מבוססים אך ורק על <b>“תאריך/שעת פתיחה”</b>.  
+      אין שימוש בשדה “תאריך/שעת שונה לאחרונה”.
     </div>
 
-    <!-- כרטיס סטטוס הקובץ (חזרנו לגרסה שהייתה) -->
-    <div id="fileStatus" class="card mt-4 hidden">
-      <div class="text-sm text-slate-500">
-        <span class="font-bold" id="stFileName">—</span> ·
-        <span>שורות:</span> <b id="stRows">0</b> ·
-        <span id="stStamp"></span>
-      </div>
-      <div id="stOk" class="mt-1 text-emerald-700">✔ הקובץ עלה בהצלחה</div>
-      <div id="stErr" class="mt-1 text-rose-700 hidden">⚠︎ שגיאה בטעינת הקובץ</div>
-    </div>
-
-    <!-- מיפוי עמודות (אם צריך) -->
-    <details class="mt-4">
-      <summary class="cursor-pointer text-sm text-slate-600">מיפוי עמודות (רק אם שמות הכותרות שונים)</summary>
-      <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div class="card">
-          <label class="text-sm">עמודת תאריך/שעת פתיחה</label>
-          <select id="colOpen" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
+    <!-- העלאה -->
+    <div class="card">
+      <div class="u-row">
+        <label class="btn" for="fileInput">העלאת Excel</label>
+        <div id="fileBox" class="filebox" style="flex:1">
+          <span class="name muted">—</span>
+          <span id="rowCount" class="pill">0 שורות</span>
         </div>
-        <div class="card">
-          <label class="text-sm">עמודת סטטוס פנייה</label>
-          <select id="colStatus" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-        </div>
-        <div class="card">
-          <label class="text-sm">עמודת מחלקה מטפלת</label>
-          <select id="colDept" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-        </div>
-        <div class="card">
-          <label class="text-sm">מס׳ מעקב (כפילויות)</label>
-          <select id="colTrack" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-        </div>
-        <div class="card">
-          <label class="text-sm">שם לקוח (כפילויות)</label>
-          <select id="colName" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-        </div>
-        <div class="card">
-          <label class="text-sm">אימייל (כפילויות)</label>
-          <select id="colEmail" class="mt-1 w-full border rounded-lg px-3 py-2"></select>
-        </div>
+        <button id="btnClear" class="btn gray" type="button">ניקוי</button>
       </div>
-    </details>
-  </section>
+      <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
+      <div id="loadStatus" class="small muted" style="margin-top:10px"></div>
+    </div>
 
-  <!-- KPIs -->
-  <section id="kpiWrap" class="grid-auto mb-4" hidden>
-    <div class="card">
-      <div class="text-slate-500 text-sm">סה״כ שורות בקובץ</div>
-      <div id="kpiTotal" class="text-4xl font-extrabold">0</div>
-    </div>
-    <div class="card">
-      <div class="text-slate-500 text-sm">פתוחות היום (לפי תאריך פתיחה)</div>
-      <div id="kpiToday" class="text-4xl font-extrabold">0</div>
-      <div id="lblToday" class="text-xs text-slate-500 mt-1"></div>
-    </div>
-    <div class="card">
-      <div class="text-slate-500 text-sm">פתוחות אתמול (לפי תאריך פתיחה)</div>
-      <div id="kpiYesterday" class="text-4xl font-extrabold">0</div>
-      <div id="lblYesterday" class="text-xs text-slate-500 mt-1"></div>
-    </div>
-    <div class="card">
-      <div class="text-slate-500 text-sm">שינוי יומי</div>
-      <div id="kpiDelta" class="text-4xl font-extrabold">0</div>
-      <div id="kpiDeltaPct" class="text-xs text-slate-500 mt-1"></div>
-    </div>
-  </section>
-
-  <!-- טבלאות קצר -->
-  <section id="panelsWrap" class="grid-auto" hidden>
-    <div class="card">
-      <div class="flex justify-between items-center mb-2">
-        <h3 class="font-bold">פירוט לפי סטטוס</h3>
-        <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('status')">לטבלה</button>
+    <!-- כרטיסי KPI -->
+    <div id="kpis" style="display:none">
+      <div class="card kpi">
+        <div>
+          <div class="label">סה״כ (כל השורות בקובץ)</div>
+          <div class="small muted">מספר זה צריך להיות כמעט ככמות הרשומות בקובץ (לא נסנן).</div>
+        </div>
+        <div class="num" id="kpiTotal">0</div>
       </div>
-      <div id="statusTable" class="scroll-x text-sm"></div>
-    </div>
 
-    <div class="card">
-      <div class="flex justify-between items-center mb-2">
-        <h3 class="font-bold">כפילויות לפי מס׳ מעקב</h3>
-        <button class="btn px-3 py-2 bg-indigo-50 text-indigo-700" onclick="openTable('dupTrack')">לטבלה</button>
+      <div class="card kpi">
+        <div>
+          <div class="label">פתוחות — יום אחרון (לפי תאריך פתיחה)</div>
+          <div class="small muted" id="infoToday">—</div>
+        </div>
+        <div class="num" id="kpiToday">0</div>
       </div>
-      <div id="dupTrackCnt" class="text-2xl font-bold">0</div>
-    </div>
 
-    <div class="card">
-      <div class="flex justify-between items-center mb-2">
-        <h3 class="font-bold">כל הפניות</h3>
-        <button class="btn px-3 py-2 bg-indigo-600 text-white" onclick="openTable('all')">פתחי טבלה</button>
+      <div class="card kpi">
+        <div>
+          <div class="label">פתוחות — היום הקודם (לפי תאריך פתיחה)</div>
+          <div class="small muted" id="infoYesterday">—</div>
+        </div>
+        <div class="num" id="kpiYesterday">0</div>
       </div>
-      <div class="text-sm text-slate-500">טבלת Drill-Down עם חיפוש ויצוא ‎.xlsx</div>
-    </div>
-  </section>
 
-  <!-- מודל טבלאות -->
-  <dialog id="dlg" class="w-[min(100vw,1100px)] rounded-2xl p-0">
-    <div class="p-4 sm:p-5">
-      <div class="flex items-center justify-between">
-        <h3 id="dlgTitle" class="text-xl font-extrabold">טבלה</h3>
-        <div class="flex gap-2">
-          <button id="btnExport" class="btn px-3 py-2 bg-indigo-50 text-indigo-700">ייצוא ‎.xlsx</button>
-          <button onclick="dlg.close()" class="btn px-3 py-2 bg-slate-100">סגירה</button>
+      <div class="card kpi">
+        <div>
+          <div class="label">שינוי יומי</div>
+          <div class="small muted" id="infoChange">—</div>
+        </div>
+        <div class="num" id="kpiDelta">0</div>
+      </div>
+
+      <div class="u-row" style="margin-top:8px">
+        <button id="btnShowAll" class="btn light" type="button">הצג את כל הפניות (טבלה)</button>
+      </div>
+      <div class="footerNote">דפדוף לטבלה ויצוא ל-XLSX זמינים בחלון המודאלי.</div>
+    </div>
+
+    <!-- הודעת שגיאות / אזהרות -->
+    <div id="alerts" class="card" style="display:none"></div>
+
+    <!-- מודאל טבלה -->
+    <dialog id="tblModal">
+      <div class="modalHead">
+        <div style="display:flex; align-items:center; gap:8px; font-weight:800">כל הפניות</div>
+        <div class="u-row">
+          <input id="tblSearch" class="search" placeholder="חיפוש בטבלה…" />
+          <button id="btnExport" class="btn light" type="button">יצוא .xlsx</button>
+          <button id="btnCloseModal" class="btn gray" type="button">סגירה</button>
         </div>
       </div>
-      <div class="mt-3">
-        <input id="tblSearch" class="w-full border rounded-lg px-3 py-2" placeholder="חיפוש בטבלה..." />
+      <div class="modalBody">
+        <table id="dataTable"><thead></thead><tbody></tbody></table>
       </div>
-      <div id="tblWrap" class="scroll-x mt-3"></div>
-    </div>
-  </dialog>
-</div>
+    </dialog>
+
+  </div>
 
 <script>
-/* ===== עזר ===== */
-const TZ='Asia/Jerusalem';
-const fmt = d => new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
-const today = new Date(new Date().toLocaleString('en-CA',{timeZone:TZ}));
-const yest = new Date(today); yest.setDate(today.getDate()-1);
+(() => {
+  // ===== הגדרות =====
+  const OPEN_DATE_CANDIDATES = [
+    'תאריך/שעת פתיחה','תאריך פתיחה','תאריך פתיחה/שעת פתיחה','פתיחה','Date Open','Open Date'
+  ];
 
-function toDateOnly(v){
-  if(v==null||v==='')return null;
-  if(typeof v==='number'){ const d=XLSX.SSF.parse_date_code(v); return new Date(Date.UTC(d.y,d.m-1,d.d)); }
-  const s=String(v).trim();
-  const justDate = s.split(/[ T]/)[0].replaceAll('.', '/').replaceAll('-', '/');
-  const p1 = justDate.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
-  const p2 = justDate.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
-  let d=null;
-  if(p2){ d=new Date(Date.UTC(+p2[1],+p2[2]-1,+p2[3])); }
-  else if(p1){ const y=p1[3].length===2? +('20'+p1[3]) : +p1[3]; d=new Date(Date.UTC(y,+p1[2]-1,+p1[1])); }
-  else { const t=new Date(s); if(!isNaN(t)) d=new Date(Date.UTC(t.getFullYear(),t.getMonth(),t.getDate())); }
-  return d;
-}
-const clean = x=>String(x??'').trim();
+  // ===== עזרי תאריך =====
+  // זמן מקומי ישראל
+  const tz = 'Asia/Jerusalem';
+  const fmtDate = d => new Intl.DateTimeFormat('he-IL',{timeZone:tz,year:'2-digit',month:'2-digit',day:'2-digit'}).format(d);
+  const todayLocal = () => {
+    const now = new Date();
+    // הופך ל־00:00 מקומי
+    const str = now.toLocaleString('en-CA',{timeZone:tz, year:'numeric', month:'2-digit', day:'2-digit'});
+    return new Date(str+'T00:00:00');
+  };
+  const addDays = (d, days) => new Date(d.getTime()+days*86400000);
 
-/* ===== מצב ===== */
-let rows=[], headers=[], mapped={}, dataOpenOnly=[], tablesCache={};
-
-/* ===== DOM ===== */
-const elFile=document.getElementById('fileInput');
-const fileBadge=document.getElementById('fileBadge');
-const fileStatus=document.getElementById('fileStatus');
-const stFileName=document.getElementById('stFileName');
-const stRows=document.getElementById('stRows');
-const stStamp=document.getElementById('stStamp');
-const stOk=document.getElementById('stOk');
-const stErr=document.getElementById('stErr');
-const btnClear=document.getElementById('btnClear');
-
-const selects={
-  colOpen:document.getElementById('colOpen'),
-  colStatus:document.getElementById('colStatus'),
-  colDept:document.getElementById('colDept'),
-  colTrack:document.getElementById('colTrack'),
-  colName:document.getElementById('colName'),
-  colEmail:document.getElementById('colEmail'),
-};
-const kpiWrap=document.getElementById('kpiWrap');
-const panelsWrap=document.getElementById('panelsWrap');
-const kpiTotal=document.getElementById('kpiTotal');
-const kpiToday=document.getElementById('kpiToday');
-const kpiYesterday=document.getElementById('kpiYesterday');
-const kpiDelta=document.getElementById('kpiDelta');
-const kpiDeltaPct=document.getElementById('kpiDeltaPct');
-const lblToday=document.getElementById('lblToday');
-const lblYesterday=document.getElementById('lblYesterday');
-const statusTable=document.getElementById('statusTable');
-const dupTrackCnt=document.getElementById('dupTrackCnt');
-
-const dlg=document.getElementById('dlg');
-const dlgTitle=document.getElementById('dlgTitle');
-const tblWrap=document.getElementById('tblWrap');
-const tblSearch=document.getElementById('tblSearch');
-const btnExport=document.getElementById('btnExport');
-
-/* ===== העלאה ===== */
-elFile.addEventListener('change', async (e)=>{
-  const file=e.target.files?.[0];
-  if(!file){ fileBadge.textContent='לא נבחר קובץ'; return; }
-  fileBadge.textContent=file.name;
-  resetStatus();
-
-  try{
-    const buf=await file.arrayBuffer();
-    const wb=XLSX.read(buf,{type:'array'});
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    const json=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});
-    if(!json.length) throw new Error('הגיליון ריק');
-
-    headers=Object.keys(json[0]);
-    rows=json;
-    stFileName.textContent=file.name;
-    stRows.textContent=rows.length.toLocaleString('he-IL');
-    stStamp.textContent='· נקרא בהצלחה';
-    stOk.classList.remove('hidden');
-    fileStatus.classList.remove('hidden');
-
-    autoMap();
-    fillSelects();
-    calcAll();
-  }catch(err){
-    stStamp.textContent='· נכשלה קריאת קובץ';
-    stOk.classList.add('hidden');
-    stErr.classList.remove('hidden');
-    fileStatus.classList.remove('hidden');
-    alert('לא הצלחתי לקרוא את הקובץ. ודאי שזה ‎.xlsx/.xls והוא לא נעול.\n\n'+(err?.message||''));
+  // ממיר אינפוט (מחרוזת/מספר/Date) ל-Date תקין – או null
+  function toDate(value){
+    try{
+      if(value==null || value==='') return null;
+      if (value instanceof Date && !isNaN(value)) return value;
+      if (typeof value === 'number'){ // serial excel או timestamp
+        // Excel serial (1900-based): 1 = 1900-01-01
+        // SheetJS לרוב כבר מחזיר Date ב-raw:false, אבל שיהיה גיבוי:
+        const excelEpoch = new Date(Date.UTC(1899,11,30));
+        const ms = value*86400000;
+        const dt = new Date(excelEpoch.getTime()+ms);
+        return isNaN(dt)? null : dt;
+      }
+      if (typeof value === 'string'){
+        const s = value.trim();
+        // פורמט dd/mm/yyyy hh:mm
+        const m1 = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+        if (m1){
+          let [_, dd, mm, yyyy, HH, MM] = m1;
+          if(yyyy.length===2) yyyy = '20'+yyyy;
+          const iso = `${yyyy.padStart(4,'0')}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${(HH||'00').padStart(2,'0')}:${(MM||'00').padStart(2,'0')}:00`;
+          const dt = new Date(iso);
+          return isNaN(dt) ? null : dt;
+        }
+        // ISO רגיל
+        const dt2 = new Date(s);
+        if(!isNaN(dt2)) return dt2;
+      }
+      return null;
+    }catch(_){ return null; }
   }
-});
 
-btnClear.onclick=()=>{
-  rows=[]; headers=[]; mapped={}; dataOpenOnly=[]; tablesCache={};
-  fileBadge.textContent='לא נבחר קובץ';
-  fileStatus.classList.add('hidden');
-  kpiWrap.hidden=true; panelsWrap.hidden=true;
-  Object.values(selects).forEach(s=>s.innerHTML='');
-};
+  // משווה רק תאריך (ללא שעה) במקומי
+  function sameDay(a,b){
+    return fmtDate(a) === fmtDate(b);
+  }
 
-/* ===== מיפוי אוטומטי + בחירה ידנית ===== */
-function autoMap(){
-  const H=headers.map(h=>h.toLowerCase().replace(/\s/g,''));
-  const f=aliases=>{
-    for(const a of aliases){ const i=H.findIndex(x=>x.includes(a)); if(i>-1) return headers[i]; }
-    return '';
-  };
-  mapped.open=f(['תאריךשעתפתיחה','תאריךפתיחה','opendate','פתיחה']);
-  mapped.status=f(['סטטוספניה','סטטוס','status']);
-  mapped.dept=f(['מחלקהמטפלת','department','מחלקהמטפלה']);
-  mapped.track=f(['מספרמעקב','tracking','מעקב']);
-  mapped.name=f(['שםלקוח','שמלוקח','שם']);
-  mapped.email=f(['דואראלקטרוני','אימייל','email','מייל']);
-}
-function fillSelects(){
-  Object.values(selects).forEach(sel=>{
-    sel.innerHTML=''; sel.add(new Option('(אין)',''));
-    headers.forEach(h=> sel.add(new Option(h,h)));
+  // ===== DOM =====
+  const elFile = document.getElementById('fileInput');
+  const elFileBox = document.getElementById('fileBox').querySelector('.name');
+  const elRowCount = document.getElementById('rowCount');
+  const elStatus = document.getElementById('loadStatus');
+  const elClear = document.getElementById('btnClear');
+  const elKPIs = document.getElementById('kpis');
+  const elAlerts = document.getElementById('alerts');
+
+  const kpiTotal = document.getElementById('kpiTotal');
+  const kpiToday = document.getElementById('kpiToday');
+  const kpiYesterday = document.getElementById('kpiYesterday');
+  const kpiDelta = document.getElementById('kpiDelta');
+  const infoToday = document.getElementById('infoToday');
+  const infoYesterday = document.getElementById('infoYesterday');
+  const infoChange = document.getElementById('infoChange');
+
+  const btnShowAll = document.getElementById('btnShowAll');
+  const dlg = document.getElementById('tblModal');
+  const btnCloseModal = document.getElementById('btnCloseModal');
+  const btnExport = document.getElementById('btnExport');
+  const tblHead = document.querySelector('#dataTable thead');
+  const tblBody = document.querySelector('#dataTable tbody');
+  const tblSearch = document.getElementById('tblSearch');
+
+  // נתונים
+  let rawRows = [];            // כל הרשומות
+  let tableViewRows = [];      // רשומות מסוננות/ממוינות לתצוגה
+  let headers = [];            // כותרות מקוריות
+  let openDateKey = null;      // שם העמודה של תאריך פתיחה
+  let skipped = 0;             // כמה שורות דולגו בגלל פתיחה לא תקין
+
+  // ===== Events =====
+  elFile.addEventListener('change', handleFile, false);
+  elClear.addEventListener('click', () => {
+    rawRows = []; headers=[]; openDateKey=null; skipped=0;
+    elFile.value = '';
+    paintStatus('-', 0, '—', 'נוקה.', 'warn');
+    elKPIs.style.display='none';
+    elAlerts.style.display='none';
   });
-  selects.colOpen.value=mapped.open||'';
-  selects.colStatus.value=mapped.status||'';
-  selects.colDept.value=mapped.dept||'';
-  selects.colTrack.value=mapped.track||'';
-  selects.colName.value=mapped.name||'';
-  selects.colEmail.value=mapped.email||'';
 
-  Object.entries(selects).forEach(([k,sel])=>{
-    sel.onchange=()=>{
-      mapped.open=selects.colOpen.value;
-      mapped.status=selects.colStatus.value;
-      mapped.dept=selects.colDept.value;
-      mapped.track=selects.colTrack.value;
-      mapped.name=selects.colName.value;
-      mapped.email=selects.colEmail.value;
-      calcAll();
-    };
+  btnShowAll.addEventListener('click', () => {
+    if(!rawRows.length) return;
+    renderTable(rawRows);
+    dlg.showModal();
   });
-}
+  btnCloseModal.addEventListener('click', () => dlg.close());
+  tblSearch.addEventListener('input', () => {
+    const q = tblSearch.value.trim();
+    const r = !q ? rawRows : rawRows.filter(row =>
+      headers.some(h => (String(row[h]??'')).includes(q))
+    );
+    renderTable(r);
+  });
+  btnExport.addEventListener('click', () => exportXLSX(tableViewRows.length?tableViewRows:rawRows));
 
-/* ===== חישובים (תאריך פתיחה בלבד) ===== */
-function calcAll(){
-  if(!rows.length||!mapped.open){ kpiWrap.hidden=true; panelsWrap.hidden=true; return; }
+  // ===== File handling =====
+  function paintStatus(name, rows, extra, msg, tone='ok'){
+    elFileBox.textContent = name || '—';
+    elRowCount.textContent = rows.toLocaleString('he-IL') + ' שורות';
+    elStatus.innerHTML = `<span class="status ${tone}">${msg}</span> ${extra? '• '+extra : ''}`;
+  }
 
-  dataOpenOnly = rows.map(r=>{
-    const d=toDateOnly(r[mapped.open]);
-    return {
-      open:d,
-      status:clean(mapped.status? r[mapped.status]:''),
-      dept:clean(mapped.dept? r[mapped.dept]:''),
-      track:clean(mapped.track? r[mapped.track]:''),
-      name:clean(mapped.name? r[mapped.name]:''),
-      email:clean(mapped.email? r[mapped.email]:'').toLowerCase(),
-      _raw:r
-    };
-  }).filter(x=>x.open);
+  async function handleFile(e){
+    const file = e.target.files?.[0];
+    if(!file){ paintStatus('-',0,'','לא נבחר קובץ','warn'); return; }
 
-  const isSame=(d1,d2)=> d1.getUTCFullYear()===d2.getUTCFullYear() &&
-                         d1.getUTCMonth()===d2.getUTCMonth() &&
-                         d1.getUTCDate()===d2.getUTCDate();
+    paintStatus(file.name, 0, '', 'טוען…','warn');
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
 
-  const openToday=dataOpenOnly.filter(x=>isSame(x.open,today));
-  const openYest =dataOpenOnly.filter(x=>isSame(x.open,yest));
+      // קריאה סלחנית
+      const json = XLSX.utils.sheet_to_json(ws,{
+        defval:'', raw:false, blankrows:false
+      });
 
-  kpiTotal.textContent=rows.length.toLocaleString('he-IL');
-  kpiToday.textContent=openToday.length.toLocaleString('he-IL');
-  kpiYesterday.textContent=openYest.length.toLocaleString('he-IL');
-  lblToday.textContent=`נכון ל־${fmt(today)}`;
-  lblYesterday.textContent=`נכון ל־${fmt(yest)}`;
+      if(!json.length){ paintStatus(file.name,0,'','הגיליון ריק','err'); return; }
 
-  const delta=openToday.length-openYest.length;
-  kpiDelta.textContent=(delta>=0?'+':'')+delta.toLocaleString('he-IL');
-  kpiDeltaPct.textContent=`אחוזים: ${openYest.length? (delta/openYest.length*100).toFixed(1):'0.0'}%`;
+      headers = Object.keys(json[0]||{});
+      // איתור עמודת "תאריך/שעת פתיחה"
+      openDateKey = detectOpenDateKey(headers);
 
-  // סטטוסים
-  const byStatus={};
-  dataOpenOnly.forEach(x=>{ const k=x.status||'(ללא סטטוס)'; byStatus[k]=(byStatus[k]||0)+1; });
-  const statusRows=Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({סטטוס:k,כמות:v}));
-  statusTable.innerHTML=htmlTable(statusRows);
+      if(!openDateKey){
+        elAlerts.style.display='block';
+        elAlerts.innerHTML = `
+          <div><b>שגיאת עמודה:</b> לא נמצאה עמודת "תאריך/שעת פתיחה".</div>
+          <div class="divider"></div>
+          <div class="small">
+            חפשי בין שמות העמודות: <span class="chips">${headers.map(h=>`<span class="chip">${escapeHtml(h)}</span>`).join(' ')}</span><br>
+            ניתן לעדכן את רשימת השמות האפשריים במערך <code>OPEN_DATE_CANDIDATES</code> בקוד.
+          </div>`;
+        paintStatus(file.name,json.length,'','שגיאת עמודת פתיחה','err');
+        return;
+      }else{
+        elAlerts.style.display='none';
+        elAlerts.innerHTML='';
+      }
 
-  // כפילויות (מעקב)
-  const dupTrack = groupDups(x=>x.track);
-  dupTrackCnt.textContent=dupTrack.length.toLocaleString('he-IL');
+      // עיבוד תאריכים + דילוג על רשומות עם פתיחה לא תקין
+      const out = [];
+      skipped = 0;
+      for (const row of json){
+        const v = row[openDateKey];
+        const dt = toDate(v);
+        if(!dt){ skipped++; continue; }
+        // נשמור ערך תאריך נקי לשימוש פנימי:
+        row.__openDate = dt;
+        out.push(row);
+      }
 
-  // טבלאות למודל
-  tablesCache={
-    all:dataOpenOnly.map(x=>({'תאריך פתיחה':fmt(x.open),'סטטוס':x.status,'מחלקה מטפלת':x.dept,'מס׳ מעקב':x.track,'שם לקוח':x.name,'אימייל':x.email})),
-    status:statusRows,
-    dupTrack:dupTrack.flatMap(([val,arr])=>arr.map(x=>({'ערך כפול':val,'תאריך פתיחה':fmt(x.open),'סטטוס':x.status,'מחלקה':x.dept,'שם':x.name,'אימייל':x.email,'מעקב':x.track}))),
-  };
+      rawRows = out;
+      paintStatus(file.name, rawRows.length, `${skipped} דולגו (תאריך פתיחה לא תקין)`, 'הקובץ עלה בהצלחה','ok');
 
-  kpiWrap.hidden=false; panelsWrap.hidden=false;
-}
+      // KPI
+      computeKPIs();
 
-function groupDups(keyFn){
-  const m=new Map();
-  dataOpenOnly.forEach(x=>{ const k=keyFn(x); if(!k) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(x); });
-  return [...m.entries()].filter(([,arr])=>arr.length>1);
-}
+      // הצג כרטיסים
+      elKPIs.style.display='block';
 
-/* ===== טבלאות ===== */
-function htmlTable(arr){
-  if(!arr.length) return '<div class="text-slate-400">אין נתונים</div>';
-  const cols=Object.keys(arr[0]);
-  let th=cols.map(c=>`<th class="px-3 py-2 text-start border-b">${c}</th>`).join('');
-  let trs=arr.map(r=>`<tr>${cols.map(c=>`<td class="px-3 py-2 border-b">${escapeHtml(r[c])}</td>`).join('')}</tr>`).join('');
-  return `<table class="min-w-[520px] text-sm"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
-}
-function escapeHtml(s){return String(s??'').replace(/[&<>"]/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m]));}
+    }catch(err){
+      console.error(err);
+      paintStatus(file?.name,0,'','שגיאה בטעינת הקובץ','err');
+      elAlerts.style.display='block';
+      elAlerts.innerHTML = `
+        <div class="status err"><b>שגיאה בטעינת XLSX</b></div>
+        <div class="small">נסי לשמור את הקובץ מחדש כ-Excel רגיל (Workbook), להסיר נוסחאות/מיזוגים, לוודא שהכותרות בשורה הראשונה.</div>`;
+    }
+  }
 
-function openTable(key){
-  const data=tablesCache[key]||[];
-  dlgTitle.textContent=({all:'כל הפניות',status:'פירוט לפי סטטוס',dupTrack:'כפילויות לפי מס׳ מעקב'})[key]||'טבלה';
-  let view=[...data];
-  const render=()=>{
-    const q=tblSearch.value.toLowerCase().trim();
-    const f=q? view.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q))) : view;
-    tblWrap.innerHTML=htmlTable(f);
-  };
-  tblSearch.oninput=render; render();
+  function detectOpenDateKey(keys){
+    // נורמליזציה קלה: lowercase ללא רווחים מיותרים
+    const norm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+    const candidates = OPEN_DATE_CANDIDATES.map(norm);
+    for (const k of keys){
+      const nk = norm(k);
+      if (candidates.some(c => nk.includes(c))) return k;
+      // התמחות: אם יש "תאריך" ו"פתיחה" באותו שם
+      if (nk.includes('תאריך') && nk.includes('פתיחה')) return k;
+      if (nk.includes('open') && nk.includes('date')) return k;
+    }
+    return null;
+  }
 
-  btnExport.onclick=()=>{
-    const ws=XLSX.utils.json_to_sheet(view);
-    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'data');
-    const out=XLSX.write(wb,{bookType:'xlsx',type:'array'}); saveAs(new Blob([out],{type:"application/octet-stream"}),'export.xlsx');
-  };
+  // ===== KPIs =====
+  function computeKPIs(){
+    if(!rawRows.length) return;
+    const base = todayLocal();               // 19/09/2025 00:00 מקומי
+    const yday = addDays(base,-1);
 
-  dlg.showModal();
-}
+    const total = rawRows.length;
+    const todayCount = rawRows.filter(r => sameDay(r.__openDate, base)).length;
+    const ydayCount  = rawRows.filter(r => sameDay(r.__openDate, yday)).length;
+    const delta = todayCount - ydayCount;
+    const pct = (ydayCount === 0) ? '—' : ((delta / ydayCount) * 100);
 
-/* ===== עזרי UI ===== */
-function resetStatus(){
-  stOk.classList.add('hidden'); stErr.classList.add('hidden'); fileStatus.classList.add('hidden');
-}
+    kpiTotal.textContent = total.toLocaleString('he-IL');
+    kpiToday.textContent = todayCount.toLocaleString('he-IL');
+    kpiYesterday.textContent = ydayCount.toLocaleString('he-IL');
+    kpiDelta.textContent = (delta>=0? '+' : '') + delta.toLocaleString('he-IL');
+    infoToday.textContent = `נכון ל-${fmtDate(base)}`;
+    infoYesterday.textContent = `נכון ל-${fmtDate(yday)}`;
+    infoChange.textContent = `אחוזים: ${pct==='—' ? '—' : pct.toFixed(1)+'%'}`;
+  }
+
+  // ===== טבלה + יצוא =====
+  function renderTable(rows){
+    tableViewRows = rows.slice();
+    // ראש טבלה
+    const cols = headers;
+    tblHead.innerHTML = `<tr>${cols.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
+    // גוף
+    const frag = document.createDocumentFragment();
+    for (const r of rows){
+      const tr = document.createElement('tr');
+      tr.innerHTML = cols.map(h=>{
+        let val = r[h];
+        if (h === openDateKey && r.__openDate) val = fmtDate(r.__openDate);
+        return `<td>${escapeHtml(val)}</td>`;
+      }).join('');
+      frag.appendChild(tr);
+    }
+    tblBody.innerHTML = '';
+    tblBody.appendChild(frag);
+  }
+
+  function exportXLSX(rows){
+    if(!rows.length) return;
+    const cleanRows = rows.map(r=>{
+      const o = {};
+      for (const h of headers){ o[h] = r[h]; }
+      // נחליף את עמודת התאריך לגרסת תאריך קריאה
+      if('__openDate' in r && openDateKey){ o[openDateKey] = fmtDate(r.__openDate); }
+      return o;
+    });
+    const ws = XLSX.utils.json_to_sheet(cleanRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'OpenCases');
+    XLSX.writeFile(wb, 'open_cases_export.xlsx');
+  }
+
+  // ===== עזרים =====
+  function escapeHtml(v){
+    return String(v??'').replace(/[&<>"']/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[s]));
+  }
+
+})();
 </script>
 </body>
 </html>
