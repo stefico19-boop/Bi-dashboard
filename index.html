@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>דשבורד BI — פתוחות • גרפים + Drill-Down + ייצוא XLSX</title>
+  <title>דשבורד BI — פתוחות (כולל סינון מחלקה + השוואות)</title>
   <meta name="color-scheme" content="light dark"/>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -31,12 +31,15 @@
         <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-inner"></div>
         <div>
           <h1 class="text-xl font-extrabold tracking-tight">דשבורד BI • פניות פתוחות</h1>
-          <p class="text-xs text-slate-500">השוואה יומית • SLA • פילוחים • גרפים • Drill-Down • ייצוא ‎.xlsx</p>
+          <p class="text-xs text-slate-500">כולל סינון לפי מחלקה • השוואה יומית • SLA • גרפים • Drill-Down • ייצוא ‎.xlsx</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <label class="px-4 py-2 rounded-xl bg-indigo-600 text-white shadow cursor-pointer hover:bg-indigo-700">
-          <input id="fileInput" type="file" accept=".xlsx,.xls" class="hidden">
+          <!-- ANDROID-FRIENDLY accept -->
+          <input id="fileInput" type="file"
+                 accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,*/*"
+                 class="hidden">
           העלאת Excel
         </label>
       </div>
@@ -46,24 +49,25 @@
   <main class="max-w-7xl mx-auto px-4 py-6">
     <!-- CONFIG -->
     <section class="glass p-4 border rounded-2xl card">
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div>
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
+        <div class="lg:col-span-3">
           <label class="block text-xs text-slate-500 mb-1">עמודת תאריך סנאפשוט</label>
-          <input id="dateCol" class="cfg w-full text-sm border rounded-lg px-3 py-2" value="תאריך בדיקה"/>
+          <input id="dateCol" class="cfg w-full text-sm border rounded-lg px-3 py-2" value="תאריך/שעת שונה לאחרונה"/>
         </div>
-        <div>
+        <div class="lg:col-span-3">
           <label class="block text-xs text-slate-500 mb-1">עמודת סטטוס</label>
           <input id="statusCol" class="cfg w-full text-sm border rounded-lg px-3 py-2" value="סטאטוס פניה"/>
         </div>
-        <div>
+        <div class="lg:col-span-3">
           <label class="block text-xs text-slate-500 mb-1">עמודת מחלקה</label>
           <input id="deptCol" class="cfg w-full text-sm border rounded-lg px-3 py-2" value="מחלקה מטפלת"/>
         </div>
-        <div class="flex items-end gap-2">
+        <div class="lg:col-span-3 flex gap-2">
           <button id="btnRecalc" class="flex-1 px-4 py-2 rounded-xl bg-indigo-600 text-white shadow">חשב</button>
-          <button id="btnReset" class="px-4 py-2 rounded-xl bg-white border shadow">איפוס</button>
+          <button id="btnReset"  class="px-4 py-2 rounded-xl bg-white border shadow">איפוס</button>
         </div>
       </div>
+
       <details class="mt-3">
         <summary class="text-sm text-slate-600 cursor-pointer">הגדרות מתקדמות</summary>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-3">
@@ -82,6 +86,21 @@
           <p class="text-xs text-slate-500 md:col-span-2">נשמר מקומית בלבד (localStorage). אין שליחה לשום שרת.</p>
         </div>
       </details>
+
+      <!-- GLOBAL / PER-DEPT FILTER -->
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">סינון לפי מחלקה מטפלת</label>
+          <select id="deptFilter" class="w-full text-sm border rounded-lg px-3 py-2">
+            <option value="__ALL__">הכול (ללא סינון)</option>
+          </select>
+        </div>
+        <div class="flex items-end gap-2">
+          <button id="btnApplyFilter" class="px-4 py-2 rounded-xl bg-white border shadow">החל סינון</button>
+          <button id="btnClearFilter" class="px-4 py-2 rounded-xl bg-white border shadow">נקה סינון</button>
+        </div>
+      </div>
+
       <p id="msg" class="text-sm text-slate-600 mt-2">העלי קובץ Excel (גיליון ראשון). אם שמות העמודות שונים – עדכני בשדות ואז לחצי “חשב”.</p>
     </section>
 
@@ -89,7 +108,7 @@
     <section id="kpis" class="grid-auto mt-6 hidden">
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-sm">סה״כ פתוחות היום</span>
+          <span class="text-slate-500 text-sm">סה״כ פתוחות (לפי הסינון) היום</span>
           <button id="btnOpenToday" class="text-xs px-2 py-1 rounded-lg border bg-white">פתח טבלה</button>
         </div>
         <div class="text-3xl font-extrabold mt-2 num" id="openCurrent">—</div>
@@ -97,7 +116,7 @@
       </div>
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-sm">פתוחות קודם</span>
+          <span class="text-slate-500 text-sm">פתוחות ביום הקודם (לפי הסינון)</span>
           <button id="btnOpenPrev" class="text-xs px-2 py-1 rounded-lg border bg-white">פתח טבלה</button>
         </div>
         <div class="text-3xl font-extrabold mt-2 num" id="openPrev">—</div>
@@ -125,7 +144,7 @@
     <section id="charts" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 hidden">
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="font-semibold">מגמת פתוחות לפי תאריך</h3>
+          <h3 class="font-semibold">מגמת פתוחות לפי תאריך (לפי הסינון)</h3>
           <button id="exportTrend" class="text-sm px-3 py-1.5 rounded-lg border bg-white">ייצוא CSV</button>
         </div>
         <canvas id="trendChart" height="140"></canvas>
@@ -139,30 +158,29 @@
       </div>
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="font-semibold">מחלקות — היום מול קודם</h3>
-          <button id="btnOpenDeptAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">פתח טבלת מחלקות</button>
+          <h3 class="font-semibold">מחלקות — היום מול קודם (תמיד על כל הדאטה)</h3>
+          <button id="btnOpenDeptAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">טבלת מחלקות</button>
         </div>
         <canvas id="deptBar" height="160" class="clickable"></canvas>
-        <p class="text-xs text-slate-500 mt-1">טיפ: לחיצה על עמודה תפתח פירוט לאותה מחלקה (היום/קודם).</p>
       </div>
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between mb-2">
           <h3 class="font-semibold">מקור פנייה — מחסנית</h3>
-          <button id="btnOpenSourceAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">פתח טבלת מקורות</button>
+          <button id="btnOpenSourceAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">טבלת מקורות</button>
         </div>
         <canvas id="sourceStack" height="160" class="clickable"></canvas>
       </div>
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between mb-2">
           <h3 class="font-semibold">ערים בעייתיות (Top 10)</h3>
-        <button id="btnOpenCityAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">פתח טבלת ערים</button>
+          <button id="btnOpenCityAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">טבלת ערים</button>
         </div>
         <canvas id="cityHBar" height="200" class="clickable"></canvas>
       </div>
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between mb-2">
           <h3 class="font-semibold">יחידות בעייתיות (Top 10)</h3>
-          <button id="btnOpenUnitAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">פתח טבלת יחידות</button>
+          <button id="btnOpenUnitAll" class="text-sm px-3 py-1.5 rounded-lg border bg-white">טבלת יחידות</button>
         </div>
         <canvas id="unitHBar" height="200" class="clickable"></canvas>
       </div>
@@ -192,7 +210,7 @@
       </div>
       <div class="card p-4 border glass">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="font-semibold">כפילויות (מס' מעקב/שם/מייל)</h3>
+          <h3 class="font-semibold">כפילויות (מס' מעקב/שם/מייל) — היום (לפי הסינון)</h3>
           <button id="exportDups" class="text-sm px-3 py-1.5 rounded-lg border bg-white">ייצוא CSV</button>
         </div>
         <div class="overflow-x-auto">
@@ -236,7 +254,7 @@
   </dialog>
 
   <script>
-    // -------- Helpers --------
+    // ===== Helpers =====
     const $ = id => document.getElementById(id);
     const lc = s => (s??'').toString().trim().toLowerCase();
     const fmt = d => String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
@@ -258,15 +276,16 @@
       XLSX.utils.book_append_sheet(wb, ws, 'data');
       XLSX.writeFile(wb, filename);
     }
+    function uniq(arr){ return [...new Set(arr)]; }
 
-    // -------- Config LS --------
+    // ===== Config + LS =====
     const cfgEls = ['dateCol','statusCol','deptCol','unitCol','cityCol','sourceCol','issueCol','trackCol','nameCol','mailCol','openDateTimeCol','openStatuses'].map($);
-    const LS_CFG='lux_bi_cfg_v3';
+    const LS_CFG='lux_bi_cfg_v4';
     function saveCfg(){ const v={}; cfgEls.forEach(e=>v[e.id]=e.value); localStorage.setItem(LS_CFG,JSON.stringify(v)); }
     function loadCfg(){ try{const v=JSON.parse(localStorage.getItem(LS_CFG)||'null'); if(!v) return; cfgEls.forEach(e=> e.value = v[e.id] ?? e.value);}catch{} }
     cfgEls.forEach(e=> e.addEventListener('input',saveCfg)); loadCfg();
 
-    // -------- SLA rules --------
+    // ===== SLA rules =====
     function slaDurationMs(row, cfg){
       const dept=lc(row[cfg.deptCol]), issue=lc(row[cfg.issueCol]);
       if (issue.includes('תקלה בפורטל')) return 24*60*60*1000;
@@ -277,14 +296,21 @@
       return null;
     }
 
-    // -------- State --------
+    // ===== State =====
     let ALL=[], CTX=null, charts={};
+    let deptSelectPopulated=false;
+    let currentDeptFilter='__ALL__';
 
     function groupCount(arr, keyFn){ const m=new Map(); for(const r of arr){ const k=keyFn(r); m.set(k,(m.get(k)||0)+1); } return m; }
     function asRows(keys,gPrev,gCurr,label){ const out=[]; for(const k of keys){ const p=gPrev.get(k)||0, c=gCurr.get(k)||0; out.push({[label]:k,'קודם':p,'היום':c,'Δ':c-p,'Δ%': p?(((c-p)/p*100).toFixed(1)+'%'):''}); } return out.sort((a,b)=>b['היום']-a['היום']); }
 
+    function applyFilter(rows,cfg){
+      if(currentDeptFilter==='__ALL__') return rows;
+      return rows.filter(r => (r[cfg.deptCol]||'').toString().trim()===currentDeptFilter);
+    }
+
     function calc(){
-      const cfg={
+      let cfg={
         dateCol: $('dateCol').value.trim(), statusCol:$('statusCol').value.trim(), deptCol:$('deptCol').value.trim(),
         unitCol:$('unitCol').value.trim(), cityCol:$('cityCol').value.trim(), sourceCol:$('sourceCol').value.trim(),
         issueCol:$('issueCol').value.trim(), trackCol:$('trackCol').value.trim(), nameCol:$('nameCol').value.trim(),
@@ -292,42 +318,66 @@
       };
       cfg.openSet=new Set(($('openStatuses').value||'').split(',').map(s=>s.trim()).filter(Boolean));
 
-      // parse dates safely (fix getFullYear error)
+      // אוטו-זיהוי לעמודת סנאפשוט
+      const cols = Object.keys(ALL[0] || {});
+      if (!cols.includes(cfg.dateCol)) {
+        if (cols.includes('תאריך/שעת שונה לאחרונה')) cfg.dateCol = 'תאריך/שעת שונה לאחרונה';
+        else if (cols.includes('תאריך/שעת פתיחה')) cfg.dateCol = 'תאריך/שעת פתיחה';
+      }
+
+      // parse dates safely
       const base = ALL.map(r=> ({...r, __d: parseExcelDate(r[cfg.dateCol])}));
       const onlyD = base.filter(r=> r.__d instanceof Date);
-      if(!onlyD.length){ $('msg').textContent='לא נמצאו תאריכים תקינים בעמודה "'+cfg.dateCol+'" (בדקי שם עמודה/פורמט).'; return; }
-      const withSnap = onlyD.map(r=> ({...r, __snap: snap(r.__d)}));
+      if(!onlyD.length){ $('msg').textContent='לא נמצאו תאריכים תקינים בעמודה "'+cfg.dateCol+'".'; return; }
+      const withSnap = onlyD.map(r=> ({...r, __snap: new Date(r.__d.getFullYear(),r.__d.getMonth(),r.__d.getDate())}));
+
+      // populate department filter once
+      if(!deptSelectPopulated){
+        const opts = uniq(withSnap.map(r=>(r[cfg.deptCol]||'').toString().trim()).filter(Boolean)).sort();
+        const sel=$('deptFilter'); opts.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+        deptSelectPopulated=true;
+      }
 
       const dates=[...new Set(withSnap.map(r=>r.__snap.getTime()))].sort((a,b)=>a-b).map(t=>new Date(t));
       const current=dates.at(-1), prev=dates.length>1?dates.at(-2):null;
-      if(!prev){ $('msg').textContent='נדרש לפחות עוד יום אחד להשוואה (העליתי רק סנאפשוט אחד).'; }
-
       const isOpen = s=> s!=null && cfg.openSet.has(String(s).trim());
-      const currOpen=withSnap.filter(r=>r.__snap.getTime()===current.getTime() && isOpen(r[cfg.statusCol]));
-      const prevOpen= prev ? withSnap.filter(r=>r.__snap.getTime()===prev.getTime() && isOpen(r[cfg.statusCol])) : [];
 
-      const totalsByDate = dates.map(d=>({date:d, open: withSnap.filter(r=>r.__snap.getTime()===d.getTime() && isOpen(r[cfg.statusCol])).length}));
+      const currAllOpen = withSnap.filter(r=>r.__snap.getTime()===current.getTime() && isOpen(r[cfg.statusCol]));
+      const prevAllOpen = prev ? withSnap.filter(r=>r.__snap.getTime()===prev.getTime() && isOpen(r[cfg.statusCol])) : [];
+
+      // apply filter for KPIs + SLA + duplicates + most charts
+      const currOpen = applyFilter(currAllOpen,cfg);
+      const prevOpen = applyFilter(prevAllOpen,cfg);
+
+      // trend per day — computed AFTER filter
+      const totalsByDate = dates.map(d=>{
+        const rows = withSnap.filter(r=> r.__snap.getTime()===d.getTime() && isOpen(r[cfg.statusCol]));
+        const rowsFiltered = applyFilter(rows,cfg);
+        return {date:d, open: rowsFiltered.length};
+      });
 
       const keyDept=r=>(r[cfg.deptCol]||'לא צוין').toString().trim()||'לא צוין';
       const keyCity=r=>(r[cfg.cityCol]||'לא צוין').toString().trim()||'לא צוין';
       const keyUnit=r=>(r[cfg.unitCol]||'לא צוין').toString().trim()||'לא צוין';
       const keySource=r=>(r[cfg.sourceCol]||'לא צוין').toString().trim()||'לא צוין';
 
-      const prevDept=groupCount(prevOpen,keyDept), currDept=groupCount(currOpen,keyDept);
+      // by-Department chart (always global for comparison picture)
+      const prevDept=groupCount(prevAllOpen,keyDept), currDept=groupCount(currAllOpen,keyDept);
+      const byDept=asRows(new Set([...prevDept.keys(),...currDept.keys()]),prevDept,currDept,'מחלקה');
+
+      // other breakdowns respect filter
       const prevCity=groupCount(prevOpen,keyCity), currCity=groupCount(currOpen,keyCity);
       const prevUnit=groupCount(prevOpen,keyUnit), currUnit=groupCount(currOpen,keyUnit);
       const prevSrc =groupCount(prevOpen,keySource), currSrc =groupCount(currOpen,keySource);
-
-      const byDept=asRows(new Set([...prevDept.keys(),...currDept.keys()]),prevDept,currDept,'מחלקה');
       const byCity=asRows(new Set([...prevCity.keys(),...currCity.keys()]),prevCity,currCity,'עיר').slice(0,10);
       const byUnit=asRows(new Set([...prevUnit.keys(),...currUnit.keys()]),prevUnit,currUnit,'יחידה').slice(0,10);
       const bySource=asRows(new Set([...prevSrc.keys(),...currSrc.keys()]),prevSrc,currSrc,'מקור');
 
-      // Duplicates (today)
+      // Duplicates (today, filtered)
       function dup(field,title){ const fld=cfg[field+'Col']; if(!fld) return []; const m=new Map(); for(const r of currOpen){ const k=(r[fld]??'').toString().trim(); if(!k) continue; m.set(k,(m.get(k)||0)+1);} const out=[]; for(const [v,c] of m.entries()) if(c>1) out.push({שדה:title,ערך:v,כמות:c}); return out.sort((a,b)=>b.כמות-a.כמות).slice(0,200); }
       const dups=[...dup('track','מספר מעקב'),...dup('name','שם לקוח'),...dup('mail','מייל לקוח')];
 
-      // SLA
+      // SLA (filtered)
       const slaMap=new Map(); let ok=0,bad=0,unk=0;
       currOpen.forEach(r=>{
         const openDt=parseExcelDate(r[cfg.openDateTimeCol]); const dur=slaDurationMs(r,cfg);
@@ -339,11 +389,11 @@
       const slaPie=[{label:'בתוך SLA',value:ok},{label:'חרגו SLA',value:bad},{label:'לא ניתן לחשב',value:unk}];
 
       const totPrev=prevOpen.length, totCurr=currOpen.length, delta=totCurr-totPrev, pct=totPrev?((delta)/totPrev*100):null;
-      CTX={cfg, dates:{current,prev}, currOpen, prevOpen, totals:{prev:totPrev,curr:totCurr,delta,pct}, totalsByDate, byDept, byCity, byUnit, bySource, dups, slaRows, slaPie};
+      CTX={cfg, filter:currentDeptFilter, dates:{current,prev}, currOpen, prevOpen, currAllOpen, prevAllOpen, totals:{prev:totPrev,curr:totCurr,delta,pct}, totalsByDate, byDept, byCity, byUnit, bySource, dups, slaRows, slaPie};
       render();
     }
 
-    // -------- Detail modal --------
+    // ===== Detail modal =====
     const detailModal=$('detailModal'), detailTitle=$('detailTitle'), detailSub=$('detailSub'), detailHead=$('detailHead'), detailBody=$('detailBody');
     let _detailRows=[];
     function openDetail(title, sub, rows){
@@ -376,7 +426,7 @@
       detailModal.showModal();
     }
 
-    // -------- Render --------
+    // ===== Render =====
     function tbody(id, rows, withOpenCb){
       const el=$(id); el.innerHTML='';
       rows.forEach(r=>{
@@ -399,31 +449,34 @@
       const ok=CTX.slaPie.find(x=>x.label==='בתוך SLA')?.value||0, bad=CTX.slaPie.find(x=>x.label==='חרגו SLA')?.value||0;
       $('slaOk').textContent=ok; $('slaBad').textContent=bad; $('slaRate').textContent= (ok+bad>0? (bad/(ok+bad)*100).toFixed(1)+'%':'—');
 
+      // טבלאות SLA וכפילויות
       tbody('slaBody', CTX.slaRows, (row)=>{
         const dept = row['מחלקה'];
         const rows = CTX.currOpen.filter(r=> (r[CTX.cfg.deptCol]||'').toString().trim()===dept);
-        openDetail('פירוט SLA — '+dept, 'שורות מתוך היום', rows);
+        openDetail('פירוט SLA — '+dept, 'שורות מתוך היום' + (CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), rows);
       });
       tbody('dupsBody', CTX.dups, (row)=>{
         let fld=CTX.cfg.trackCol, title=row['שדה'];
         if(title==='שם לקוח') fld=CTX.cfg.nameCol;
         if(title==='מייל לקוח') fld=CTX.cfg.mailCol;
         const rows = CTX.currOpen.filter(r=> (r[fld]||'').toString().trim()===row['ערך']);
-        openDetail('פירוט כפילויות — '+title+'='+row['ערך'], 'שורות מתוך היום', rows);
+        openDetail('פירוט כפילויות — '+title+'='+row['ערך'], 'שורות מתוך היום' + (CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), rows);
       });
 
+      // גרפים
       makeChart('trendChart', {type:'line', data:{ labels: CTX.totalsByDate.map(x=>fmt(x.date)), datasets:[{label:'פתוחות', data: CTX.totalsByDate.map(x=>x.open), tension:.35, fill:true}] }, options:{plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}});
       makeChart('slaPieChart', {type:'doughnut', data:{labels:CTX.slaPie.map(x=>x.label), datasets:[{data:CTX.slaPie.map(x=>x.value)}]}, options:{plugins:{legend:{position:'bottom'}}}});
+
       const labelsDept=CTX.byDept.map(r=>r['מחלקה']);
-      makeChart('deptBar',{type:'bar', data:{labels:labelsDept, datasets:[{label:'היום', data:CTX.byDept.map(r=>r['היום'])},{label:'קודם', data:CTX.byDept.map(r=>r['קודם'])}]}, options:{plugins:{legend:{position:'bottom'}}, scales:{x:{ticks:{autoSkip:false}},y:{beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const el=els[0]; const label=labelsDept[el.index]; const ds=e.chart.data.datasets[el.datasetIndex].label; const rows = (ds==='היום'? CTX.currOpen:CTX.prevOpen).filter(r=> (r[CTX.cfg.deptCol]||'').toString().trim()===label); openDetail(`מחלקה: ${label}`, `מקור: ${ds}`, rows); } }});
+      makeChart('deptBar',{type:'bar', data:{labels:labelsDept, datasets:[{label:'היום', data:CTX.byDept.map(r=>r['היום'])},{label:'קודם', data:CTX.byDept.map(r=>r['קודם'])}]}, options:{plugins:{legend:{position:'bottom'}}, scales:{x:{ticks:{autoSkip:false}},y:{beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const el=els[0]; const label=labelsDept[el.index]; const ds=e.chart.data.datasets[el.datasetIndex].label; const rows = (ds==='היום'? CTX.currAllOpen:CTX.prevAllOpen).filter(r=> (r[CTX.cfg.deptCol]||'').toString().trim()===label); openDetail(`מחלקה: ${label}`, `מקור: ${ds} (ללא סינון)`, rows); } }});
       const labelsSrc=CTX.bySource.map(r=>r['מקור']);
-      makeChart('sourceStack',{type:'bar', data:{labels:labelsSrc, datasets:[{label:'היום', data:CTX.bySource.map(r=>r['היום'])},{label:'קודם', data:CTX.bySource.map(r=>r['קודם'])}]}, options:{plugins:{legend:{position:'bottom'}}, scales:{x:{stacked:true}, y:{stacked:true, beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const el=els[0]; const label=labelsSrc[el.index]; const ds=e.chart.data.datasets[el.datasetIndex].label; const rows = (ds==='היום'? CTX.currOpen:CTX.prevOpen).filter(r=> (r[CTX.cfg.sourceCol]||'').toString().trim()===label); openDetail(`מקור פנייה: ${label}`, `מקור: ${ds}`, rows); } }});
-      makeChart('cityHBar',{type:'bar', data:{labels:CTX.byCity.map(r=>r['עיר']), datasets:[{label:'היום', data:CTX.byCity.map(r=>r['היום'])}]}, options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index]; const rows=CTX.currOpen.filter(r=> (r[CTX.cfg.cityCol]||'').toString().trim()===label); openDetail('עיר: '+label,'שורות היום', rows); } }});
-      makeChart('unitHBar',{type:'bar', data:{labels:CTX.byUnit.map(r=>r['יחידה']), datasets:[{label:'היום', data:CTX.byUnit.map(r=>r['היום'])}]}, options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index]; const rows=CTX.currOpen.filter(r=> (r[CTX.cfg.unitCol]||'').toString().trim()===label); openDetail('יחידה: '+label,'שורות היום', rows); } }});
+      makeChart('sourceStack',{type:'bar', data:{labels:labelsSrc, datasets:[{label:'היום', data:CTX.bySource.map(r=>r['היום'])},{label:'קודם', data:CTX.bySource.map(r=>r['קודם'])}]}, options:{plugins:{legend:{position:'bottom'}}, scales:{x:{stacked:true}, y:{stacked:true, beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const el=els[0]; const label=labelsSrc[el.index]; const ds=e.chart.data.datasets[el.datasetIndex].label; const rows = (ds==='היום'? CTX.currOpen:CTX.prevOpen).filter(r=> (r[CTX.cfg.sourceCol]||'').toString().trim()===label); openDetail(`מקור פנייה: ${label}`, `מקור: ${ds}` + (CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), rows); } }});
+      makeChart('cityHBar',{type:'bar', data:{labels:CTX.byCity.map(r=>r['עיר']), datasets:[{label:'היום', data:CTX.byCity.map(r=>r['היום'])}]}, options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index]; const rows=CTX.currOpen.filter(r=> (r[CTX.cfg.cityCol]||'').toString().trim()===label); openDetail('עיר: '+label,'שורות היום'+(CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), rows); } }});
+      makeChart('unitHBar',{type:'bar', data:{labels:CTX.byUnit.map(r=>r['יחידה']), datasets:[{label:'היום', data:CTX.byUnit.map(r=>r['היום'])}]}, options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true}}, onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index]; const rows=CTX.currOpen.filter(r=> (r[CTX.cfg.unitCol]||'').toString().trim()===label); openDetail('יחידה: '+label,'שורות היום'+(CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), rows); } }});
 
       // KPI drill
-      $('btnOpenToday').onclick = ()=> openDetail('כל הפניות הפתוחות — היום', fmt(CTX.dates.current), CTX.currOpen);
-      $('btnOpenPrev').onclick  = ()=> openDetail('כל הפניות הפתוחות — קודם', CTX.dates.prev?fmt(CTX.dates.prev):'—', CTX.prevOpen);
+      $('btnOpenToday').onclick = ()=> openDetail('כל הפניות הפתוחות — היום', fmt(CTX.dates.current) + (CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), CTX.currOpen);
+      $('btnOpenPrev').onclick  = ()=> openDetail('כל הפניות הפתוחות — קודם', (CTX.dates.prev?fmt(CTX.dates.prev):'—') + (CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), CTX.prevOpen);
       $('btnOpenSLA').onclick   = ()=> {
         const okRows=[], badRows=[], unkRows=[];
         CTX.currOpen.forEach(r=>{
@@ -431,19 +484,19 @@
           let st='unk'; if(openDt && dur!=null){ const deadline=new Date(openDt.getTime()+dur); st = deadline.getTime()>=CTX.dates.current.getTime() ? 'ok':'bad'; }
           if(st==='ok') okRows.push(r); else if(st==='bad') badRows.push(r); else unkRows.push(r);
         });
-        openDetail('SLA — פירוט היום', `בתוך:${okRows.length} | חריגות:${badRows.length} | לא ניתן לחשב:${unkRows.length}`, okRows.concat(badRows).concat(unkRows));
+        openDetail('SLA — פירוט היום', `בתוך:${okRows.length} | חריגות:${badRows.length} | לא ניתן לחשב:${unkRows.length}` + (CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), okRows.concat(badRows).concat(unkRows));
       };
       $('btnOpenSLAChart').onclick = $('btnOpenSLA').onclick;
 
-      // “פתח טבלה” כלליות לפי קבוצות
-      $('btnOpenDeptAll').onclick = ()=> openDetail('טבלת מחלקות — היום', 'לפי מחלקה', CTX.currOpen);
-      $('btnOpenSourceAll').onclick = ()=> openDetail('טבלת מקורות — היום', 'לפי מקור פנייה', CTX.currOpen);
-      $('btnOpenCityAll').onclick = ()=> openDetail('טבלת ערים — היום', 'לפי עיר', CTX.currOpen);
-      $('btnOpenUnitAll').onclick = ()=> openDetail('טבלת יחידות — היום', 'לפי יחידה', CTX.currOpen);
+      // “טבלאות כלליות”
+      $('btnOpenDeptAll').onclick = ()=> openDetail('טבלת מחלקות — היום (ללא סינון)', 'לפי מחלקה', CTX.currAllOpen);
+      $('btnOpenSourceAll').onclick = ()=> openDetail('טבלת מקורות — היום', 'לפי מקור פנייה'+(CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), CTX.currOpen);
+      $('btnOpenCityAll').onclick = ()=> openDetail('טבלת ערים — היום', 'לפי עיר'+(CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), CTX.currOpen);
+      $('btnOpenUnitAll').onclick = ()=> openDetail('טבלת יחידות — היום', 'לפי יחידה'+(CTX.filter!=='__ALL__'?' • סינון: '+CTX.filter:''), CTX.currOpen);
 
       // Export CSV מהיר
       $('exportTrend').onclick=()=> {
-        const rows=CTX.totalsByDate.map(x=>({תאריך:fmt(x.date), פתוחות:x.open}));
+        const rows=CTX.totalsByDate.map(x=>({תאריך:fmt(x.date), פתוחות:x.open, סינון: CTX.filter==='__ALL__'?'הכול':CTX.filter}));
         const csv = toCSV(rows); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
         const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='trend.csv'; a.click(); URL.revokeObjectURL(url);
       };
@@ -454,20 +507,22 @@
         const csv = toCSV(CTX.dups); const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'})); const a=document.createElement('a'); a.href=url; a.download='duplicates.csv'; a.click(); URL.revokeObjectURL(url);
       };
 
-      $('msg').textContent='הקובץ נטען. לחצי על “פתח טבלה” או על עמודות בגרפים כדי להוריד פירוט כ-.xlsx';
+      $('msg').textContent='הקובץ נטען. סינון נוכחי: '+(CTX.filter==='__ALL__'?'הכול':CTX.filter)+'. לחצי על “פתח טבלה” או על עמודות בגרפים כדי להוריד פירוט כ-.xlsx';
     }
 
-    // -------- File input & buttons --------
+    // ===== Events =====
     $('fileInput').addEventListener('change', async (e)=>{
       const f=e.target.files?.[0]; if(!f) return; $('msg').textContent='טוען קובץ…';
       try{
         const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]];
         const rows=XLSX.utils.sheet_to_json(ws,{defval:''}); if(!rows.length) throw new Error('אין נתונים בקובץ');
-        ALL=rows; saveCfg(); calc();
+        ALL=rows; saveCfg(); deptSelectPopulated=false; currentDeptFilter='__ALL__'; $('deptFilter').value='__ALL__'; calc();
       }catch(err){ console.error(err); $('msg').textContent='שגיאה: '+err.message; }
     });
     $('btnRecalc').onclick=calc;
     $('btnReset').onclick=()=>{ ALL=[]; CTX=null; Object.values(charts).forEach(c=>c.destroy()); charts={}; document.querySelectorAll('tbody').forEach(t=>t.innerHTML=''); ['kpis','charts','tables'].forEach(id=>$(id).classList.add('hidden')); $('msg').textContent='נא להעלות קובץ חדש.'; };
+    $('btnApplyFilter').onclick=()=>{ currentDeptFilter=$('deptFilter').value||'__ALL__'; calc(); };
+    $('btnClearFilter').onclick=()=>{ currentDeptFilter='__ALL__'; $('deptFilter').value='__ALL__'; calc(); };
   </script>
 </body>
 </html>
