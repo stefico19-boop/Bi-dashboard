@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>דשבורד BI • פניות פתוחות</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -14,7 +14,6 @@
   th,td{border-bottom:1px solid #e5e7eb;padding:.55rem .6rem;white-space:nowrap}
   .btn{padding:.6rem 1rem;border-radius:12px;border:1px solid #7c3aed;background:#7c3aed;color:#fff}
   .btn.secondary{background:transparent;color:#7c3aed}
-  /* modal */
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;padding:24px;z-index:50}
   .modal .box{max-width:1200px;width:100%;background:#fff;border-radius:16px;border:1px solid #e5e7eb;padding:16px}
   @media (prefers-color-scheme:dark){.modal .box{background:#111827;border-color:#334155}}
@@ -23,7 +22,7 @@
 <body class="min-h-screen bg-slate-50 p-4">
 
 <h1 class="text-2xl font-bold mb-2">דשבורד BI • פניות פתוחות</h1>
-<p class="text-slate-500 text-sm mb-4">טעינת Excel → KPI נכונים, פירוט סטטוסים, כפילויות נפרדות, ו־טבלת כל הפניות עם ייצוא ‎.xlsx</p>
+<p class="text-slate-500 text-sm mb-4">טעינת Excel → KPI נכונים, פירוט סטטוסים, כפילויות, וטבלת כל הפניות עם ייצוא ‎.xlsx. ההשוואה היומית נעשית לפי <b>תאריך/שעת פתיחה</b>.</p>
 
 <!-- קלט קובץ -->
 <div class="card mb-3">
@@ -53,12 +52,12 @@
     <div id="kpiAllOpen" class="text-3xl font-extrabold num">—</div>
   </div>
   <div class="card">
-    <div class="text-sm text-slate-500">פתוחות — יום אחרון</div>
+    <div class="text-sm text-slate-500">פתוחות — יום אחרון (לפי תאריך פתיחה)</div>
     <div id="kpiToday" class="text-3xl font-extrabold num">—</div>
     <div class="text-xs text-slate-500">נכון ל־<span id="lblCurr">—</span></div>
   </div>
   <div class="card">
-    <div class="text-sm text-slate-500">פתוחות — היום הקודם</div>
+    <div class="text-sm text-slate-500">פתוחות — היום הקודם (לפי תאריך פתיחה)</div>
     <div id="kpiPrev" class="text-3xl font-extrabold num">—</div>
     <div class="text-xs text-slate-500">נכון ל־<span id="lblPrev">—</span></div>
   </div>
@@ -148,10 +147,10 @@
 <script>
 const $=id=>document.getElementById(id);
 
-/* === מיפוי כותרות (שמות כפי שמופיעים אצלך) === */
+/* === מיפוי כותרות: התאימי לשמות המדויקים בקובץ שלך === */
 const MAP = {
-  snap:  'תאריך שינוי אחרון',      // להשוואת ימים
-  open:  'תאריך/שעת פתיחה',        // SLA
+  open:  'תאריך/שעת פתיחה',        // *** לשם זה עוברים לחישובי יום/אתמול
+  snap:  'תאריך שינוי אחרון',      // נשאר לשימושים אחרים אם תצטרכי
   status:'סטאטוס פנייה',
   dept:  'מחלקה מטפלת',
   city:  'עיר',
@@ -162,21 +161,21 @@ const MAP = {
   prod:  'סיווג מוצר',
   topic: 'סיווג נושא',
   issue: 'סיווג בעיה',
-  idcol: 'מספר מקרה'               // אם קיים – מציגים בטבלאות
+  idcol: 'מספר מקרה'
 };
 
-/* סטטוסים "פתוחים" להשוואה יומית בלבד (הקובץ כולו פתוחות ממילא) */
+/* סטטוסים "פתוחים" להשוואה היומית */
 const OPEN = new Set(['חדש','בתהליך','המתנה לגורם פנימי','המתנה למסמכים מהלקוח','פתוח','בטיפול','פתוח/בתהליך']);
 
-/* כללי SLA שסוכמו */
+/* כלליי SLA עפ״י ההנחיות שלך */
 const SLA_RULES = (row) => {
   const dept = (row[MAP.dept]||'').toString().toLowerCase();
   const txt  = JSON.stringify(row).toLowerCase();
   if (txt.includes('תקלה בפורטל')) return 24*60*60*1000;
-  if (dept.includes('בינלאומי'))   return 60*24*60*1000;
-  if (dept.includes('פנים') && (txt.includes('חלוקת דואר')||txt.includes('יחידות דואר'))) return 8*24*60*1000;
+  if (dept.includes('בינלאומי'))   return 60*24*60*60*1000;
+  if (dept.includes('פנים') && (txt.includes('חלוקת דואר')||txt.includes('יחידות דואר'))) return 8*24*60*60*1000;
   if (dept.includes('שליח') && txt.includes('איסוף והזמנה')) return 24*60*60*1000;
-  if (dept.includes('פנים') || dept.includes('שליח')) return 30*24*60*1000;
+  if (dept.includes('פנים') || dept.includes('שליח')) return 30*24*60*60*1000;
   return null;
 };
 
@@ -186,17 +185,16 @@ const fmt = d => String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).
 function parseExcelDate(v){
   if(v==null||v==='') return null;
   if(v instanceof Date) return v;
-  if(typeof v==='number') return new Date(Math.round((v-25569)*86400*1000)); // serial
+  if(typeof v==='number') return new Date(Math.round((v-25569)*86400*1000));
   const d=new Date(v); if(!isNaN(d)) return d;
   const m=String(v).trim().match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if(m) return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0));
   return null;
 }
 
-/* מצב גלובלי לטבלאות */
+/* מצב גלובלי */
 let ALL=[], HEADERS=[], CURR=null, PREV=null;
 
-/* === טעינת קובץ === */
 $('fileInput').addEventListener('change', async (e)=>{
   const f=e.target.files?.[0];
   if(!f) return;
@@ -217,38 +215,42 @@ $('fileInput').addEventListener('change', async (e)=>{
     $('fiCols').innerHTML = HEADERS.map(h=>'• '+h).join(' &nbsp; ');
     if(!rows.length){ $('fiNote').textContent='הקובץ ריק'; return;}
 
-    // המרה לעזרי תאריך
+    // === המרה לעזרי תאריך – לפי תאריך/שעת פתיחה ===
     ALL = rows.map(r=>{
-      const s=parseExcelDate(r[MAP.snap]);
-      return {...r, __snap: s? dayOnly(s): null};
+      const openDt = parseExcelDate(r[MAP.open]);
+      return {
+        ...r,
+        __openDay: openDt ? dayOnly(openDt) : null,  // יום פתיחה (ללא שעה)
+      };
     });
 
-    // KPI: סה״כ פתוחות = כל הרשומות
+    // סה״כ פתוחות = כל הרשומות בקובץ
     $('kpiAllOpen').textContent = ALL.length.toLocaleString('he-IL');
 
-    // יום אחרון/קודם (לפי עמודת "תאריך שינוי אחרון")
-    const validDays = ALL.filter(r=>r.__snap).map(r=>r.__snap.getTime());
-    const uniq = [...new Set(validDays)].sort((a,b)=>a-b);
-    CURR = uniq.length? new Date(uniq.at(-1)) : null;
-    PREV = uniq.length>1? new Date(uniq.at(-2)) : null;
-    $('lblCurr').textContent = CURR ? fmt(CURR) : '—';
-    $('lblPrev').textContent = PREV ? fmt(PREV) : '—';
+    // === היום/אתמול לפי שעון המכשיר – לפי תאריך פתיחה ===
+    const nowLocal = new Date();
+    CURR = dayOnly(nowLocal);                         // היום
+    PREV = new Date(CURR.getTime() - 24*60*60*1000);  // אתמול
+
+    $('lblCurr').textContent = fmt(CURR);
+    $('lblPrev').textContent = fmt(PREV);
 
     const isOpen = s => s!=null && OPEN.has(String(s).trim());
-    const todayRows = CURR? ALL.filter(r=> r.__snap && r.__snap.getTime()===CURR.getTime() && isOpen(r[MAP.status])):[];
-    const prevRows  = PREV? ALL.filter(r=> r.__snap && r.__snap.getTime()===PREV.getTime() && isOpen(r[MAP.status])):[];
+
+    const todayRows = ALL.filter(r => r.__openDay && r.__openDay.getTime() === CURR.getTime() && isOpen(r[MAP.status]));
+    const prevRows  = ALL.filter(r => r.__openDay && r.__openDay.getTime() === PREV.getTime() && isOpen(r[MAP.status]));
 
     $('kpiToday').textContent = todayRows.length;
-    $('kpiPrev').textContent  = prevRows.length||0;
-    const delta = todayRows.length - (prevRows.length||0);
-    $('kpiDelta').textContent = (delta>0?'+':'')+delta;
-    $('kpiPct').textContent   = prevRows.length? ((delta/prevRows.length*100).toFixed(1)+'%') : '—';
+    $('kpiPrev').textContent  = prevRows.length;
+    const delta = todayRows.length - prevRows.length;
+    $('kpiDelta').textContent = (delta>0?'+':'') + delta;
+    $('kpiPct').textContent   = prevRows.length ? ((delta/prevRows.length*100).toFixed(1)+'%') : '—';
 
     $('kpis').classList.remove('hidden');
     $('btnOpenTable').classList.remove('hidden');
 
-    // SLA – על בסיס היום האחרון בלבד (אם יש "תאריך/שעת פתיחה")
-    if(HEADERS.includes(MAP.open) && CURR){
+    // SLA – על בסיס היום ולפי תאריך פתיחה
+    if(HEADERS.includes(MAP.open)){
       let ok=0,bad=0,unk=0;
       todayRows.forEach(r=>{
         const opened=parseExcelDate(r[MAP.open]); const ms=SLA_RULES(r);
@@ -261,7 +263,7 @@ $('fileInput').addEventListener('change', async (e)=>{
       $('slaBox').classList.remove('hidden');
     }
 
-    // פירוט סטטוסים – על כל הרשומות
+    // פירוט סטטוסים – כל הרשומות
     const byStatus=new Map();
     ALL.forEach(r=>{
       const s=(r[MAP.status]||'').toString().trim()||'—';
@@ -274,7 +276,7 @@ $('fileInput').addEventListener('change', async (e)=>{
       .join('');
     $('statusWrap').classList.remove('hidden');
 
-    // כפילויות – בנפרד
+    // כפילויות
     $('dupTrack').textContent = countDups(ALL, MAP.track);
     $('dupName').textContent  = countDups(ALL, MAP.name);
     $('dupMail').textContent  = countDups(ALL, MAP.mail);
@@ -307,7 +309,6 @@ function openTable(title, rows){
   drawHeader();
   renderChunk(true);
 }
-
 function drawHeader(){
   const cols = selectColumns();
   const head = `<table class="min-w-[900px] text-sm"><thead><tr>${
@@ -315,13 +316,10 @@ function drawHeader(){
   }</tr></thead><tbody id="tbody"></tbody></table>`;
   tableWrap.innerHTML=head;
 }
-
 function selectColumns(){
-  // עמודות מומלצות לתצוגה
-  const pref=[MAP.idcol, MAP.status, MAP.dept, MAP.city, MAP.source, MAP.track, MAP.name, MAP.mail, MAP.open, MAP.snap];
+  const pref=[MAP.idcol, MAP.status, MAP.dept, MAP.city, MAP.source, MAP.track, MAP.name, MAP.mail, MAP.open];
   return pref.filter(c=>HEADERS.includes(c));
 }
-
 function renderChunk(reset){
   const tbody=document.getElementById('tbody');
   const cols=selectColumns();
@@ -338,7 +336,6 @@ function renderChunk(reset){
   rendered=end;
   btnMore.classList.toggle('hidden', rendered>=currentRows.length);
 }
-
 function applySearch(){
   const q=searchBox.value.trim().toLowerCase();
   if(!q){ currentRows=[...ALL]; }
@@ -352,7 +349,6 @@ function applySearch(){
   }
   renderChunk(true);
 }
-
 function exportXLSX(rows, filename){
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -374,11 +370,9 @@ function showDupValues(col, title){
     map.set(v,(map.get(v)||0)+1);
   });
   const arr=[...map.entries()].filter(([,n])=>n>1).sort((a,b)=>b[1]-a[1]);
-  // ממירים לרשומות לתצוגה (ערך + ספירה)
   const rows = arr.map(([v,n])=>({ערך:v, כמות:n}));
   openTable(title, rows);
 
-  // בלחיצה על ערך – מציגים את כל הרשומות שלו
   tableWrap.addEventListener('click', onClickValue);
   function onClickValue(ev){
     const td=ev.target.closest('td'); if(!td) return;
