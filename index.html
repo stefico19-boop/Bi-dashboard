@@ -591,17 +591,54 @@
   }
 
   const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+<script>
+(() => {
+  const MIN_COUNT = 100;
+
+  // ---- עמודות אפשריות (עם התאמה רכה) ----
+  const CITY_KEYWORDS = ['עיר','יישוב'];
+  const UNIT_KEYWORDS = ['יחידת','דואר','שם'];
+
+  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+
   function isOpenRow(row) {
     const key = findCol(row, OPEN_STATUS_COL_KEYS);
-    if (!key) return true; // אם אין סטטוס — נחשב כפתוח
+    if (!key) return true;
     const val = String(row[key] ?? '').trim();
     const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
     return !closed.some(c => val === c || val.includes(c));
   }
 
-  function aggregateOpenCounts(rows, colKeys) {
+  function findCol(obj, keysOrKeywords) {
+    if (!obj) return null;
+    // ניסיון התאמה מדויקת
+    for (const k of keysOrKeywords) if (k in obj) return k;
+
+    // התאמה רכה לפי מילות מפתח
+    const norm = (s) => String(s).replace(/\s+/g,'').toLowerCase();
+    for (const colName in obj) {
+      const n = norm(colName);
+      if (Array.isArray(keysOrKeywords[0])) continue;
+    }
+    return null;
+  }
+
+  // התאמה רכה: מכיל את כל המילים ברשימה
+  function findColByKeywords(obj, keywords) {
+    for (const col in obj) {
+      const low = col.toLowerCase();
+      if (keywords.every(k => low.includes(k.toLowerCase()))) {
+        return col;
+      }
+    }
+    return null;
+  }
+
+  function aggregateOpenCounts(rows, keywords, exactKeys=[]) {
     if (!rows?.length) return { col: null, items: [] };
-    const col = findCol(rows[0], colKeys);
+
+    let col = findCol(rows[0], exactKeys);
+    if (!col) col = findColByKeywords(rows[0], keywords);
     if (!col) return { col: null, items: [] };
 
     const map = new Map();
@@ -613,11 +650,10 @@
       map.set(key, (map.get(key) || 0) + 1);
     }
 
-    // סינון לפי מינימום, מיון יורד
     const items = Array.from(map.entries())
       .filter(([, c]) => c >= MIN_COUNT)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, count]) => ({ name, count }));
+      .sort((a,b) => b[1]-a[1])
+      .map(([name,count]) => ({ name, count }));
 
     return { col, items };
   }
@@ -633,18 +669,9 @@
         <span class="text-ink-50/90">${escapeHTML(it.name)}</span>
         <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10 font-semibold">
           ${it.count.toLocaleString('he-IL')} פניות
-        </span>
-      `;
+        </span>`;
       el.appendChild(row);
     }
-  }
-
-  function setMessage(msgId, haveCol, itemsLen, missingMsg, emptyMsg) {
-    const m = document.getElementById(msgId);
-    if (!m) return;
-    if (!haveCol) m.textContent = missingMsg;
-    else if (!itemsLen) m.textContent = emptyMsg;
-    else m.textContent = '';
   }
 
   function escapeHTML(s) {
@@ -656,44 +683,30 @@
       .replace(/'/g,'&#39;');
   }
 
-  // ---- רנדר ראשי ----
   function renderStep3Lists() {
     const rows = Array.isArray(window.__dataset) ? window.__dataset : [];
 
-    const byCity = aggregateOpenCounts(rows, CITY_COL_KEYS);
-    const byUnit = aggregateOpenCounts(rows, UNIT_COL_KEYS);
+    const byCity = aggregateOpenCounts(rows, CITY_KEYWORDS, ['עיר','יישוב']);
+    const byUnit = aggregateOpenCounts(rows, UNIT_KEYWORDS, ['יחידת דואר: שם']);
 
     renderList('listByCity', byCity.items);
     renderList('listByUnit', byUnit.items);
 
-    setMessage(
-      'msgCity',
-      !!byCity.col,
-      byCity.items.length,
-      'לא נמצאה עמודת "עיר/יישוב" בקובץ.',
-      `אין ערים עם לפחות ${MIN_COUNT.toLocaleString('he-IL')} פניות פתוחות.`
-    );
-    setMessage(
-      'msgUnit',
-      !!byUnit.col,
-      byUnit.items.length,
-      'לא נמצאה העמודה "יחידת דואר: שם" (או עמודה דומה) בקובץ.',
-      `אין יחידות דואר עם לפחות ${MIN_COUNT.toLocaleString('he-IL')} פניות פתוחות.`
-    );
+    document.getElementById('msgCity').textContent =
+      !byCity.col ? 'לא נמצאה עמודת עם מילים "עיר/יישוב".'
+                  : (!byCity.items.length ? `אין ערים עם ${MIN_COUNT}+ פניות.` : '');
+
+    document.getElementById('msgUnit').textContent =
+      !byUnit.col ? 'לא נמצאה עמודת עם מילים "יחידת דואר: שם".'
+                  : (!byUnit.items.length ? `אין יחידות עם ${MIN_COUNT}+ פניות.` : '');
   }
 
-  // ---- חיבור לזרימה של שלב 1/2: לאחר קליטת קובץ נרנדר רשימות ----
   if (typeof window.updateSuccessUI === 'function') {
     const __prev = window.updateSuccessUI;
     window.updateSuccessUI = function() {
       __prev.apply(this, arguments);
       setTimeout(renderStep3Lists, 0);
     };
-  }
-
-  // אם כבר נטען קובץ קודם — ננסה לרנדר כעת
-  if (Array.isArray(window.__dataset) && window.__dataset.length) {
-    renderStep3Lists();
   }
 })();
 </script>
