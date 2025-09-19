@@ -119,35 +119,29 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
 (() => {
   /* ====== HELPERS ====== */
   const tz = 'Asia/Jerusalem';
-  const today = new Date(); // נשתמש רק להצגה; חישובים תמיד לפי תאריך/שעת פתיחה
   const fmtDate = d => new Intl.DateTimeFormat('he-IL',{dateStyle:'short',timeStyle:'short',timeZone:tz}).format(d);
   const onlyDate = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const parseHebDate = (val) => {
     if (val == null || val === '') return null;
     if (val instanceof Date) return val;
     const s = String(val).trim();
-    // תבניות נפוצות: 19/09/2025 08:22  |  19/09/2025  |  2025-09-19
     let m = s.match(/^(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
     if (m){
       const dd=+m[1], mm=+m[2]-1, yyyy= +m[3] < 100 ? 2000+ +m[3] : +m[3];
       const hh=+(m[4]??'0'), mi=+(m[5]??'0'), ss=+(m[6]??'0');
       return new Date(yyyy,mm,dd,hh,mi,ss);
     }
-    // ISO
     const d = new Date(s);
     return isNaN(d) ? null : d;
   };
-
   const normalizeHeader = h => String(h||'')
       .replace(/[’'"]/g,'').replace(/\s+/g,' ').replace(/\s*\/\s*/g,'/').replace(/\s*\\\s*/g,'\\').trim();
 
   const DATE_CANDIDATES = new Set(['תאריך/שעת פתיחה','תאריך / שעת פתיחה','תאריך פתיחה','זמן פתיחה','תאריך-שעת פתיחה','תאריך ושעת פתיחה','תאריך\\שעת פתיחה'].map(normalizeHeader));
-
   const q = sel => document.querySelector(sel);
 
   /* ====== STATE ====== */
-  let RAW = [];           // שורות גולמיות
-  let HEADERS = [];       // שמות העמודות
+  let RAW = []; let HEADERS = [];
   let COL_DATE=null, COL_STATUS=null, COL_DEPT=null, COL_TRACK=null, COL_NAME=null, COL_EMAIL=null;
 
   // DOM
@@ -160,15 +154,18 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
   const modal=q('#modal'), btnClose=q('#btnClose'), btnExport=q('#btnExport'), searchBox=q('#searchBox'), tbl=q('#tbl'), modalHint=q('#modalHint');
   let modalRows=[], modalCols=[];
 
+  // payload storage to avoid <script type="application/json">
+  const PANEL_DATA = new Map(); // key: panel element, value: {rows,statusKey,deptKey}
+
   function showOK(msg){ statusLine.textContent=msg||'מוכן'; statusLine.classList.add('ok'); errorLine.style.display='none'; }
   function showErr(msg){ errorLine.textContent=msg||'שגיאה'; errorLine.style.display='inline-flex'; statusLine.classList.remove('ok'); }
   function resetUI(){
-    q('#btnClear').disabled=false;
     fileNameEl.textContent='לא נבחר קובץ'; rowCountEl.textContent='—';
     dateSelect.innerHTML=''; statusSelect.innerHTML=''; deptSelect.innerHTML='';
     dateSelect.disabled=statusSelect.disabled=deptSelect.disabled=true;
     dash.style.display='none'; tabs.innerHTML=''; panels.innerHTML='';
     RAW=[]; HEADERS=[]; COL_DATE=COL_STATUS=COL_DEPT=COL_TRACK=COL_NAME=COL_EMAIL=null;
+    PANEL_DATA.clear();
     showOK('מוכן להעלאה');
   }
   q('#btnClear').addEventListener('click', resetUI);
@@ -190,7 +187,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
       RAW=data; HEADERS=Object.keys(data[0]||{});
       rowCountEl.textContent = `${RAW.length.toLocaleString('he-IL')} שורות`;
 
-      // מילוי בוררים
       [dateSelect,statusSelect,deptSelect].forEach(s=>{ s.disabled=false; s.innerHTML=''; });
       HEADERS.forEach(h=>{
         for (const sel of [dateSelect,statusSelect,deptSelect]){
@@ -207,7 +203,7 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
       COL_DATE = autoDate || HEADERS[0];
       dateSelect.value = COL_DATE;
 
-      // סטטוס פנייה (ננסה לנחש)
+      // סטטוס פנייה
       COL_STATUS = HEADERS.find(h=>/סטטוס/.test(h))||HEADERS[0];
       statusSelect.value = COL_STATUS;
 
@@ -215,7 +211,7 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
       COL_DEPT = HEADERS.find(h=>/מחלקה.*מטפלת/.test(h))||HEADERS[0];
       deptSelect.value = COL_DEPT;
 
-      // עמודות אופציונליות לכפילויות
+      // עמודות כפילויות
       COL_TRACK = HEADERS.find(h=>/מספר.*מעקב|Tracking/i.test(h))||null;
       COL_NAME  = HEADERS.find(h=>/שם\s*לקוח/.test(h))||null;
       COL_EMAIL = HEADERS.find(h=>/דואר.*אלקטרוני|אימייל|Email/i.test(h))||null;
@@ -232,44 +228,34 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
   statusSelect.addEventListener('change', ()=>{ COL_STATUS=statusSelect.value; buildDashboard(); });
   deptSelect.addEventListener('change', ()=>{ COL_DEPT=deptSelect.value; buildDashboard(); });
 
-  /* ====== SLA RULES (ע"פ הבקשות שלך) ======
-     כל החישוב מול "תאריך/שעת פתיחה" בלבד.
-     - "חלוקת דואר" או "יחידות דואר" במחלקה מטפלת "פנים ארצי" → 8 ימים
-     - "תקלה בפורטל" → 24 שעות
-     - "איסוף" או "הזמנה" במחלקה מטפלת "שליחים" → 24 שעות
-     - כל שאר הנושאים במחלקות "פנים ארצי" או "שליחים" → 30 ימים
-     - כל מה שתחת מחלקה מטפלת "בינלאומי" → 60 ימים
-  */
+  /* ====== SLA RULES ====== */
   function slaLimitDays(row){
     const dept = String(row[COL_DEPT]||'').trim();
     const topic = (String(row['סיווג נושא']||row['סיווג מוצר']||'').trim());
-    const lower = topic.toLowerCase();
-
-    if (/תקלה.*פורטל/.test(topic)) return 1/1; // 24 שעות => יום 1 (נספור שעות בנפרד)
-    if (/שליחים/.test(dept) && /(איסוף|הזמנה)/.test(topic)) return 1/1;
-    if (/פנים\s*ארצי/.test(dept) && /(חלוקת\s*דואר|יחידות\s*דואר)/.test(topic)) return 8;
-    if (/בינלאומי/.test(dept)) return 60;
-    if (/פנים\s*ארצי|שליחים/.test(dept)) return 30;
-    return 30; // ברירת מחדל סבירה
+    if (/תקלה.*פורטל/.test(topic)) return {hours:24};
+    if (/שליחים/.test(dept) && /(איסוף|הזמנה)/.test(topic)) return {hours:24};
+    if (/פנים\s*ארצי/.test(dept) && /(חלוקת\s*דואר|יחידות\s*דואר)/.test(topic)) return {days:8};
+    if (/בינלאומי/.test(dept)) return {days:60};
+    if (/פנים\s*ארצי|שליחים/.test(dept)) return {days:30};
+    return {days:30};
   }
   function slaBreached(row, openDate){
-    const limit = slaLimitDays(row);
-    if (!openDate) return {status:'לא ניתן לחשב', days:null};
-    // 24 שעות מטופל כ-1 יום אבל נחשב בשעות
-    if (limit===1/1 && /תקלה.*פורטל|איסוף|הזמנה/.test(String(row['סיווג נושא']||row['סיווג מוצר']||''))){
+    const lim = slaLimitDays(row);
+    if (!openDate) return {status:'לא ניתן לחשב', value:null};
+    if (lim.hours){
       const diffH = (Date.now() - openDate.getTime())/36e5;
-      return {status: diffH>24 ? 'חריגה' : 'ב-SLA', days: +(diffH/24).toFixed(2)};
+      return {status: diffH>lim.hours ? 'חריגה' : 'ב-SLA', value:+diffH.toFixed(2)};
     }
     const diffDays = (onlyDate(new Date()) - onlyDate(openDate)) / 86400000;
-    return {status: diffDays>limit ? 'חריגה' : 'ב-SLA', days:+diffDays.toFixed(2)};
+    return {status: diffDays>(lim.days??0) ? 'חריגה' : 'ב-SLA', value:+diffDays.toFixed(2)};
   }
 
   /* ====== BUILD DASHBOARD ====== */
   function buildDashboard(){
     if (!RAW.length || !COL_DATE) return;
-    dash.style.display='block'; tabs.innerHTML=''; panels.innerHTML='';
+    dash.style.display='block'; tabs.innerHTML=''; panels.innerHTML=''; PANEL_DATA.clear();
 
-    // העשרה: הוספת שדה _openDate
+    // הוספת _openDate
     const rows = RAW.map(r=>{
       const d = parseHebDate(r[COL_DATE]);
       return {...r, _openDate: d};
@@ -279,7 +265,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
     const groupBy = (arr, key) => arr.reduce((m,r)=>((m[r[key]??'—']??=[]).push(r),m),{});
     const byDept = groupBy(rows, COL_DEPT);
 
-    // לבנות טאב "כללי" + לכל מחלקה
     const order = ['כללי', ...Object.keys(byDept).sort()];
     order.forEach(name=>{
       const tab=document.createElement('button');
@@ -293,15 +278,20 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
 
       const subset = name==='כללי' ? rows : (byDept[name]||[]);
       panel.innerHTML = renderPanel(name, subset);
+
+      // שמירת payload
+      PANEL_DATA.set(panel, {rows: subset.map(r=>({ ...r, _t: r._openDate ? onlyDate(r._openDate).getTime() : null })), statusKey: COL_STATUS, deptKey: COL_DEPT});
     });
     activate('כללי');
   }
 
   function activate(name){
     for (const t of tabs.children) t.classList.toggle('active', t.textContent===name);
-    for (const p of panels.children) p.classList.toggle('active', p.id==='panel-'+name);
-    // לאחר שה-panel מוצג, לצייר גרפים
-    drawChartsFor('#panel-'+name);
+    for (const p of panels.children){
+      const active = p.id==='panel-'+name;
+      p.classList.toggle('active', active);
+      if (active) drawChartsFor(p);
+    }
   }
 
   function kpiCard(title, number, id){
@@ -312,7 +302,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
   }
 
   function renderPanel(name, rows){
-    // סינון תקין (יש תאריך פתיחה)
     const valid = rows.filter(r=>r._openDate instanceof Date && !isNaN(r._openDate));
     const todayDate = onlyDate(new Date());
     const yestDate = new Date(todayDate); yestDate.setDate(yestDate.getDate()-1);
@@ -322,7 +311,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
     const delta = todayCount - yestCount;
     const deltaPct = yestCount===0 ? (todayCount>0?100:0) : (delta / yestCount * 100);
 
-    // SLA
     let inSLA=0, breach=0, cant=0;
     for (const r of rows){
       const d = r._openDate;
@@ -331,7 +319,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
       if (s==='ב-SLA') inSLA++; else if (s==='חריגה') breach++; else cant++;
     }
 
-    // כפילויות
     const dupBy = (key) => {
       if (!key) return {count:0, rows:[]};
       const map = new Map();
@@ -348,20 +335,11 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
     const dupName  = dupBy(COL_NAME);
     const dupMail  = dupBy(COL_EMAIL);
 
-    // סטטוסים
-    const statusCounts = {};
-    for (const r of rows){
-      const s = (r[COL_STATUS]??'—').toString();
-      statusCounts[s] = (statusCounts[s]||0)+1;
-    }
-
-    // שלדים
     const total = rows.length.toLocaleString('he-IL');
     const tdy   = todayCount.toLocaleString('he-IL');
     const yst   = yestCount.toLocaleString('he-IL');
     const dlt   = (delta>0?'+':'') + delta.toLocaleString('he-IL') + ' (' + (isFinite(deltaPct)?deltaPct.toFixed(1):'—') + '%)';
 
-    // HTML
     return `
       <div class="kpis">
         ${kpiCard('סה״כ רשומות (בטאב זה)', total, 'all')}
@@ -392,32 +370,19 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
           <div class="small">התפלגות לפי מחלקה מטפלת</div>
         </div>
       </div>
-
-      <script type="application/json" data-payload>
-        ${JSON.stringify({
-          name,
-          today: +onlyDate(new Date()),
-          rows: rows.map(r=>({ ...r, _t: r._openDate ? onlyDate(r._openDate).getTime() : null })),
-          statusKey: COL_STATUS, deptKey: COL_DEPT
-        })}
-      </script>
     `;
   }
 
   /* ====== CHARTS + DRILLDOWN ====== */
-  function drawChartsFor(panelSel){
-    const panel = document.querySelector(panelSel);
-    if (!panel) return;
-    const payloadEl = panel.querySelector('[data-payload]');
-    if (!payloadEl) return;
-    const payload = JSON.parse(payloadEl.textContent);
+  function drawChartsFor(panel){
+    const payload = PANEL_DATA.get(panel);
+    if (!payload) return;
     const rows = payload.rows;
     const statusKey = payload.statusKey, deptKey = payload.deptKey;
 
     // קו יומי (30 ימים אחרונים)
     const now = onlyDate(new Date());
-    const days = [];
-    const counts = [];
+    const days = []; const counts = [];
     for (let i=29;i>=0;i--){
       const d = new Date(now); d.setDate(d.getDate()-i);
       const key = +d;
@@ -448,8 +413,10 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
       options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
     });
 
-    // חיבור Drilldown לקלפים
+    // DRILLDOWN
     panel.querySelectorAll('.kpi').forEach(k=>{
+      // מניעת ריבוי מאזינים
+      if (k._bound) return; k._bound = true;
       k.addEventListener('click', ()=>{
         const id = k.dataset.kpi;
         let r=[];
@@ -462,7 +429,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
         if (id==='dup-track') r = duplicateRows(rows, COL_TRACK);
         if (id==='dup-name')  r = duplicateRows(rows, COL_NAME);
         if (id==='dup-mail')  r = duplicateRows(rows, COL_EMAIL);
-
         openModal(r);
       });
     });
@@ -470,11 +436,9 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
 
   function makeChart(canvas, cfg){
     if (!canvas) return;
-    // ננקה קנבס קודם אם צויר
     if (canvas._chart){ canvas._chart.destroy(); }
     canvas._chart = new Chart(canvas.getContext('2d'), cfg);
   }
-
   function duplicateRows(rows, key){
     if(!key) return [];
     const map = new Map();
@@ -490,12 +454,11 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
   /* ====== MODAL TABLE ====== */
   function openModal(rows){
     modalRows = rows.map(r=>{
-      const obj={...r}; delete obj._t; delete obj._openDate; // סידור להצגה
+      const obj={...r}; delete obj._t; delete obj._openDate;
       return obj;
     });
-    modalCols = HEADERS; // נשמור סדר כותרות המקור
+    modalCols = HEADERS;
 
-    // רנדר טבלה
     const thead = tbl.querySelector('thead'); const tbody = tbl.querySelector('tbody');
     thead.innerHTML = `<tr>${modalCols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
     tbody.innerHTML = modalRows.map(r=>`<tr>${modalCols.map(c=>`<td>${safe(r[c])}</td>`).join('')}</tr>`).join('');
@@ -504,7 +467,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
     modal.classList.add('open');
   }
   function safe(v){ return (v==null?'':String(v)).replace(/[<>&]/g,s=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[s])) }
-
   btnClose.addEventListener('click', ()=> modal.classList.remove('open'));
   searchBox.addEventListener('input', ()=>{
     const q = searchBox.value.trim().toLowerCase();
@@ -519,7 +481,6 @@ thead th{position:sticky;top:0;background:#fafbff;border-bottom:1px solid #e6e7f
     });
     modalHint.textContent = `${vis.toLocaleString('he-IL')} שורות מוצגות (מתוך ${modalRows.length.toLocaleString('he-IL')})`;
   });
-
   btnExport.addEventListener('click', ()=>{
     const ws = XLSX.utils.json_to_sheet(modalRows);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Data');
