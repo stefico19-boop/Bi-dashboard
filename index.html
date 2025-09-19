@@ -1,412 +1,315 @@
 <!doctype html>
 <html lang="he" dir="rtl">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>דשבורד BI • פניות פתוחות</title>
-  <!-- SheetJS (קריאה/כתיבה של xlsx בדפדפן) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
-  <style>
-    :root{
-      --bg:#f7f8fc; --card:#ffffff; --ink:#0e0f18; --muted:#6c738a;
-      --brand:#5b50ff; --brand2:#9a54ff; --ok:#12b886; --warn:#ffb703; --err:#e03131;
-      --shadow:0 10px 24px rgba(17,23,41,.06);
-      --radius:18px;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0; background:linear-gradient(180deg,#f5f7ff 0%, #f7f8fc 100%);
-      font-family: system-ui, "Segoe UI", "Heebo", "Rubik", "Noto Sans Hebrew", Arial, sans-serif;
-      color:var(--ink);
-    }
-    .container{max-width:980px; margin:0 auto; padding:24px 16px 120px}
-    h1{font-size:clamp(24px,5vw,38px); margin:8px 0 6px; letter-spacing:.3px}
-    .subtitle{color:var(--muted); font-size:14px; margin-bottom:18px}
-    .u-row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
-    .btn{
-      background:linear-gradient(135deg,var(--brand),var(--brand2));
-      color:#fff; border:none; border-radius:16px; padding:14px 22px;
-      font-weight:700; box-shadow:var(--shadow); cursor:pointer;
-    }
-    .btn.light{background:#eef; color:#2b2e66}
-    .btn.gray{background:#edf0f7; color:#2b2e66}
-    .pill{padding:10px 14px; border-radius:999px; background:#eef; color:#2b2e66; font-weight:600}
-    .filebox{display:flex; align-items:center; justify-content:space-between; gap:10px;
-      background:#f1f3ff; border:1px solid #e5e7ff; border-radius:16px; padding:12px 14px; min-height:52px}
-    .filebox .name{font-weight:700}
-    .card{
-      background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
-      padding:16px 18px; margin:14px 0;
-    }
-    .kpi{display:flex; align-items:flex-end; justify-content:space-between; gap:10px}
-    .kpi .label{color:var(--muted); font-weight:700}
-    .kpi .num{font-size:40px; font-weight:900}
-    .muted{color:var(--muted)}
-    .status.ok{color:var(--ok)} .status.err{color:var(--err)} .status.warn{color:var(--warn)}
-    .small{font-size:12px}
-    .divider{height:1px; background:#eceff5; margin:10px 0}
-    .chips{display:flex; gap:8px; flex-wrap:wrap}
-    .chip{background:#f2f4f8; border-radius:12px; padding:6px 10px; font-size:12px; color:#334}
-    /* טבלה מודאלית */
-    dialog{
-      width:min(100vw,980px); border:none; border-radius:20px; padding:0; box-shadow:0 24px 60px rgba(20,27,49,.25);
-    }
-    dialog::backdrop{background:rgba(10,12,28,.45)}
-    .modalHead{padding:14px 16px; display:flex; align-items:center; gap:10px; justify-content:space-between; border-bottom:1px solid #eef1f6}
-    .modalBody{padding:12px; max-height:min(70vh,680px); overflow:auto; background:#fff}
-    table{border-collapse:collapse; width:100%}
-    th,td{border-bottom:1px solid #eef1f6; padding:10px 8px; text-align:right; white-space:nowrap}
-    th{position:sticky; top:0; background:#fafbff; z-index:1}
-    .search{width:260px; padding:10px 12px; border-radius:12px; background:#f4f6fb; border:1px solid #e7eaf3}
-    .footerNote{color:var(--muted); font-size:12px; margin-top:8px}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>דשבורד BI • פניות פתוחות</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f6f7fc;--card:#fff;--ink:#0e1020;--muted:#6d7390;--brand:#5b50ff;--brand2:#9a54ff;--ok:#12b886;--warn:#ffb703;--err:#e03131;--shadow:0 10px 24px rgba(18,22,49,.08);--r:18px}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f3f5ff,#f7f8fc);font-family:system-ui,"Heebo","Rubik","Noto Sans Hebrew",Arial,sans-serif;color:var(--ink)}
+.container{max-width:980px;margin:0 auto;padding:24px 14px 120px}
+h1{margin:.2rem 0 .25rem;font-size:clamp(22px,4.8vw,36px)}
+.sub{color:var(--muted);font-size:14px;margin-bottom:12px}
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;margin:14px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{border:none;border-radius:16px;padding:13px 18px;font-weight:800;cursor:pointer;box-shadow:var(--shadow)}
+.btn.primary{color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2))}
+.btn.gray{background:#edf0f7;color:#2a2e55}
+.pill{padding:8px 12px;border-radius:999px;background:#eef;color:#2a2e55;font-weight:700}
+.filebox{flex:1;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f2f4ff;border:1px solid #e4e7ff;border-radius:14px;padding:10px 12px;min-height:46px}
+.status{font-size:13px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
+.kpi{display:flex;align-items:flex-end;justify-content:space-between}
+.kpi .label{color:var(--muted);font-weight:800}
+.kpi .num{font-size:40px;font-weight:900}
+.small{font-size:12px;color:var(--muted)}
+/* modal table */
+dialog{width:min(100vw,980px);border:none;border-radius:20px;padding:0;box-shadow:0 26px 60px rgba(15,20,45,.35)}
+dialog::backdrop{background:rgba(10,12,28,.45)}
+.mHead{padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid #eef1f6}
+.mBody{padding:10px;max-height:min(70vh,680px);overflow:auto;background:#fff}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid #eef1f6;padding:8px 7px;text-align:right;white-space:nowrap}
+th{position:sticky;top:0;background:#fafbff;z-index:1}
+.search{width:260px;padding:9px 11px;border-radius:12px;background:#f4f6fb;border:1px solid #e7eaf3}
+</style>
 </head>
 <body>
-  <div class="container">
-    <h1>דשבורד BI • פניות פתוחות</h1>
-    <div class="subtitle">
-      כל החישובים מבוססים אך ורק על <b>“תאריך/שעת פתיחה”</b>.  
-      אין שימוש בשדה “תאריך/שעת שונה לאחרונה”.
+<div class="container">
+  <h1>דשבורד BI • פניות פתוחות</h1>
+  <div class="sub">כל החישובים מתבססים אך ורק על <b>“תאריך/שעת פתיחה”</b>. אין שימוש בשדה “תאריך/שעת שונה לאחרונה”.</div>
+
+  <div class="card">
+    <div class="row">
+      <label for="file" class="btn primary">העלאת Excel</label>
+      <div class="filebox"><span id="fname" class="small">—</span><span id="frows" class="pill">0 שורות</span></div>
+      <button id="clear" class="btn gray" type="button">ניקוי</button>
     </div>
-
-    <!-- העלאה -->
-    <div class="card">
-      <div class="u-row">
-        <label class="btn" for="fileInput">העלאת Excel</label>
-        <div id="fileBox" class="filebox" style="flex:1">
-          <span class="name muted">—</span>
-          <span id="rowCount" class="pill">0 שורות</span>
-        </div>
-        <button id="btnClear" class="btn gray" type="button">ניקוי</button>
-      </div>
-      <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
-      <div id="loadStatus" class="small muted" style="margin-top:10px"></div>
-    </div>
-
-    <!-- כרטיסי KPI -->
-    <div id="kpis" style="display:none">
-      <div class="card kpi">
-        <div>
-          <div class="label">סה״כ (כל השורות בקובץ)</div>
-          <div class="small muted">מספר זה צריך להיות כמעט ככמות הרשומות בקובץ (לא נסנן).</div>
-        </div>
-        <div class="num" id="kpiTotal">0</div>
-      </div>
-
-      <div class="card kpi">
-        <div>
-          <div class="label">פתוחות — יום אחרון (לפי תאריך פתיחה)</div>
-          <div class="small muted" id="infoToday">—</div>
-        </div>
-        <div class="num" id="kpiToday">0</div>
-      </div>
-
-      <div class="card kpi">
-        <div>
-          <div class="label">פתוחות — היום הקודם (לפי תאריך פתיחה)</div>
-          <div class="small muted" id="infoYesterday">—</div>
-        </div>
-        <div class="num" id="kpiYesterday">0</div>
-      </div>
-
-      <div class="card kpi">
-        <div>
-          <div class="label">שינוי יומי</div>
-          <div class="small muted" id="infoChange">—</div>
-        </div>
-        <div class="num" id="kpiDelta">0</div>
-      </div>
-
-      <div class="u-row" style="margin-top:8px">
-        <button id="btnShowAll" class="btn light" type="button">הצג את כל הפניות (טבלה)</button>
-      </div>
-      <div class="footerNote">דפדוף לטבלה ויצוא ל-XLSX זמינים בחלון המודאלי.</div>
-    </div>
-
-    <!-- הודעת שגיאות / אזהרות -->
-    <div id="alerts" class="card" style="display:none"></div>
-
-    <!-- מודאל טבלה -->
-    <dialog id="tblModal">
-      <div class="modalHead">
-        <div style="display:flex; align-items:center; gap:8px; font-weight:800">כל הפניות</div>
-        <div class="u-row">
-          <input id="tblSearch" class="search" placeholder="חיפוש בטבלה…" />
-          <button id="btnExport" class="btn light" type="button">יצוא .xlsx</button>
-          <button id="btnCloseModal" class="btn gray" type="button">סגירה</button>
-        </div>
-      </div>
-      <div class="modalBody">
-        <table id="dataTable"><thead></thead><tbody></tbody></table>
-      </div>
-    </dialog>
-
+    <input id="file" type="file" accept=".xlsx,.xls" hidden>
+    <div id="fstatus" class="status warn" style="margin-top:8px">ממתין לקובץ…</div>
   </div>
+
+  <div id="kpis" style="display:none">
+    <div class="card kpi">
+      <div><div class="label">סה״כ (כל הרשומות התקינות)</div><div class="small">שורות עם “תאריך/שעת פתיחה” לא תקין – נזרקות.</div></div>
+      <div id="k_total" class="num">0</div>
+    </div>
+    <div class="card kpi">
+      <div><div class="label">פתוחות — היום (לפי תאריך פתיחה)</div><div id="i_today" class="small">—</div></div>
+      <div id="k_today" class="num">0</div>
+    </div>
+    <div class="card kpi">
+      <div><div class="label">פתוחות — אתמול (לפי תאריך פתיחה)</div><div id="i_yday" class="small">—</div></div>
+      <div id="k_yday" class="num">0</div>
+    </div>
+    <div class="card kpi">
+      <div><div class="label">שינוי יומי</div><div id="i_delta" class="small">—</div></div>
+      <div id="k_delta" class="num">0</div>
+    </div>
+    <div class="row" style="margin-top:6px"><button id="showTbl" class="btn gray" type="button">הצג את כל הפניות (טבלה)</button></div>
+  </div>
+
+  <div id="alerts" class="card" style="display:none"></div>
+
+  <dialog id="dlg">
+    <div class="mHead">
+      <div style="font-weight:900">כל הפניות</div>
+      <div class="row"><input id="q" class="search" placeholder="חיפוש בטבלה…"><button id="export" class="btn gray">יצוא .xlsx</button><button id="close" class="btn gray">סגירה</button></div>
+    </div>
+    <div class="mBody">
+      <table id="grid"><thead></thead><tbody></tbody></table>
+    </div>
+  </dialog>
+</div>
 
 <script>
 (() => {
-  // ===== הגדרות =====
+  // ---- קונפיג זיהוי שמות עמודה ----
   const OPEN_DATE_CANDIDATES = [
-    'תאריך/שעת פתיחה','תאריך פתיחה','תאריך פתיחה/שעת פתיחה','פתיחה','Date Open','Open Date'
+    'תאריך/שעת פתיחה','תאריך פתיחה','תאריך / שעת פתיחה','תאריך ושעת פתיחה','פתיחה',
+    'date open','open date','date/time opened','created date','created on'
   ];
 
-  // ===== עזרי תאריך =====
-  // זמן מקומי ישראל
+  // ---- דום ----
+  const f = document.getElementById('file');
+  const fname = document.getElementById('fname');
+  const frows = document.getElementById('frows');
+  const fstatus = document.getElementById('fstatus');
+  const btnClear = document.getElementById('clear');
+  const KPIs = document.getElementById('kpis');
+  const k_total = document.getElementById('k_total');
+  const k_today = document.getElementById('k_today');
+  const k_yday  = document.getElementById('k_yday');
+  const k_delta = document.getElementById('k_delta');
+  const i_today = document.getElementById('i_today');
+  const i_yday  = document.getElementById('i_yday');
+  const i_delta = document.getElementById('i_delta');
+  const alerts = document.getElementById('alerts');
+  const btnShow = document.getElementById('showTbl');
+
+  const dlg = document.getElementById('dlg');
+  const q = document.getElementById('q');
+  const btnExport = document.getElementById('export');
+  const btnClose = document.getElementById('close');
+  const thead = document.querySelector('#grid thead');
+  const tbody = document.querySelector('#grid tbody');
+
+  // ---- נתונים ----
+  let rows = [];        // נתונים נקיים
+  let headers = [];     // שמות עמודות
+  let openKey = null;   // שם עמודת תאריך פתיחה
+  let viewRows = [];    // לתצוגה/חיפוש
+
+  // ---- Utils ----
   const tz = 'Asia/Jerusalem';
-  const fmtDate = d => new Intl.DateTimeFormat('he-IL',{timeZone:tz,year:'2-digit',month:'2-digit',day:'2-digit'}).format(d);
-  const todayLocal = () => {
-    const now = new Date();
-    // הופך ל־00:00 מקומי
-    const str = now.toLocaleString('en-CA',{timeZone:tz, year:'numeric', month:'2-digit', day:'2-digit'});
-    return new Date(str+'T00:00:00');
-  };
-  const addDays = (d, days) => new Date(d.getTime()+days*86400000);
+  const startOfDay = d => new Date(new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(d)+'T00:00:00');
+  const today = () => startOfDay(new Date());
+  const addDays = (d,n)=> new Date(d.getTime()+n*86400000);
+  const fmt = d => new Intl.DateTimeFormat('he-IL',{timeZone:tz,year:'2-digit',month:'2-digit',day:'2-digit'}).format(d);
+  const sameDay = (a,b)=> fmt(a)===fmt(b);
+  const esc = s => String(s??'').replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
-  // ממיר אינפוט (מחרוזת/מספר/Date) ל-Date תקין – או null
-  function toDate(value){
-    try{
-      if(value==null || value==='') return null;
-      if (value instanceof Date && !isNaN(value)) return value;
-      if (typeof value === 'number'){ // serial excel או timestamp
-        // Excel serial (1900-based): 1 = 1900-01-01
-        // SheetJS לרוב כבר מחזיר Date ב-raw:false, אבל שיהיה גיבוי:
-        const excelEpoch = new Date(Date.UTC(1899,11,30));
-        const ms = value*86400000;
-        const dt = new Date(excelEpoch.getTime()+ms);
-        return isNaN(dt)? null : dt;
-      }
-      if (typeof value === 'string'){
-        const s = value.trim();
-        // פורמט dd/mm/yyyy hh:mm
-        const m1 = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
-        if (m1){
-          let [_, dd, mm, yyyy, HH, MM] = m1;
-          if(yyyy.length===2) yyyy = '20'+yyyy;
-          const iso = `${yyyy.padStart(4,'0')}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${(HH||'00').padStart(2,'0')}:${(MM||'00').padStart(2,'0')}:00`;
-          const dt = new Date(iso);
-          return isNaN(dt) ? null : dt;
-        }
-        // ISO רגיל
-        const dt2 = new Date(s);
-        if(!isNaN(dt2)) return dt2;
-      }
-      return null;
-    }catch(_){ return null; }
+  const norm = s => String(s||'')
+      .toLowerCase()
+      .replace(/[״"׳'`]/g,'')
+      .replace(/[(){}\[\],.:;|\\/_\-]+/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+
+  function isHeaderRow(cells){
+    const joined = norm(cells.join(' '));
+    const needs = [['תאריך','פתיחה'],['open','date'],['date','open']];
+    return needs.some(words=>words.every(w=>joined.includes(w)));
   }
 
-  // משווה רק תאריך (ללא שעה) במקומי
-  function sameDay(a,b){
-    return fmtDate(a) === fmtDate(b);
-  }
-
-  // ===== DOM =====
-  const elFile = document.getElementById('fileInput');
-  const elFileBox = document.getElementById('fileBox').querySelector('.name');
-  const elRowCount = document.getElementById('rowCount');
-  const elStatus = document.getElementById('loadStatus');
-  const elClear = document.getElementById('btnClear');
-  const elKPIs = document.getElementById('kpis');
-  const elAlerts = document.getElementById('alerts');
-
-  const kpiTotal = document.getElementById('kpiTotal');
-  const kpiToday = document.getElementById('kpiToday');
-  const kpiYesterday = document.getElementById('kpiYesterday');
-  const kpiDelta = document.getElementById('kpiDelta');
-  const infoToday = document.getElementById('infoToday');
-  const infoYesterday = document.getElementById('infoYesterday');
-  const infoChange = document.getElementById('infoChange');
-
-  const btnShowAll = document.getElementById('btnShowAll');
-  const dlg = document.getElementById('tblModal');
-  const btnCloseModal = document.getElementById('btnCloseModal');
-  const btnExport = document.getElementById('btnExport');
-  const tblHead = document.querySelector('#dataTable thead');
-  const tblBody = document.querySelector('#dataTable tbody');
-  const tblSearch = document.getElementById('tblSearch');
-
-  // נתונים
-  let rawRows = [];            // כל הרשומות
-  let tableViewRows = [];      // רשומות מסוננות/ממוינות לתצוגה
-  let headers = [];            // כותרות מקוריות
-  let openDateKey = null;      // שם העמודה של תאריך פתיחה
-  let skipped = 0;             // כמה שורות דולגו בגלל פתיחה לא תקין
-
-  // ===== Events =====
-  elFile.addEventListener('change', handleFile, false);
-  elClear.addEventListener('click', () => {
-    rawRows = []; headers=[]; openDateKey=null; skipped=0;
-    elFile.value = '';
-    paintStatus('-', 0, '—', 'נוקה.', 'warn');
-    elKPIs.style.display='none';
-    elAlerts.style.display='none';
-  });
-
-  btnShowAll.addEventListener('click', () => {
-    if(!rawRows.length) return;
-    renderTable(rawRows);
-    dlg.showModal();
-  });
-  btnCloseModal.addEventListener('click', () => dlg.close());
-  tblSearch.addEventListener('input', () => {
-    const q = tblSearch.value.trim();
-    const r = !q ? rawRows : rawRows.filter(row =>
-      headers.some(h => (String(row[h]??'')).includes(q))
-    );
-    renderTable(r);
-  });
-  btnExport.addEventListener('click', () => exportXLSX(tableViewRows.length?tableViewRows:rawRows));
-
-  // ===== File handling =====
-  function paintStatus(name, rows, extra, msg, tone='ok'){
-    elFileBox.textContent = name || '—';
-    elRowCount.textContent = rows.toLocaleString('he-IL') + ' שורות';
-    elStatus.innerHTML = `<span class="status ${tone}">${msg}</span> ${extra? '• '+extra : ''}`;
-  }
-
-  async function handleFile(e){
-    const file = e.target.files?.[0];
-    if(!file){ paintStatus('-',0,'','לא נבחר קובץ','warn'); return; }
-
-    paintStatus(file.name, 0, '', 'טוען…','warn');
-    try{
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, {type:'array'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-
-      // קריאה סלחנית
-      const json = XLSX.utils.sheet_to_json(ws,{
-        defval:'', raw:false, blankrows:false
-      });
-
-      if(!json.length){ paintStatus(file.name,0,'','הגיליון ריק','err'); return; }
-
-      headers = Object.keys(json[0]||{});
-      // איתור עמודת "תאריך/שעת פתיחה"
-      openDateKey = detectOpenDateKey(headers);
-
-      if(!openDateKey){
-        elAlerts.style.display='block';
-        elAlerts.innerHTML = `
-          <div><b>שגיאת עמודה:</b> לא נמצאה עמודת "תאריך/שעת פתיחה".</div>
-          <div class="divider"></div>
-          <div class="small">
-            חפשי בין שמות העמודות: <span class="chips">${headers.map(h=>`<span class="chip">${escapeHtml(h)}</span>`).join(' ')}</span><br>
-            ניתן לעדכן את רשימת השמות האפשריים במערך <code>OPEN_DATE_CANDIDATES</code> בקוד.
-          </div>`;
-        paintStatus(file.name,json.length,'','שגיאת עמודת פתיחה','err');
-        return;
-      }else{
-        elAlerts.style.display='none';
-        elAlerts.innerHTML='';
-      }
-
-      // עיבוד תאריכים + דילוג על רשומות עם פתיחה לא תקין
-      const out = [];
-      skipped = 0;
-      for (const row of json){
-        const v = row[openDateKey];
-        const dt = toDate(v);
-        if(!dt){ skipped++; continue; }
-        // נשמור ערך תאריך נקי לשימוש פנימי:
-        row.__openDate = dt;
-        out.push(row);
-      }
-
-      rawRows = out;
-      paintStatus(file.name, rawRows.length, `${skipped} דולגו (תאריך פתיחה לא תקין)`, 'הקובץ עלה בהצלחה','ok');
-
-      // KPI
-      computeKPIs();
-
-      // הצג כרטיסים
-      elKPIs.style.display='block';
-
-    }catch(err){
-      console.error(err);
-      paintStatus(file?.name,0,'','שגיאה בטעינת הקובץ','err');
-      elAlerts.style.display='block';
-      elAlerts.innerHTML = `
-        <div class="status err"><b>שגיאה בטעינת XLSX</b></div>
-        <div class="small">נסי לשמור את הקובץ מחדש כ-Excel רגיל (Workbook), להסיר נוסחאות/מיזוגים, לוודא שהכותרות בשורה הראשונה.</div>`;
+  function findHeaderRow(aoa){
+    // נחפש עד 30 שורות ראשונות
+    for (let r=0;r<Math.min(30,aoa.length);r++){
+      const row = aoa[r].map(x=>String(x||''));
+      if (row.filter(x=>x&&String(x).trim()).length<2) continue;
+      if (isHeaderRow(row)) return r;
     }
+    // לא מצאנו? נבחר את השורה הראשונה ה"עשירה" ביותר בתווים
+    let best = 0, score = -1;
+    for (let r=0;r<Math.min(30,aoa.length);r++){
+      const s = aoa[r].map(x=>String(x||'').trim()).filter(Boolean).length;
+      if (s>score){score=s;best=r;}
+    }
+    return best;
   }
 
-  function detectOpenDateKey(keys){
-    // נורמליזציה קלה: lowercase ללא רווחים מיותרים
-    const norm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
-    const candidates = OPEN_DATE_CANDIDATES.map(norm);
-    for (const k of keys){
-      const nk = norm(k);
-      if (candidates.some(c => nk.includes(c))) return k;
-      // התמחות: אם יש "תאריך" ו"פתיחה" באותו שם
-      if (nk.includes('תאריך') && nk.includes('פתיחה')) return k;
-      if (nk.includes('open') && nk.includes('date')) return k;
+  function detectOpenKey(keys){
+    const keysN = keys.map(norm);
+    const cands = OPEN_DATE_CANDIDATES.map(norm);
+    for (let i=0;i<keysN.length;i++){
+      const k = keysN[i];
+      if (cands.some(c=>k.includes(c))) return keys[i];
+      if (k.includes('תאריך') && k.includes('פתיחה')) return keys[i];
+      if (k.includes('open') && k.includes('date')) return keys[i];
     }
     return null;
   }
 
-  // ===== KPIs =====
-  function computeKPIs(){
-    if(!rawRows.length) return;
-    const base = todayLocal();               // 19/09/2025 00:00 מקומי
-    const yday = addDays(base,-1);
-
-    const total = rawRows.length;
-    const todayCount = rawRows.filter(r => sameDay(r.__openDate, base)).length;
-    const ydayCount  = rawRows.filter(r => sameDay(r.__openDate, yday)).length;
-    const delta = todayCount - ydayCount;
-    const pct = (ydayCount === 0) ? '—' : ((delta / ydayCount) * 100);
-
-    kpiTotal.textContent = total.toLocaleString('he-IL');
-    kpiToday.textContent = todayCount.toLocaleString('he-IL');
-    kpiYesterday.textContent = ydayCount.toLocaleString('he-IL');
-    kpiDelta.textContent = (delta>=0? '+' : '') + delta.toLocaleString('he-IL');
-    infoToday.textContent = `נכון ל-${fmtDate(base)}`;
-    infoYesterday.textContent = `נכון ל-${fmtDate(yday)}`;
-    infoChange.textContent = `אחוזים: ${pct==='—' ? '—' : pct.toFixed(1)+'%'}`;
+  function toDate(v){
+    try{
+      if (v==null || v==='') return null;
+      if (v instanceof Date && !isNaN(v)) return v;
+      if (typeof v==='number'){ // Excel serial
+        const base = new Date(Date.UTC(1899,11,30));
+        return new Date(base.getTime()+v*86400000);
+      }
+      const s = String(v).trim();
+      const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+      if (m){
+        let [_,dd,mm,yy,HH,MM]=m; if(yy.length===2) yy='20'+yy;
+        const iso=`${yy.padStart(4,'0')}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${(HH||'00').padStart(2,'0')}:${(MM||'00').padStart(2,'0')}:00`;
+        const d=new Date(iso); return isNaN(d)?null:d;
+      }
+      const d2=new Date(s); return isNaN(d2)?null:d2;
+    }catch(_){return null}
   }
 
-  // ===== טבלה + יצוא =====
-  function renderTable(rows){
-    tableViewRows = rows.slice();
-    // ראש טבלה
-    const cols = headers;
-    tblHead.innerHTML = `<tr>${cols.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
-    // גוף
+  function paintStatus(name, count, detail, tone='ok'){
+    fname.textContent = name||'—';
+    frows.textContent = (count||0).toLocaleString('he-IL')+' שורות';
+    fstatus.className = 'status '+tone;
+    fstatus.innerHTML = detail||'';
+  }
+
+  // ---- אירועים ----
+  f.addEventListener('change', onFile);
+  btnClear.addEventListener('click', () => {
+    rows=[]; headers=[]; openKey=null; viewRows=[];
+    f.value=''; KPIs.style.display='none'; alerts.style.display='none';
+    paintStatus('—',0,'נוקה.','warn');
+  });
+
+  btnShow.addEventListener('click', ()=>{ if(!rows.length) return; renderTable(rows); dlg.showModal(); });
+  btnClose.addEventListener('click', ()=>dlg.close());
+  q.addEventListener('input', ()=>{
+    const t = q.value.trim();
+    const r = !t ? rows : rows.filter(o => headers.some(h => String(o[h]??'').includes(t)));
+    renderTable(r);
+  });
+  btnExport.addEventListener('click', ()=>{
+    const data = (viewRows.length?viewRows:rows).map(r=>{
+      const o={}; headers.forEach(h=>o[h]=r[h]);
+      if (openKey && r.__open) o[openKey]=fmt(r.__open);
+      return o;
+    });
+    const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'OpenCases'); XLSX.writeFile(wb,'open_cases_export.xlsx');
+  });
+
+  async function onFile(e){
+    const file = e.target.files?.[0];
+    if(!file){ paintStatus('—',0,'לא נבחר קובץ.','warn'); return; }
+
+    paintStatus(file.name,0,'טוען…','warn');
+    alerts.style.display='none'; alerts.innerHTML='';
+
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf,{type:'array',cellDates:true,raw:false});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if(!ws) throw new Error('לא נמצא גיליון ראשון בקובץ');
+
+      // 1) קוראים AOA כדי לאתר את שורת הכותרות האמיתית
+      const aoa = XLSX.utils.sheet_to_json(ws,{header:1,blankrows:false});
+      if(!aoa.length) throw new Error('הגיליון ריק');
+
+      const hRow = findHeaderRow(aoa);
+      const hdrs = aoa[hRow].map(x=>String(x||'').trim());
+      headers = hdrs;
+
+      // 2) קריאת נתונים מהשורה שאחרי הכותרות
+      const range = {s:{r:hRow+1,c:0}, e: XLSX.utils.decode_range(ws['!ref']).e};
+      const data = XLSX.utils.sheet_to_json(ws,{range, header:headers, defval:'', raw:false, blankrows:false});
+
+      // 3) איתור עמודת פתיחה
+      openKey = detectOpenKey(headers);
+
+      // 4) ניקוי + המרת תאריך פתיחה
+      let skipped = 0;
+      rows = data.filter(r=>{
+        const d = toDate(r[openKey]);
+        if(!d){ skipped++; return false; }
+        r.__open = d;
+        return true;
+      });
+
+      paintStatus(file.name, rows.length, `הקובץ נקרא • דולגו ${skipped} שורות (תאריך פתיחה לא תקין)`, 'ok');
+
+      // 5) KPI
+      computeKPIs();
+      KPIs.style.display='block';
+
+    }catch(err){
+      console.error(err);
+      paintStatus(file.name,0,'שגיאה בטעינת XLSX','err');
+      alerts.style.display='block';
+      alerts.innerHTML = `
+        <div class="err"><b>שגיאה:</b> ${esc(err?.message || err)}</div>
+        <div class="small" style="margin-top:6px">
+          נסי: לשמור מחדש כ-Excel רגיל (Workbook), להסיר מיזוגי תאים/הגנות,
+          לוודא שהכותרות בשורה הראשונה של הטבלה. אפשר גם לפתוח ב-Excel → שמירה בשם → ‎.xlsx.
+        </div>`;
+    }
+  }
+
+  function computeKPIs(){
+    const t = today(), y = addDays(t,-1);
+    const total = rows.length;
+    const ct = rows.filter(r=>sameDay(r.__open,t)).length;
+    const cy = rows.filter(r=>sameDay(r.__open,y)).length;
+    const d  = ct - cy;
+    const p  = cy===0 ? '—' : ((d/cy)*100).toFixed(1)+'%';
+
+    k_total.textContent = total.toLocaleString('he-IL');
+    k_today.textContent = ct.toLocaleString('he-IL');
+    k_yday.textContent  = cy.toLocaleString('he-IL');
+    k_delta.textContent = (d>=0?'+':'') + d.toLocaleString('he-IL');
+    i_today.textContent = 'נכון ל-'+fmt(t);
+    i_yday.textContent  = 'נכון ל-'+fmt(y);
+    i_delta.textContent = 'אחוזים: '+p;
+  }
+
+  function renderTable(r){
+    viewRows = r.slice();
+    thead.innerHTML = '<tr>'+headers.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr>';
     const frag = document.createDocumentFragment();
-    for (const r of rows){
+    for(const row of r){
       const tr = document.createElement('tr');
-      tr.innerHTML = cols.map(h=>{
-        let val = r[h];
-        if (h === openDateKey && r.__openDate) val = fmtDate(r.__openDate);
-        return `<td>${escapeHtml(val)}</td>`;
+      tr.innerHTML = headers.map(h=>{
+        let v = row[h];
+        if (h===openKey && row.__open) v = fmt(row.__open);
+        return `<td>${esc(v)}</td>`;
       }).join('');
       frag.appendChild(tr);
     }
-    tblBody.innerHTML = '';
-    tblBody.appendChild(frag);
+    tbody.innerHTML=''; tbody.appendChild(frag);
   }
-
-  function exportXLSX(rows){
-    if(!rows.length) return;
-    const cleanRows = rows.map(r=>{
-      const o = {};
-      for (const h of headers){ o[h] = r[h]; }
-      // נחליף את עמודת התאריך לגרסת תאריך קריאה
-      if('__openDate' in r && openDateKey){ o[openDateKey] = fmtDate(r.__openDate); }
-      return o;
-    });
-    const ws = XLSX.utils.json_to_sheet(cleanRows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'OpenCases');
-    XLSX.writeFile(wb, 'open_cases_export.xlsx');
-  }
-
-  // ===== עזרים =====
-  function escapeHtml(v){
-    return String(v??'').replace(/[&<>"']/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[s]));
-  }
-
 })();
 </script>
 </body>
