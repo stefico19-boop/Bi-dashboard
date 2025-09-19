@@ -44,23 +44,30 @@
 
 <main class="max-w-7xl mx-auto px-4 py-6">
 
-  <!-- פס מידע קובץ -->
+  <!-- פס מידע קובץ + הרץ דוח -->
   <section id="fileInfo" class="hidden">
-    <div class="glass border card p-3 text-sm flex items-center justify-between gap-3">
-      <div class="truncate">
-        <span class="text-slate-600">קובץ:</span>
-        <b id="fiName">—</b> • גיליון: <b id="fiSheet">—</b> • שורות: <b id="fiRows" class="num">—</b>
-        <span id="fiNote" class="text-xs text-slate-500 ms-2">מוכן</span>
+    <div class="glass border card p-3 text-sm flex flex-col gap-2">
+      <div class="flex items-center justify-between gap-3">
+        <div class="truncate">
+          <span class="text-slate-600">קובץ:</span>
+          <b id="fiName">—</b> • גיליון: <b id="fiSheet">—</b> • שורות: <b id="fiRows" class="num">—</b>
+        </div>
+        <div class="flex gap-2 shrink-0">
+          <select id="resSel" class="text-xs border rounded-lg px-2 py-1 bg-white">
+            <option value="day">רזולוציה: יום</option>
+            <option value="week">שבוע</option>
+            <option value="month">חודש</option>
+            <option value="quarter">רבעון</option>
+            <option value="year">שנה</option>
+          </select>
+          <button id="btnRecalc" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white">הרץ דוח</button>
+          <button id="btnReset" class="px-3 py-1.5 rounded-lg border bg-white">איפוס</button>
+        </div>
       </div>
-      <div class="flex gap-2">
-        <select id="resSel" class="text-xs border rounded-lg px-2 py-1 bg-white">
-          <option value="day">רזולוציה: יום</option>
-          <option value="week">שבוע</option>
-          <option value="month">חודש</option>
-          <option value="quarter">רבעון</option>
-          <option value="year">שנה</option>
-        </select>
-        <button id="btnReset" class="px-3 py-1.5 rounded-lg border bg-white">איפוס</button>
+      <div id="fiStatus" class="text-xs">
+        <span class="text-slate-500">סטטוס:</span>
+        <span id="fiNote" class="font-medium">—</span>
+        <span id="fiCols" class="block text-slate-500 mt-1"></span>
       </div>
     </div>
   </section>
@@ -107,7 +114,7 @@
         <span class="text-slate-500 text-sm">כפילויות (Tracking / שם / מייל)</span>
         <button id="btnOpenDup" class="text-xs px-2 py-1 rounded-lg border bg-white">טבלה</button>
       </div>
-      <div id="dupCount" class="text-3xl font-extrabold mt-1 num">—</div>
+      <div id="dupCount" class="text-3xl font-extrabולd mt-1 num">—</div>
       <div class="text-xs text-slate-500">לחצי להצגה</div>
     </div>
   </section>
@@ -263,7 +270,7 @@ function detectColumns(headers){
   return {snapDate,status,dept,openDate,city,unit,source,track,name,mail};
 }
 
-/* ========= בניית טאבים ========= */
+/* ========= טאבים ========= */
 function buildTabs(rows){
   const wrap=$('deptTabs'); wrap.innerHTML='';
   const depts = uniq(rows.map(r=>(r[COLS.dept]||'').toString().trim()).filter(Boolean)).sort();
@@ -276,34 +283,25 @@ function buildTabs(rows){
 
 /* ========= חישוב ========= */
 function calc(){
-  if(!RAW.length) return;
+  if(!RAW.length){ $('fiNote').textContent='לא נטען קובץ'; return; }
 
   const dateCol=COLS.snapDate, statusCol=COLS.status, deptCol=COLS.dept, openCol=COLS.openDate;
-  // בסיס עם תאריך ללא שעה
   const base = RAW.map(r=>{ const dt=parseExcelDate(r[dateCol]); return dt? {...r,__d:dt,__snap:snap(dt),'תאריך (ללא שעה)':fmt(snap(dt))}:null }).filter(Boolean);
-
-  // לפי טאב
   const rows = currentDept==='__ALL__'? base : base.filter(r=> (r[deptCol]||'').toString().trim()===currentDept);
 
-  // כל הימים
   const days=[...new Set(rows.map(r=>r.__snap.getTime()))].sort((a,b)=>a-b).map(t=>new Date(t));
   if(!days.length){ $('fiNote').textContent='אין תאריכים תקינים בעמודת הסנאפשוט.'; return; }
   const current = days.at(-1), prev = days.length>1? days.at(-2):null;
 
-  // הגדרת “פתוח”
   const isOpen=s=> s!=null && OPEN_STATUSES.has(String(s).trim());
   const currOpen = rows.filter(r=> r.__snap.getTime()===current.getTime() && isOpen(r[statusCol]));
   const prevOpen = prev? rows.filter(r=> r.__snap.getTime()===prev.getTime() && isOpen(r[statusCol])) : [];
 
-  // מגמת זמן (רסולוציה)
   const res = $('resSel').value;
   const keyBy = (d)=> res==='week'?weekKey(d):res==='month'?monthKey(d):res==='quarter'?quarterKey(d):res==='year'?yearKey(d):fmt(d);
-  const byBucket = {};
-  rows.forEach(r=>{ if(isOpen(r[statusCol])){ const k=keyBy(r.__snap); byBucket[k]=(byBucket[k]||0)+1; }});
-  const trendLabels = Object.keys(byBucket);
-  const trendData = trendLabels.map(k=>byBucket[k]);
+  const byBucket = {}; rows.forEach(r=>{ if(isOpen(r[statusCol])){ const k=keyBy(r.__snap); byBucket[k]=(byBucket[k]||0)+1; }});
+  const trendLabels = Object.keys(byBucket); const trendData = trendLabels.map(k=>byBucket[k]);
 
-  // SLA היום
   let ok=0,bad=0,unk=0;
   currOpen.forEach(r=>{
     const opened=parseExcelDate(r[openCol]); const ms=SLA_RULES(r,COLS);
@@ -312,7 +310,6 @@ function calc(){
     (deadline.getTime()>=current.getTime()?ok:bad)++;
   });
 
-  // פילוחים
   const key=(fld,def='לא צוין')=>r=>(r[fld]||def).toString().trim()||def;
   const prevDept=groupCount(prev? rows.filter(r=>r.__snap.getTime()===prev.getTime() && isOpen(r[statusCol])):[], key(deptCol));
   const currDept=groupCount(currOpen, key(deptCol));
@@ -332,7 +329,6 @@ function calc(){
   const topUnit = [...new Set([...prevUnit.keys(),...currUnit.keys()])]
     .map(k=>({k, c:currUnit.get(k)||0})).sort((a,b)=>b.c-a.c).slice(0,10).map(x=>x.k);
 
-  // כפילויות (בכל הדאטה)
   function dupRows(col){
     const m=new Map();
     base.forEach(r=>{ const v=(r[col]||'').toString().trim(); if(!v) return; const a=m.get(v)||[]; a.push(r); m.set(v,a);});
@@ -343,7 +339,6 @@ function calc(){
   const d3=COLS.mail?dupRows(COLS.mail):[];
   const dupCount = d1.length+d2.length+d3.length;
 
-  // בניית הקשר להצגה
   CTX = {
     current, prev, currOpen, prevOpen,
     ok, bad, unk,
@@ -355,6 +350,7 @@ function calc(){
     dups: {byTrack:d1, byName:d2, byMail:d3, total:dupCount},
   };
   render();
+  $('fiNote').textContent='החישוב הושלם ✓';
 }
 
 /* ========= רנדר ========= */
@@ -376,58 +372,13 @@ function render(){
   $('slaRate').textContent=(CTX.ok+CTX.bad>0?(CTX.bad/(CTX.ok+CTX.bad)*100).toFixed(1)+'%':'—');
   $('dupCount').textContent=CTX.dups.total;
 
-  makeChart('trendChart',{
-    type:'line',
-    data:{labels:CTX.trendLabels, datasets:[{label:'פתוחות', data:CTX.trendData, tension:.35, fill:true}]},
-    options:{plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}
-  });
-  makeChart('slaPieChart',{
-    type:'doughnut',
-    data:{labels:['בתוך SLA','חרגו SLA','לא ניתן לחשב'], datasets:[{data:[CTX.ok,CTX.bad,CTX.unk]}]},
-    options:{plugins:{legend:{position:'bottom'}}}
-  });
-  makeChart('deptBar',{
-    type:'bar',
-    data:{labels:CTX.dept.labels, datasets:[{label:'היום',data:CTX.dept.curr},{label:'קודם',data:CTX.dept.prev}]},
-    options:{plugins:{legend:{position:'bottom'}},scales:{x:{ticks:{autoSkip:false}},y:{beginAtZero:true}},
-      onClick:(e,els)=>{ if(!els.length) return; const i=els[0].index; const label=e.chart.data.labels[i];
-        const ds=e.chart.data.datasets[els[0].datasetIndex].label;
-        const pool = ds==='היום'? CTX.currOpen:CTX.prevOpen;
-        openDetail(`מחלקה: ${label} — ${ds}`, pool.filter(r=> (r[COLS.dept]||'').toString().trim()===label));
-      }
-    }
-  });
-  makeChart('sourceStack',{
-    type:'bar',
-    data:{labels:CTX.source.labels, datasets:[{label:'היום',data:CTX.source.curr},{label:'קודם',data:CTX.source.prev}]},
-    options:{plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}},
-      onClick:(e,els)=>{ if(!els.length) return; const i=els[0].index; const label=e.chart.data.labels[i];
-        const ds=e.chart.data.datasets[els[0].datasetIndex].label;
-        const pool = ds==='היום'? CTX.currOpen:CTX.prevOpen;
-        openDetail(`מקור פניה: ${label} — ${ds}`, pool.filter(r=> (r[COLS.source]||'').toString().trim()===label));
-      }
-    }
-  });
-  makeChart('cityHBar',{
-    type:'bar',
-    data:{labels:CTX.city.labels, datasets:[{label:'היום',data:CTX.city.curr}]},
-    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}},
-      onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index];
-        openDetail('עיר: '+label+' — היום', CTX.currOpen.filter(r=>(r[COLS.city]||'').toString().trim()===label));
-      }
-    }
-  });
-  makeChart('unitHBar',{
-    type:'bar',
-    data:{labels:CTX.unit.labels, datasets:[{label:'היום',data:CTX.unit.curr}]},
-    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}},
-      onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index];
-        openDetail('יחידה: '+label+' — היום', CTX.currOpen.filter(r=>(r[COLS.unit]||'').toString().trim()===label));
-      }
-    }
-  });
+  makeChart('trendChart',{type:'line',data:{labels:CTX.trendLabels,datasets:[{label:'פתוחות',data:CTX.trendData,tension:.35,fill:true}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+  makeChart('slaPieChart',{type:'doughnut',data:{labels:['בתוך SLA','חרגו SLA','לא ניתן לחשב'],datasets:[{data:[CTX.ok,CTX.bad,CTX.unk]}]},options:{plugins:{legend:{position:'bottom'}}}});
+  makeChart('deptBar',{type:'bar',data:{labels:CTX.dept.labels,datasets:[{label:'היום',data:CTX.dept.curr},{label:'קודם',data:CTX.dept.prev}]},options:{plugins:{legend:{position:'bottom'}},scales:{x:{ticks:{autoSkip:false}},y:{beginAtZero:true}},onClick:(e,els)=>{ if(!els.length) return; const i=els[0].index; const label=e.chart.data.labels[i]; const ds=e.chart.data.datasets[els[0].datasetIndex].label; const pool=ds==='היום'?CTX.currOpen:CTX.prevOpen; openDetail(`מחלקה: ${label} — ${ds}`, pool.filter(r=>(r[COLS.dept]||'').toString().trim()===label)); } }});
+  makeChart('sourceStack',{type:'bar',data:{labels:CTX.source.labels,datasets:[{label:'היום',data:CTX.source.curr},{label:'קודם',data:CTX.source.prev}]},options:{plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}},onClick:(e,els)=>{ if(!els.length) return; const i=els[0].index; const label=e.chart.data.labels[i]; const ds=e.chart.data.datasets[els[0].datasetIndex].label; const pool=ds==='היום'?CTX.currOpen:CTX.prevOpen; openDetail(`מקור פניה: ${label} — ${ds}`, pool.filter(r=>(r[COLS.source]||'').toString().trim()===label)); } }});
+  makeChart('cityHBar',{type:'bar',data:{labels:CTX.city.labels,datasets:[{label:'היום',data:CTX.city.curr}]},options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}},onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index]; openDetail('עיר: '+label+' — היום', CTX.currOpen.filter(r=>(r[COLS.city]||'').toString().trim()===label)); }}});
+  makeChart('unitHBar',{type:'bar',data:{labels:CTX.unit.labels,datasets:[{label:'היום',data:CTX.unit.curr}]},options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}},onClick:(e,els)=>{ if(!els.length) return; const label=e.chart.data.labels[els[0].index]; openDetail('יחידה: '+label+' — היום', CTX.currOpen.filter(r=>(r[COLS.unit]||'').toString().trim()===label)); }}});
 
-  // קיצורי דרך
   $('btnOpenToday').onclick=()=>openDetail('כל הפניות הפתוחות — היום', CTX.currOpen);
   $('btnOpenPrev').onclick =()=>openDetail('כל הפניות הפתוחות — קודם', CTX.prevOpen);
   $('btnOpenSLA').onclick  =()=>{
@@ -442,9 +393,9 @@ function render(){
   };
   $('btnOpenDup').onclick =()=>{
     const rows=[];
-    CTX.dups.byTrack.forEach(d=>rows.push({סוג:'Tracking', ערך:d.ערך, מופעים:d.мופעים, ...d.דוגמא}));
-    CTX.dups.byName.forEach(d=>rows.push({סוג:'שם לקוח', ערך:d.ערך, מופעים:d.мופעים, ...d.דוגמא}));
-    CTX.dups.byMail.forEach(d=>rows.push({סוג:'מייל', ערך:d.ערך, מופעים:d.мופעים, ...d.דוגמא}));
+    CTX.dups.byTrack.forEach(d=>rows.push({סוג:'Tracking', ערך:d.ערך, מופעים:d.מופעים, ...d.דוגמא}));
+    CTX.dups.byName.forEach(d=>rows.push({סוג:'שם לקוח', ערך:d.ערך, מופעים:d.מופעים, ...d.דוגמא}));
+    CTX.dups.byMail.forEach(d=>rows.push({סוג:'מייל', ערך:d.ערך, מופעים:d.מופעים, ...d.דוגמא}));
     openDetail('כפילויות', rows);
   };
   $('exportTrend').onclick=()=>{
@@ -452,11 +403,11 @@ function render(){
     const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([toCSV(rows)],{type:'text/csv;charset=utf-8;'})); a.download='trend.csv'; a.click(); URL.revokeObjectURL(a.href);
   };
 
-  // AI Insights
   renderAI();
+  $('fiNote').textContent='מחושב ✓';
 }
 
-/* ========= AI Insights (לוקלי) ========= */
+/* ========= AI ========= */
 function renderAI(){
   const out=[];
   const delta=CTX.currOpen.length-(CTX.prevOpen.length||0);
@@ -470,13 +421,12 @@ function renderAI(){
   if(CTX.city.labels[0]) out.push(`ערים בולטות היום: ${CTX.city.labels.slice(0,3).join(', ')}.`);
   if(CTX.unit.labels[0]) out.push(`יחידות עמוסות: ${CTX.unit.labels.slice(0,3).join(', ')}.`);
   if(CTX.dups.total>0) out.push(`נמצאו ${CTX.dups.total} קבוצות כפילויות (מעקב/שם/מייל) — מומלץ טיוב נתונים.`);
-  // הצעות פעולה
-  if((CTX.bad/(CTX.ok+CTX.bad+0.0001))>0.2) out.push('המלצה: לפתוח משימות טיפול מהיר על פריטי SLA חורגים (סינון ב"פתח טבלה" ב-SLA).');
-  if(delta>0) out.push('המלצה: לאתר סיבות לעליה במוקדים הבעייתיים (גרף ערים/יחידות) ולחזק כ"א זמני.');
+  if((CTX.bad/(CTX.ok+CTX.bad+0.0001))>0.2) out.push('המלצה: לפתוח משימות טיפול מהיר על פריטי SLA חורגים (טבלת SLA).');
+  if(delta>0) out.push('המלצה: לאתר סיבות לעליה במוקדים הבעייתיים (ערים/יחידות) ולחזק כ"א זמני.');
   $('aiList').innerHTML = out.map(x=>`<li>${x}</li>`).join('') || '<li>אין תובנות להצגה.</li>';
 }
 
-/* ========= מודאל פירוט ========= */
+/* ========= מודאל ========= */
 const detailModal=$('detailModal'), detailTitle=$('detailTitle'), detailSub=$('detailSub'), detailHead=$('detailHead'), detailBody=$('detailBody');
 let _detailRows=[];
 function openDetail(title, rows, sub=''){
@@ -496,7 +446,7 @@ function openDetail(title, rows, sub=''){
   detailModal.showModal();
 }
 
-/* ========= SQL בדפדפן ========= */
+/* ========= SQL ========= */
 function renderSql(rows){
   const head=$('sqlHead'), body=$('sqlBody'); head.innerHTML=''; body.innerHTML='';
   if(!rows.length){ body.innerHTML='<tr><td class="p-3">אין תוצאות</td></tr>'; return; }
@@ -517,35 +467,61 @@ $('btnSqlExport').onclick=()=>{
   }catch(e){ alert('שגיאת SQL: '+e.message); }
 };
 
-/* ========= העלאה/איפוס ========= */
+/* ========= העלאה / הרץ דוח / איפוס ========= */
 $('fileInput').addEventListener('change', async (e)=>{
   const f=e.target.files?.[0]; if(!f) return;
   try{
     $('fileInfo').classList.remove('hidden');
-    $('fiName').textContent=f.name; $('fiSheet').textContent='—'; $('fiRows').textContent='—'; $('fiNote').textContent='טוען…';
+    $('fiName').textContent=f.name; $('fiSheet').textContent='—'; $('fiRows').textContent='—';
+    $('fiNote').textContent='טוען…'; $('fiCols').textContent='';
     const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const sheet=wb.SheetNames[0];
     const ws=wb.Sheets[sheet]; const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
     RAW = rows; $('fiSheet').textContent=sheet; $('fiRows').textContent=rows.length.toLocaleString('he-IL');
+
     if(!rows.length){ $('fiNote').textContent='אין נתונים בקובץ'; return; }
+
     const headers=Object.keys(rows[0]);
     COLS = detectColumns(headers);
+
+    const required = {
+      'סנאפשוט (תאריך/שעת שונה לאחרונה)': COLS.snapDate,
+      'סטטוס פניה': COLS.status,
+      'מחלקה מטפלת': COLS.dept,
+      'תאריך/שעת פתיחה (SLA)': COLS.openDate || '(לא נמצא — אחשב SLA רק היכן שניתן)'
+    };
+    $('fiCols').innerHTML = 'עמודות שזוהו: ' + Object.entries(required)
+      .map(([k,v])=> `<span class="${v?'text-green-600':'text-red-600'}">• ${k}: ${v||'חסר'}</span>`)
+      .join(' &nbsp; ');
+
     if(!COLS.snapDate || !COLS.status || !COLS.dept){
-      $('fiNote').textContent='חסרות עמודות חובה (סנאפשוט/סטטוס/מחלקה).'; return;
+      $('fiNote').textContent='חסרות עמודות חובה — לא ניתן לחשב. תקני שמות עמודות או עדכני כאן ונריץ שוב.';
+      return;
     }
     if(!COLS.openDate) COLS.openDate='תאריך/שעת פתיחה';
-    // טען טבלת SQL
+
     alasql('DROP TABLE IF EXISTS data'); alasql('CREATE TABLE data'); alasql.tables.data.data = RAW;
-    // טאבים + חישוב
-    buildTabs(RAW); currentDept='__ALL__'; calc(); $('fiNote').textContent='נטען ✓';
+
+    buildTabs(RAW); currentDept='__ALL__';
+    calc();
+    $('fiNote').textContent='הקובץ עלה ✓ — אפשר ללחוץ "הרץ דוח" לרענון בכל רגע';
   }catch(err){ $('fiNote').textContent='שגיאה: '+err.message; }
 });
+
+$('btnRecalc').onclick = ()=> {
+  if(!RAW.length){ $('fiNote').textContent='לא הועלה קובץ.'; return; }
+  $('fiNote').textContent='מריץ חישוב…';
+  try { calc(); } catch(e){ $('fiNote').textContent='שגיאה בחישוב: '+e.message; }
+};
+
 $('resSel').onchange=()=>calc();
+
 $('btnReset').onclick=()=>{
   RAW=[]; COLS={}; currentDept='__ALL__'; Object.values(charts).forEach(c=>c.destroy()); charts={}; CTX=null;
   ['fileInfo','deptTabsWrap','kpis','charts','aiSql'].forEach(id=>$(id).classList.add('hidden'));
   $('deptTabs').innerHTML=''; $('sqlHead').innerHTML=''; $('sqlBody').innerHTML=''; $('aiList').innerHTML='';
   $('fiName').textContent='—'; $('fiSheet').textContent='—'; $('fiRows').textContent='—'; $('fiNote').textContent='';
-});
+  $('fiCols').textContent='';
+};
 </script>
 </body>
 </html>
