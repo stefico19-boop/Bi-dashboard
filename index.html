@@ -1207,172 +1207,189 @@
   </div>
 </section>
   <script>
+<!-- === STEP 5: השוואת דוחות (מתוקן + כפתור שמירת "דוח קודם") === -->
 <script>
 (() => {
-  // =========================
-  // שלב 5: השוואת דוחות (קודם מול חדש) — FIX
-  // =========================
+  const TZ='Asia/Jerusalem';
+  const CLOSED_WORDS=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const OPEN_STATUS_COL_KEYS=['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  const DEPT_KEYS=['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
 
-  // ---- קבועים ----
-  const TZ = 'Asia/Jerusalem';
-  const CLOSED_WORDS = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
-  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
-  const DEPT_KEYS = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
+  const $=id=>document.getElementById(id);
 
-  // ---- DOM ----
-  const $ = (id) => document.getElementById(id);
-  const tblBody = $('compareTable');
-  const summaryBox = $('compareSummary');
+  // UI: בונה את סקשן שלב 5 אם לא קיים
+  (function ensureStep5UI(){
+    if ($('biStep5Compare')) return;
+    const html=`
+    <section id="biStep5Compare" class="max-w-6xl mx-auto px-4 mt-6">
+      <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 5 (השוואה בין דוחות)</span>
+          <button id="btnSetPrev" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/15 hover:bg-white/15">
+            קבע/י את הדוח הנוכחי כ׳דוח קודם׳
+          </button>
+        </div>
+        <div id="compareSummary" class="mb-4 text-sm text-ink-200/70">טרם הועלו שני דוחות להשוואה.</div>
+        <table class="w-full text-sm border-separate border-spacing-0">
+          <thead>
+            <tr class="text-ink-200/80 border-b border-white/10">
+              <th class="px-3 py-2 text-right">מחלקה</th>
+              <th class="px-3 py-2 text-right">דוח קודם</th>
+              <th class="px-3 py-2 text-right">דוח חדש</th>
+              <th class="px-3 py-2 text-right">שינוי %</th>
+              <th class="px-3 py-2 text-right">מגמה</th>
+            </tr>
+          </thead>
+          <tbody id="compareTable"></tbody>
+        </table>
+      </div>
+    </section>`;
+    (document.querySelector('main')||document.body).insertAdjacentHTML('beforeend', html);
+    $('btnSetPrev').addEventListener('click', manualSetPrev);
+  })();
 
-  // ---- עזרי עמודות/סטטוס ----
-  function findCol(row, keys) {
-    if (!row) return null;
+  // ---- עזרי עמודות/סטטוס/מחלקה ----
+  function findCol(row, keys){
+    if(!row) return null;
     for (const k of keys) if (k in row) return k;
-    const norm = (s) => String(s).replace(/\s+/g,'').toLowerCase();
-    const targets = keys.map(norm);
+    const norm=s=>String(s).replace(/\s+/g,'').toLowerCase();
+    const targets=keys.map(norm);
     for (const k in row) if (targets.includes(norm(k))) return k;
     return null;
   }
-  function isOpenRow(row) {
-    const key = findCol(row, OPEN_STATUS_COL_KEYS);
-    if (!key) return true;
-    const v = String(row[key] ?? '').trim();
-    return !CLOSED_WORDS.some(c => v === c || v.includes(c));
+  function isOpenRow(row){
+    const key=findCol(row,OPEN_STATUS_COL_KEYS);
+    if(!key) return true;
+    const v=String(row[key]??'').trim();
+    return !CLOSED_WORDS.some(c=>v===c||v.includes(c));
   }
-  function deptOf(row) {
-    const k = findCol(row, DEPT_KEYS);
-    return k ? String(row[k] ?? 'לא מוגדר').trim() : 'לא מוגדר';
+  function deptOf(row){
+    const k=findCol(row,DEPT_KEYS);
+    return k?String(row[k]??'לא מוגדר').trim():'לא מוגדר';
   }
 
-  // ---- טעינת דאטה מהקובץ האחרון (ליתר ביטחון) ----
-  async function ensureDatasetLoadedCurrent() {
+  // ---- טעינת דאטה בטוחה (החדש) ----
+  async function ensureDatasetLoaded(){
     if (Array.isArray(window.__dataset) && window.__dataset.length) return;
     if (!window.__lastFile || !window.XLSX) return;
-    const buf = await window.__lastFile.arrayBuffer();
-    const wb  = XLSX.read(buf, { type:'array' });
-    const sh  = wb.Sheets[wb.SheetNames[0]];
-    window.__dataset = XLSX.utils.sheet_to_json(sh, { defval:null });
+    const buf=await window.__lastFile.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const sh=wb.Sheets[wb.SheetNames[0]];
+    window.__dataset=XLSX.utils.sheet_to_json(sh,{defval:null});
   }
 
-  // ---- צילום "דוח קודם" לפני שמעלים חדש ----
-  function snapshotPreviousIfNeeded() {
-    if (Array.isArray(window.__dataset) && window.__dataset.length) {
-      try {
-        window.__prevDataset = JSON.parse(JSON.stringify(window.__dataset));
-        window.__prevMeta = {
-          when: new Date().toLocaleString('he-IL', { timeZone: TZ })
-        };
-      } catch (e) { console.warn('prev snapshot failed', e); }
+  // ---- שמירת "דוח קודם" ----
+  function snapshotPrev(){
+    if (Array.isArray(window.__dataset) && window.__dataset.length){
+      try{
+        window.__prevDataset=JSON.parse(JSON.stringify(window.__dataset));
+        window.__prevMeta={ when:new Date().toLocaleString('he-IL',{timeZone:TZ}) };
+        return true;
+      }catch(e){ console.warn('snapshot prev failed',e); }
+    }
+    return false;
+  }
+  // אוטומטי: לפני בחירת קובץ חדש – נשמור את הנוכחי כקודם
+  const fileInput=$('fileInput'), dropzone=$('dropzone');
+  fileInput?.addEventListener('change', ()=>snapshotPrev(), {capture:true});
+  dropzone ?.addEventListener('drop',   ()=>snapshotPrev(), {capture:true});
+  // ידני: כפתור
+  function manualSetPrev(){
+    if (snapshotPrev()){
+      computeCompare(); // לרוץ ישר
+    }else{
+      alert('אין דוח נוכחי בזיכרון לשמירה. העלי קודם קובץ אחד.');
     }
   }
-  // מאזינים ב-CAPTURE כדי להקדים לכל עיבוד אחר
-  document.getElementById('fileInput')?.addEventListener('change', snapshotPreviousIfNeeded, { capture:true });
-  document.getElementById('dropzone') ?.addEventListener('drop',    snapshotPreviousIfNeeded, { capture:true });
 
-  // ---- אגרגציה לפי מחלקה (פתוחות בלבד) ----
-  function aggregateOpenByDept(rows) {
-    const map = new Map();
-    if (!Array.isArray(rows)) return map;
-    for (const r of rows) {
-      if (!isOpenRow(r)) continue;
-      const d = deptOf(r);
-      map.set(d, (map.get(d) || 0) + 1);
+  // ---- אגרגציה והשוואה ----
+  function aggregateOpenByDept(rows){
+    const m=new Map();
+    if(!Array.isArray(rows)) return m;
+    for (const r of rows){
+      if(!isOpenRow(r)) continue;
+      const d=deptOf(r);
+      m.set(d,(m.get(d)||0)+1);
     }
-    return map;
+    return m;
   }
-  function totalFromMap(m) {
-    let s = 0; m.forEach(v => s += v); return s;
+  function total(m){ let s=0; m.forEach(v=>s+=v); return s; }
+  function pct(prev,curr){
+    if (prev===0 && curr===0) return 0;
+    if (prev===0 && curr>0) return 100;
+    return ((curr-prev)/prev)*100;
   }
+  const fmtNum=n=>Number(n).toLocaleString('he-IL');
+  const fmtPct=p=>(p>0?'+':'')+p.toFixed(1)+'%';
 
-  // ---- אחוז שינוי ----
-  function pctChange(prev, curr) {
-    if (prev === 0 && curr === 0) return 0;
-    if (prev === 0 && curr > 0)  return 100;
-    return ((curr - prev) / prev) * 100;
-  }
-  const fmtNum = n => Number(n).toLocaleString('he-IL');
-  const fmtPct = p => (p>0?'+':'') + p.toFixed(1) + '%';
-
-  // ---- רנדר תוצאה ----
-  function renderComparison(prevMap, currMap) {
-    const allDepts = new Set([...prevMap.keys(), ...currMap.keys()]);
-    const rows = [];
-    allDepts.forEach(dept => {
-      const prev = prevMap.get(dept) || 0;
-      const curr = currMap.get(dept) || 0;
-      rows.push({ dept, prev, curr, pct: pctChange(prev, curr) });
+  function render(prevMap,currMap){
+    const summary=$('compareSummary');
+    const body=$('compareTable');
+    const all=new Set([...prevMap.keys(),...currMap.keys()]);
+    const rows=[];
+    all.forEach(d=>{
+      const a=prevMap.get(d)||0, b=currMap.get(d)||0;
+      rows.push({dept:d, prev:a, curr:b, pc:pct(a,b)});
     });
-    rows.sort((a,b) => b.curr - a.curr);
+    rows.sort((x,y)=>y.curr-x.curr);
 
-    const totalPrev = totalFromMap(prevMap);
-    const totalCurr = totalFromMap(currMap);
-    const totalPct  = pctChange(totalPrev, totalCurr);
-
-    summaryBox.innerHTML = `
+    const A=total(prevMap), B=total(currMap), P=pct(A,B);
+    summary.innerHTML=`
       <div class="flex flex-wrap items-center gap-3">
         <span>סה״כ כל המחלקות:</span>
-        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">קודם: ${fmtNum(totalPrev)}</span>
-        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">חדש: ${fmtNum(totalCurr)}</span>
-        <span class="px-2 py-1 rounded ${totalPct<0?'bg-emerald-600/20 border-emerald-400/30':'bg-rose-600/20 border-rose-400/30'} border">
-          שינוי: ${fmtPct(totalPct)} ${totalPct<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
+        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">קודם: ${fmtNum(A)}</span>
+        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">חדש: ${fmtNum(B)}</span>
+        <span class="px-2 py-1 rounded ${P<0?'bg-emerald-600/20 border-emerald-400/30':'bg-rose-600/20 border-rose-400/30'} border">
+          שינוי: ${fmtPct(P)} ${P<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
         </span>
-        ${window.__prevMeta ? `<span class="text-ink-200/60">(דוח קודם נשמר: ${window.__prevMeta.when})</span>` : ''}
-      </div>
-    `;
+        ${window.__prevMeta?`<span class="text-ink-200/60">(דוח קודם נשמר: ${window.__prevMeta.when})</span>`:''}
+      </div>`;
 
-    tblBody.innerHTML = rows.map(r => `
+    body.innerHTML=rows.map(r=>`
       <tr class="border-b border-white/10">
         <td class="px-3 py-2">${r.dept}</td>
         <td class="px-3 py-2">${fmtNum(r.prev)}</td>
         <td class="px-3 py-2">${fmtNum(r.curr)}</td>
-        <td class="px-3 py-2">${fmtPct(r.pct)}</td>
-        <td class="px-3 py-2 ${r.pct<0?'text-emerald-400':'text-rose-400'}">${r.pct<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}</td>
-      </tr>
-    `).join('');
+        <td class="px-3 py-2">${fmtPct(r.pc)}</td>
+        <td class="px-3 py-2 ${r.pc<0?'text-emerald-400':'text-rose-400'}">
+          ${r.pc<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
+        </td>
+      </tr>`).join('');
   }
 
-  // ---- הפעלת ההשוואה (עם המתנה אמיתית לטעינת החדש) ----
-  async function computeStep5() {
-    // לוודא שהדוח החדש נטען ל-__dataset
-    await ensureDatasetLoadedCurrent();
+  async function computeCompare(){
+    await ensureDatasetLoaded();            // לוודא שהחדש בזיכרון
+    const prev=window.__prevDataset, curr=window.__dataset;
+    const summary=$('compareSummary'), body=$('compareTable');
 
-    const prev = window.__prevDataset;
-    const curr = window.__dataset;
-
-    if (!Array.isArray(curr) || !curr.length) {
-      summaryBox.textContent = 'טרם הועלה דוח חדש.';
-      tblBody.innerHTML = '';
+    if (!Array.isArray(curr)||!curr.length){
+      summary.textContent='טרם הועלה דוח חדש.';
+      body.innerHTML='';
       return;
     }
-    if (!Array.isArray(prev) || !prev.length) {
-      summaryBox.textContent = 'אין דוח קודם להשוואה. העלי דוח ואז העלי דוח נוסף להשוואה.';
-      tblBody.innerHTML = '';
+    if (!Array.isArray(prev)||!prev.length){
+      summary.textContent='אין דוח קודם להשוואה. לחצו על הכפתור „קבע/י את הדוח הנוכחי כ׳דוח קודם׳” ואז העלו דוח חדש.';
+      body.innerHTML='';
       return;
     }
-
-    const prevMap = aggregateOpenByDept(prev);
-    const currMap = aggregateOpenByDept(curr);
-    renderComparison(prevMap, currMap);
+    render(aggregateOpenByDept(prev), aggregateOpenByDept(curr));
   }
 
-  // ---- עטיפת updateSuccessUI כדי להמתין באמת ----
-  if (typeof window.updateSuccessUI === 'function') {
-    const __old = window.updateSuccessUI;
-    window.updateSuccessUI = async function() {
-      // להריץ את המקורית (אם היא async – נמתין לה)
-      const ret = __old.apply(this, arguments);
-      if (ret && typeof ret.then === 'function') { try { await ret; } catch {} }
-      // עכשיו לטעון את הדאטה החדש בוודאות ולחשב
-      await ensureDatasetLoadedCurrent();
-      await computeStep5();
+  // אחרי שכל טעינת קובץ מסתיימת (מהשלבים הקודמים) — נחשב השוואה
+  if (typeof window.updateSuccessUI==='function'){
+    const old=window.updateSuccessUI;
+    window.updateSuccessUI = async function(){
+      const r = old.apply(this, arguments);
+      if (r && typeof r.then==='function'){ try{ await r; }catch{} }
+      await computeCompare();
     };
   }
 
   // אם כבר יש שני דוחות בזיכרון (למשל אחרי רענון)
-  if (Array.isArray(window.__prevDataset) && window.__prevDataset.length &&
-      Array.isArray(window.__dataset)     && window.__dataset.length) {
-    computeStep5();
+  if (Array.isArray(window.__prevDataset)&&window.__prevDataset.length &&
+      Array.isArray(window.__dataset)    && window.__dataset.length){
+    computeCompare();
   }
 })();
 </script>
-  </body>
+        </body>
