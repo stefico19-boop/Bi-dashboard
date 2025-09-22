@@ -1207,41 +1207,24 @@
   </div>
 </section>
   <script>
+<script>
 (() => {
   // =========================
-  // שלב 5: השוואת דוחות (קודם מול חדש)
+  // שלב 5: השוואת דוחות (קודם מול חדש) — FIX
   // =========================
 
-  // ---- הגדרות בסיס ----
+  // ---- קבועים ----
   const TZ = 'Asia/Jerusalem';
   const CLOSED_WORDS = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
   const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
   const DEPT_KEYS = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
 
-  // ---- עזרי DOM ----
+  // ---- DOM ----
   const $ = (id) => document.getElementById(id);
   const tblBody = $('compareTable');
   const summaryBox = $('compareSummary');
 
-  // ---- שמירה אוטומטית של "דוח קודם" כאשר נבחר קובץ חדש ----
-  // אם בוחרים קובץ חדש, נשמור את הדאטה הנוכחי כקודם – BEFORE הקליטה החדשה
-  function snapshotPreviousIfNeeded() {
-    if (Array.isArray(window.__dataset) && window.__dataset.length) {
-      try {
-        window.__prevDataset = JSON.parse(JSON.stringify(window.__dataset));
-        window.__prevMeta = {
-          when: new Date().toLocaleString('he-IL', { timeZone: TZ }),
-          note: 'נשמר אוטומטית בעת בחירת קובץ חדש'
-        };
-      } catch (e) { console.warn('prev snapshot failed', e); }
-    }
-  }
-  const fileInput = document.getElementById('fileInput');
-  const dropzone  = document.getElementById('dropzone');
-  if (fileInput) fileInput.addEventListener('change', snapshotPreviousIfNeeded, { capture: true });
-  if (dropzone)  dropzone.addEventListener('drop',    snapshotPreviousIfNeeded, { capture: true });
-
-  // ---- פונקציות עזר (עמודות/סטטוס/מחלקה) ----
+  // ---- עזרי עמודות/סטטוס ----
   function findCol(row, keys) {
     if (!row) return null;
     for (const k of keys) if (k in row) return k;
@@ -1261,9 +1244,34 @@
     return k ? String(row[k] ?? 'לא מוגדר').trim() : 'לא מוגדר';
   }
 
-  // ---- אגרגציה לפי מחלקה (פניות פתוחות בלבד) ----
+  // ---- טעינת דאטה מהקובץ האחרון (ליתר ביטחון) ----
+  async function ensureDatasetLoadedCurrent() {
+    if (Array.isArray(window.__dataset) && window.__dataset.length) return;
+    if (!window.__lastFile || !window.XLSX) return;
+    const buf = await window.__lastFile.arrayBuffer();
+    const wb  = XLSX.read(buf, { type:'array' });
+    const sh  = wb.Sheets[wb.SheetNames[0]];
+    window.__dataset = XLSX.utils.sheet_to_json(sh, { defval:null });
+  }
+
+  // ---- צילום "דוח קודם" לפני שמעלים חדש ----
+  function snapshotPreviousIfNeeded() {
+    if (Array.isArray(window.__dataset) && window.__dataset.length) {
+      try {
+        window.__prevDataset = JSON.parse(JSON.stringify(window.__dataset));
+        window.__prevMeta = {
+          when: new Date().toLocaleString('he-IL', { timeZone: TZ })
+        };
+      } catch (e) { console.warn('prev snapshot failed', e); }
+    }
+  }
+  // מאזינים ב-CAPTURE כדי להקדים לכל עיבוד אחר
+  document.getElementById('fileInput')?.addEventListener('change', snapshotPreviousIfNeeded, { capture:true });
+  document.getElementById('dropzone') ?.addEventListener('drop',    snapshotPreviousIfNeeded, { capture:true });
+
+  // ---- אגרגציה לפי מחלקה (פתוחות בלבד) ----
   function aggregateOpenByDept(rows) {
-    const map = new Map(); // dept -> count
+    const map = new Map();
     if (!Array.isArray(rows)) return map;
     for (const r of rows) {
       if (!isOpenRow(r)) continue;
@@ -1273,38 +1281,29 @@
     return map;
   }
   function totalFromMap(m) {
-    let sum = 0;
-    m.forEach(v => sum += v);
-    return sum;
+    let s = 0; m.forEach(v => s += v); return s;
   }
 
-  // ---- השוואה באחוזים ----
+  // ---- אחוז שינוי ----
   function pctChange(prev, curr) {
     if (prev === 0 && curr === 0) return 0;
-    if (prev === 0 && curr > 0)  return 100;   // מ-0 ל>0 – 100% עליה (מוגדר מוסכמות)
+    if (prev === 0 && curr > 0)  return 100;
     return ((curr - prev) / prev) * 100;
   }
-  function fmtNum(n) { return Number(n).toLocaleString('he-IL'); }
-  function fmtPct(p) {
-    const sign = (p > 0 ? '+' : (p < 0 ? '' : ''));
-    return sign + p.toFixed(1) + '%';
-  }
+  const fmtNum = n => Number(n).toLocaleString('he-IL');
+  const fmtPct = p => (p>0?'+':'') + p.toFixed(1) + '%';
 
-  // ---- רנדר טבלה ----
+  // ---- רנדר תוצאה ----
   function renderComparison(prevMap, currMap) {
-    // איחוד כל המחלקות
     const allDepts = new Set([...prevMap.keys(), ...currMap.keys()]);
     const rows = [];
     allDepts.forEach(dept => {
       const prev = prevMap.get(dept) || 0;
       const curr = currMap.get(dept) || 0;
-      const p = pctChange(prev, curr);
-      rows.push({ dept, prev, curr, pct: p });
+      rows.push({ dept, prev, curr, pct: pctChange(prev, curr) });
     });
-    // סדר: הגדולות בחדש תחילה
     rows.sort((a,b) => b.curr - a.curr);
 
-    // סיכום כללי
     const totalPrev = totalFromMap(prevMap);
     const totalCurr = totalFromMap(currMap);
     const totalPct  = pctChange(totalPrev, totalCurr);
@@ -1321,22 +1320,22 @@
       </div>
     `;
 
-    // טבלה
     tblBody.innerHTML = rows.map(r => `
       <tr class="border-b border-white/10">
         <td class="px-3 py-2">${r.dept}</td>
         <td class="px-3 py-2">${fmtNum(r.prev)}</td>
         <td class="px-3 py-2">${fmtNum(r.curr)}</td>
         <td class="px-3 py-2">${fmtPct(r.pct)}</td>
-        <td class="px-3 py-2 ${r.pct<0?'text-emerald-400':'text-rose-400'}">
-          ${r.pct<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
-        </td>
+        <td class="px-3 py-2 ${r.pct<0?'text-emerald-400':'text-rose-400'}">${r.pct<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}</td>
       </tr>
     `).join('');
   }
 
-  // ---- הרצה כאשר יש שני דוחות ----
+  // ---- הפעלת ההשוואה (עם המתנה אמיתית לטעינת החדש) ----
   async function computeStep5() {
+    // לוודא שהדוח החדש נטען ל-__dataset
+    await ensureDatasetLoadedCurrent();
+
     const prev = window.__prevDataset;
     const curr = window.__dataset;
 
@@ -1346,7 +1345,7 @@
       return;
     }
     if (!Array.isArray(prev) || !prev.length) {
-      summaryBox.textContent = 'אין דוח קודם להשוואה. העלי דוח אחד, ואז העלי דוח נוסף להשוואה.';
+      summaryBox.textContent = 'אין דוח קודם להשוואה. העלי דוח ואז העלי דוח נוסף להשוואה.';
       tblBody.innerHTML = '';
       return;
     }
@@ -1356,21 +1355,24 @@
     renderComparison(prevMap, currMap);
   }
 
-  // ---- חיבור לפלואו קיים: לאחר קליטת קובץ → לחשב השוואה ----
+  // ---- עטיפת updateSuccessUI כדי להמתין באמת ----
   if (typeof window.updateSuccessUI === 'function') {
     const __old = window.updateSuccessUI;
-    window.updateSuccessUI = function() {
-      __old.apply(this, arguments);
-      // אחרי שהדאטה החדש נטען ל-__dataset, נריץ השוואה מול __prevDataset (אם יש)
-      setTimeout(computeStep5, 0);
+    window.updateSuccessUI = async function() {
+      // להריץ את המקורית (אם היא async – נמתין לה)
+      const ret = __old.apply(this, arguments);
+      if (ret && typeof ret.then === 'function') { try { await ret; } catch {} }
+      // עכשיו לטעון את הדאטה החדש בוודאות ולחשב
+      await ensureDatasetLoadedCurrent();
+      await computeStep5();
     };
   }
 
-  // אם כבר יש שני דוחות בזיכרון (רענון אחרי העלאות) – ננסה עכשיו
+  // אם כבר יש שני דוחות בזיכרון (למשל אחרי רענון)
   if (Array.isArray(window.__prevDataset) && window.__prevDataset.length &&
       Array.isArray(window.__dataset)     && window.__dataset.length) {
     computeStep5();
   }
 })();
-  </script>
+</script>
   </body>
