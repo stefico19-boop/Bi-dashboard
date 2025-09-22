@@ -941,17 +941,30 @@
   // אם הנתונים הוטענו אחרי שהסקריפט נטען – אין צורך בפעולה מיוחדת; המאזינים כבר יושבים.
 })();
 </script> 
-<!-- === STEP 4 (FIX): Force SLA compute before any table open + after file load === -->
+<!-- === STEP 4 (REWRITE): SLA + טבלת קליק + יצוא XLSX (עצמאי, חסין כפילויות) === -->
+<section id="biModalHost"></section>
 <script>
 (() => {
-  const TZ = 'Asia/Jerusalem';
+  if (window.__BI_STEP4_LOADED) return; // מניעת טעינה כפולה
+  window.__BI_STEP4_LOADED = true;
 
-  // ----- עמודות וזיהוי -----
-  const OPEN_DATE_COL_KEYS = ['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'];
-  const DEPT_COL_KEYS      = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
-  const SUBJECT_COL_KEYS   = ['סיווג נושא','נושא','סיווג נושא '];
-  const PROBLEM_COL_KEYS   = ['סיווג בעיה','בעיה','סיווג בעיה '];
-  const STATUS_COL_KEYS    = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  // ------- קבועים -------
+  const TZ = 'Asia/Jerusalem';
+  const CLOSED_WORDS = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+
+  // ------- עזרי DOM -------
+  const $ = (id) => document.getElementById(id);
+
+  // ------- עזרי עמודות -------
+  const COLS = {
+    openedAt: ['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'],
+    status:   ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    dept:     ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    subject:  ['סיווג נושא','נושא','סיווג נושא '],
+    problem:  ['סיווג בעיה','בעיה','סיווג בעיה '],
+    city:     ['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'],
+    unit:     ['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם']
+  };
 
   function findCol(row, keys) {
     if (!row) return null;
@@ -962,15 +975,7 @@
     return null;
   }
 
-  function isOpenRow(row) {
-    const key = findCol(row, STATUS_COL_KEYS);
-    if (!key) return true;
-    const v = String(row[key] ?? '').trim();
-    const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
-    return !closed.some(c => v === c || v.includes(c));
-  }
-
-  // ----- תאריכים ישראל -----
+  // ------- עזרי תאריך (ישראל) -------
   function toPartsTZ(date) {
     const d = (date instanceof Date) ? date : new Date(date);
     const parts = new Intl.DateTimeFormat('he-IL', {
@@ -984,8 +989,33 @@
     const p = toPartsTZ(date);
     return `${String(p.d).padStart(2,'0')}/${String(p.M).padStart(2,'0')}/${p.y} ${String(p.H).padStart(2,'0')}:${String(p.i).padStart(2,'0')}`;
   }
+  function ymdKeyParts(d){ return `${d.y}-${String(d.M).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; }
+  function todayKey(){ return ymdKeyParts(toPartsTZ(new Date())); }
+  function yesterdayKey(){
+    const t = toPartsTZ(new Date());
+    const atMid = new Date(Date.UTC(t.y, t.M-1, t.d));
+    return ymdKeyParts(toPartsTZ(new Date(atMid.getTime()-24*60*60*1000)));
+  }
+  function normalizeDateOnly(cellVal) {
+    if (cellVal == null || cellVal === '') return null;
+    if (typeof cellVal === 'number') {
+      const excelEpoch = new Date(Date.UTC(1899,11,30));
+      const d = new Date(excelEpoch.getTime() + cellVal*24*60*60*1000);
+      return ymdKeyParts(toPartsTZ(d));
+    }
+    const d = new Date(cellVal);
+    if (!isNaN(d)) return ymdKeyParts(toPartsTZ(d));
+    const m = String(cellVal).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      let [_, dd, mm, yyyy, HH='00', MM='00', SS='00'] = m;
+      if (String(yyyy).length===2) yyyy = '20'+yyyy;
+      const d2 = new Date(`${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${String(HH).padStart(2,'0')}:${MM}:${SS}`);
+      return ymdKeyParts(toPartsTZ(d2));
+    }
+    return null;
+  }
   function parseOpenDate(row) {
-    const key = findCol(row, OPEN_DATE_COL_KEYS);
+    const key = findCol(row, COLS.openedAt);
     if (!key) return null;
     const v = row[key];
     if (v == null || v === '') return null;
@@ -1004,37 +1034,50 @@
     return null;
   }
 
-  // ----- כללי SLA (לפי סדר "מה שלא הוחרג למעלה") -----
+  // ------- לוגיקת סטטוס/פתוח -------
+  function isOpenRow(row) {
+    const key = findCol(row, COLS.status);
+    if (!key) return true;
+    const v = String(row[key] ?? '').trim();
+    return !CLOSED_WORDS.some(c => v === c || v.includes(c));
+  }
+
+  // ------- כללי SLA (לפי "מה שלא הוחרג למעלה") -------
   function normTxt(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
   function getTxt(row, keys){ const k = findCol(row, keys); return k ? String(row[k]).trim() : ''; }
 
   function pickSLARule(row){
-    const dept    = normTxt(getTxt(row, DEPT_COL_KEYS));
-    const subject = normTxt(getTxt(row, SUBJECT_COL_KEYS));
-    const problem = normTxt(getTxt(row, PROBLEM_COL_KEYS));
+    const dept    = normTxt(getTxt(row, COLS.dept));     // פניםארצי / שליחים / בינלאומי
+    const subject = normTxt(getTxt(row, COLS.subject));  // חלוקתדואר / יחידותדואר
+    const problem = normTxt(getTxt(row, COLS.problem));  // תקלהבפורטל / איסוף / הזמנה
 
-    // 1) סיווג נושא: חלוקת דואר / יחידות דואר + פנים-ארצי → 8 ימים
+    // 1) סיווג נושא: חלוקת/יחידות דואר + פנים-ארצי → 8 ימים
     if (dept.includes('פנים') && dept.includes('ארצי') &&
         (subject.includes('חלוקתדואר') || subject.includes('יחידותדואר'))) {
       return { ms: 8*24*60*60*1000, label: '8 ימים — חלוקת/יחידות דואר (פנים-ארצי)' };
     }
+
     // 2) סיווג בעיה: תקלה בפורטל + שליחים/בינלאומי → 24 שעות
     if (problem.includes('תקל') && problem.includes('פורטל') &&
         (dept.includes('שליח') || dept.includes('בינלאומי'))) {
       return { ms: 24*60*60*1000, label: '24 שעות — תקלה בפורטל (שליחים/בינלאומי)' };
     }
+
     // 3) סיווג בעיה: איסוף/הזמנה + שליחים → 24 שעות
     if ((problem.includes('איסוף') || problem.includes('הזמנה')) && dept.includes('שליח')) {
       return { ms: 24*60*60*1000, label: '24 שעות — איסוף/הזמנה (שליחים)' };
     }
+
     // 4) ברירת מחדל: פנים-ארצי או שליחים → 30 ימים
     if ((dept.includes('פנים') && dept.includes('ארצי')) || dept.includes('שליח')) {
       return { ms: 30*24*60*60*1000, label: '30 ימים — ברירת מחדל (פנים-ארצי/שליחים)' };
     }
+
     // 5) ברירת מחדל: בינלאומי → 60 ימים
     if (dept.includes('בינלאומי')) {
       return { ms: 60*24*60*60*1000, label: '60 ימים — ברירת מחדל (בינלאומי)' };
     }
+
     return null;
   }
 
@@ -1042,8 +1085,8 @@
     const abs = Math.abs(ms);
     const days = Math.floor(abs / (24*60*60*1000));
     const hours = Math.floor((abs % (24*60*60*1000)) / (60*60*1000));
-    if (days >= 1) return `${days} יום${days!==1?'ים':''}` + (hours?` ו-${hours} שעות`:``);
-    return `${Math.round(abs/(60*60*1000))} שעות`;
+    if (days >= 1) return `${days.toLocaleString('he-IL')} יום${days!==1?'ים':''}` + (hours?` ו-${hours} שעות`:``);
+    return `${Math.round(abs/(60*60*1000)).toLocaleString('he-IL')} שעות`;
   }
 
   function annotateRowWithSLA(row){
@@ -1052,8 +1095,8 @@
 
     row['SLA כלל']        = rule ? rule.label : '—';
     row['SLA משך']        = rule ? (rule.ms === 24*60*60*1000 ? '24 שעות'
-                                   : rule.ms%(24*60*60*1000)===0 ? `${rule.ms/(24*60*60*1000)} ימים`
-                                   : fmtDuration(rule.ms)) : '—';
+                                    : rule.ms%(24*60*60*1000)===0 ? `${rule.ms/(24*60*60*1000)} ימים`
+                                    : fmtDuration(rule.ms)) : '—';
     row['SLA יעד']        = '—';
     row['SLA נותר/איחור'] = '—';
     row['SLA סטטוס']      = '—';
@@ -1087,33 +1130,156 @@
     for (let i=0; i<data.length; i++) annotateRowWithSLA(data[i]);
   }
 
-  // --- 1) מריצים SLA מיד אם יש דאטה כבר ---
-  if (Array.isArray(window.__dataset) && window.__dataset.length) {
-    computeSLAForDataset();
+  // ------- Modal (נוצר פעם אחת) -------
+  function ensureModal() {
+    if ($('biModal')) return;
+    const html = `
+      <div id="biModal" class="fixed inset-0 z-[1000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div class="text-lg font-bold" id="biModalTitle">נתונים</div>
+            <button id="biExportBtn" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15">
+              ייצוא ל-XLSX
+            </button>
+            <button id="biCloseBtn" class="ms-2 px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
+          </div>
+          <div class="p-4 overflow-auto" style="max-height:70vh">
+            <table id="biTable" class="w-full text-sm border-separate border-spacing-0">
+              <thead id="biThead"></thead>
+              <tbody id="biTbody"></tbody>
+            </table>
+            <div id="biEmpty" class="text-ink-200/70 text-sm p-4 hidden">אין נתונים להצגה.</div>
+          </div>
+        </div>
+      </div>`;
+    $('biModalHost').insertAdjacentHTML('beforeend', html);
+
+    $('biCloseBtn').addEventListener('click', () => $('biModal').classList.add('hidden'));
+    $('biModal').addEventListener('click', (e) => { if (e.target.id === 'biModal') $('biModal').classList.add('hidden'); });
+    $('biExportBtn').addEventListener('click', () => exportXLSX($('biModalTitle').dataset.filename || 'export.xlsx'));
   }
 
-  // --- 2) אחרי קליטת קובץ (wrap עדין) ---
-  if (typeof window.updateSuccessUI === 'function') {
+  function escapeHTML(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  function renderTable(rows) {
+    const tHead = $('biThead'), tBody = $('biTbody'), empty = $('biEmpty');
+    window.__BI_CURRENT_ROWS = rows || [];
+    if (!rows.length) {
+      tHead.innerHTML = ''; tBody.innerHTML = ''; empty.classList.remove('hidden'); return;
+    }
+    empty.classList.add('hidden');
+
+    const headers = Array.from(rows.reduce((set, r) => { Object.keys(r).forEach(k => set.add(k)); return set; }, new Set()));
+    tHead.innerHTML = `<tr>${
+      headers.map(h => `<th class="sticky top-0 bg-[#0b1220] text-ink-200/80 font-semibold px-3 py-2 border-b border-white/10 text-right">${escapeHTML(h)}</th>`).join('')
+    }</tr>`;
+    tBody.innerHTML = rows.map(r => `
+      <tr class="hover:bg-white/5">
+        ${headers.map(h => `<td class="px-3 py-2 border-b border-white/5 align-top">${escapeHTML(r[h] ?? '')}</td>`).join('')}
+      </tr>`).join('');
+  }
+
+  function exportXLSX(filename='export.xlsx') {
+    if (!window.XLSX) return alert('ספריית XLSX לא נטענה.');
+    const ws = XLSX.utils.json_to_sheet(window.__BI_CURRENT_ROWS || []);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data');
+    XLSX.writeFile(wb, filename);
+  }
+
+  function openModal(rows, titleText, fileBase) {
+    ensureModal();
+    $('biModalTitle').textContent = titleText;
+    $('biModalTitle').dataset.filename = `${fileBase}.xlsx`;
+    renderTable(rows);
+    $('biModal').classList.remove('hidden');
+  }
+
+  // ------- עזרי נתונים עבור קליקים -------
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+
+  function rowsOpenTotal(){ return getDataset().filter(isOpenRow); }
+  function rowsOpenedDay(key) {
+    const rows = getDataset();
+    const dateCol = rows.length ? findCol(rows[0], COLS.openedAt) : null;
+    if (!dateCol) return [];
+    return rows.filter(r => isOpenRow(r) && normalizeDateOnly(r[dateCol]) === key);
+  }
+
+  // — רשימות שלב 3 (עיר/יחידה) —
+  // (נסמך על הקוד של שלב 3 שיוצר את הרשימות עם ids: listByCity, listByUnit)
+  function filterByList(name, kind) {
+    const rows = getDataset();
+    const col = rows.length ? findCol(rows[0], kind === 'city' ? COLS.city : COLS.unit) : null;
+    if (!col) return [];
+    return rows.filter(r => isOpenRow(r) && String(r[col] ?? '').trim() === name);
+  }
+
+  // ------- Binding קליקים (גם אם האלמנטים יתווספו מאוחר יותר) -------
+  function bindKPIs() {
+    [
+      ['kpiOpenTotal','כל הפניות הפתוחות','open_tickets', rowsOpenTotal],
+      ['kpiOpenedToday','פניות שנפתחו היום','opened_today', () => rowsOpenedDay(todayKey())],
+      ['kpiOpenedYesterday','פניות שנפתחו אתמול','opened_yesterday', () => rowsOpenedDay(yesterdayKey())]
+    ].forEach(([id, title, file, fn]) => {
+      const el = $(id);
+      if (!el || el.dataset.bound === '1') return;
+      el.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
+      el.title = 'לחיצה להצגת הטבלה';
+      el.addEventListener('click', async () => {
+        await computeSLAForDataset();
+        openModal(fn(), title, file);
+      });
+      el.dataset.bound = '1';
+    });
+  }
+
+  function bindLists() {
+    [['listByCity','פניות פתוחות לפי עיר','city'],
+     ['listByUnit','פניות פתוחות לפי יחידה','unit']].forEach(([id, titlePrefix, kind]) => {
+      const box = $(id);
+      if (!box || box.dataset.bound === '1') return;
+      box.classList.add('cursor-pointer');
+      box.addEventListener('click', async (e) => {
+        const row = e.target.closest('div.py-2');
+        if (!row) return;
+        const nameEl = row.querySelector('span');
+        if (!nameEl) return;
+        const name = nameEl.textContent.trim();
+        if (!name) return;
+        await computeSLAForDataset();
+        const rows = filterByList(name, kind);
+        openModal(rows, `${titlePrefix} — ${name}`, `${kind}_${name.replace(/[\\/:*?"<>|]+/g,'_').slice(0,60)}`);
+      });
+      box.dataset.bound = '1';
+    });
+  }
+
+  // נבצע bind גם עכשיו וגם כשיש שינויי DOM (למקרה שהרכיבים נוספו אחרי)
+  bindKPIs(); bindLists();
+  const mo = new MutationObserver(() => { bindKPIs(); bindLists(); });
+  mo.observe(document.body, { childList: true, subtree: true });
+
+  // עוטפים את updateSuccessUI פעם אחת כדי לחשב SLA אחרי קליטת קובץ
+  if (typeof window.updateSuccessUI === 'function' && !window.__BI_STEP4_WRAP) {
     const __prev = window.updateSuccessUI;
     window.updateSuccessUI = async function() {
       __prev.apply(this, arguments);
       try { await computeSLAForDataset(); } catch(e){ console.warn(e); }
+      bindKPIs(); bindLists();
     };
+    window.__BI_STEP4_WRAP = true;
   }
 
-  // --- 3) לפני כל פתיחת טבלה: מריצים SLA בוודאות (capturing) ---
-  const clickableIds = new Set(['kpiOpenTotal','kpiOpenedToday','kpiOpenedYesterday','listByCity','listByUnit']);
-  document.addEventListener('click', async (ev) => {
-    const el = ev.target;
-    // האם נלחץ משהו בתוך אחד הקונטיינרים? אם כן – נחשב SLA לפני שה-handler הקיים ירוץ.
-    for (const id of clickableIds) {
-      const host = document.getElementById(id);
-      if (host && (el === host || host.contains(el))) {
-        try { await computeSLAForDataset(); } catch(e){ console.warn(e); }
-        break;
-      }
-    }
-  }, true); // capture=true כדי לרוץ לפני ה־handlers שכבר רשומים
+  // אם כבר קיימים נתונים — לחשב עכשיו
+  if (Array.isArray(window.__dataset) && window.__dataset.length) {
+    computeSLAForDataset();
+  }
 })();
 </script>
 </body>
