@@ -941,14 +941,13 @@
   // אם הנתונים הוטענו אחרי שהסקריפט נטען – אין צורך בפעולה מיוחדת; המאזינים כבר יושבים.
 })();
 </script> 
-  <!-- === STEP 4 (SLA – GUARANTEED IN TABLE): חישוב SLA גם בעת פתיחת הטבלה + יצוא XLSX === -->
+  <!-- === STEP 4 (FINAL): SLA + KPI ירוק/אדום + טבלאות בקליק === -->
 <section id="biModalHost"></section>
 <script>
 (() => {
-  if (window.__BI_STEP4_FIX_LOADED) return;
-  window.__BI_STEP4_FIX_LOADED = true;
+  if (window.__BI_STEP4_FINAL) return;
+  window.__BI_STEP4_FINAL = true;
 
-  // -------- קבועים וזיהוי עמודות --------
   const TZ = 'Asia/Jerusalem';
   const CLOSED_WORDS = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
 
@@ -964,6 +963,7 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // ---------- עזרי עמודות ----------
   function findCol(row, keys) {
     if (!row) return null;
     for (const k of keys) if (k in row) return k;
@@ -973,7 +973,7 @@
     return null;
   }
 
-  // -------- תאריכים (ישראל) --------
+  // ---------- תאריכים ----------
   function toPartsTZ(date) {
     const d = (date instanceof Date) ? date : new Date(date);
     const parts = new Intl.DateTimeFormat('he-IL', {
@@ -1003,13 +1003,6 @@
     }
     const d = new Date(cellVal);
     if (!isNaN(d)) return ymdKeyParts(toPartsTZ(d));
-    const m = String(cellVal).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-    if (m) {
-      let [_, dd, mm, yyyy, HH='00', MM='00', SS='00'] = m;
-      if (String(yyyy).length===2) yyyy = '20'+yyyy;
-      const d2 = new Date(`${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${String(HH).padStart(2,'0')}:${MM}:${SS}`);
-      return ymdKeyParts(toPartsTZ(d2));
-    }
     return null;
   }
   function parseOpenDate(row) {
@@ -1023,16 +1016,10 @@
     }
     const d = new Date(v);
     if (!isNaN(d)) return d;
-    const m = String(v).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
-    if (m) {
-      let [_, dd, mm, yyyy, HH='00', II='00'] = m;
-      if (String(yyyy).length===2) yyyy = '20'+yyyy;
-      return new Date(`${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${String(HH).padStart(2,'0')}:${II}:00`);
-    }
     return null;
   }
 
-  // -------- SLA --------
+  // ---------- SLA ----------
   function isOpenRow(row) {
     const key = findCol(row, COLS.status);
     if (!key) return true;
@@ -1048,22 +1035,22 @@
     const problem = normTxt(getTxt(row, COLS.problem));
 
     if (dept.includes('פנים') && dept.includes('ארצי') &&
-        (subject.includes('חלוקתדואר') || subject.includes('יחידותדואר'))) {
+        (subject.includes('חלוקתדואר') || subject.includes('יחידותדואר')))
       return { ms: 8*24*60*60*1000, label: '8 ימים — חלוקת/יחידות דואר (פנים-ארצי)' };
-    }
+
     if (problem.includes('תקל') && problem.includes('פורטל') &&
-        (dept.includes('שליח') || dept.includes('בינלאומי'))) {
+        (dept.includes('שליח') || dept.includes('בינלאומי')))
       return { ms: 24*60*60*1000, label: '24 שעות — תקלה בפורטל (שליחים/בינלאומי)' };
-    }
-    if ((problem.includes('איסוף') || problem.includes('הזמנה')) && dept.includes('שליח')) {
+
+    if ((problem.includes('איסוף') || problem.includes('הזמנה')) && dept.includes('שליח'))
       return { ms: 24*60*60*1000, label: '24 שעות — איסוף/הזמנה (שליחים)' };
-    }
-    if ((dept.includes('פנים') && dept.includes('ארצי')) || dept.includes('שליח')) {
+
+    if ((dept.includes('פנים') && dept.includes('ארצי')) || dept.includes('שליח'))
       return { ms: 30*24*60*60*1000, label: '30 ימים — ברירת מחדל (פנים-ארצי/שליחים)' };
-    }
-    if (dept.includes('בינלאומי')) {
+
+    if (dept.includes('בינלאומי'))
       return { ms: 60*24*60*60*1000, label: '60 ימים — ברירת מחדל (בינלאומי)' };
-    }
+
     return null;
   }
 
@@ -1071,52 +1058,46 @@
     const abs = Math.abs(ms);
     const days = Math.floor(abs / (24*60*60*1000));
     const hours = Math.floor((abs % (24*60*60*1000)) / (60*60*1000));
-    if (days >= 1) return `${days.toLocaleString('he-IL')} יום${days!==1?'ים':''}` + (hours?` ו-${hours} שעות`:``);
-    return `${Math.round(abs/(60*60*1000)).toLocaleString('he-IL')} שעות`;
+    if (days >= 1) return `${days} ימים${hours?` ו-${hours} שעות`:``}`;
+    return `${Math.round(abs/(60*60*1000))} שעות`;
   }
 
-  // מחשב SLA על עותק השורות שמוצגות כרגע (גם אם לא חושב גלובלית קודם)
-  function annotateRowsWithSLA(rows){
-    return rows.map((row) => {
-      const r = {...row}; // עותק כדי לא לפגוע בדאטה המקורי
-      const rule = pickSLARule(r);
-      const openedAt = parseOpenDate(r);
+  function annotateRowWithSLA(row){
+    const r = {...row};
+    const rule = pickSLARule(r);
+    const openedAt = parseOpenDate(r);
 
-      r['SLA כלל']        = rule ? rule.label : '—';
-      r['SLA משך']        = rule ? (rule.ms === 24*60*60*1000 ? '24 שעות'
-                                    : rule.ms%(24*60*60*1000)===0 ? `${rule.ms/(24*60*60*1000)} ימים`
-                                    : fmtDuration(rule.ms)) : '—';
-      r['SLA יעד']        = '—';
-      r['SLA נותר/איחור'] = '—';
-      r['SLA סטטוס']      = '—';
+    r['SLA כלל']        = rule ? rule.label : '—';
+    r['SLA משך']        = rule ? (rule.ms === 24*60*60*1000 ? '24 שעות'
+                                    : `${rule.ms/(24*60*60*1000)} ימים`) : '—';
+    r['SLA יעד']        = '—';
+    r['SLA נותר/איחור'] = '—';
+    r['SLA סטטוס']      = '—';
 
-      if (!rule || !openedAt || !isOpenRow(r)) return r;
+    if (!rule || !openedAt || !isOpenRow(r)) return r;
 
-      const due   = new Date(openedAt.getTime() + rule.ms);
-      const delta = due.getTime() - Date.now();
-      r['SLA יעד']        = fmtDateTimeTZ(due);
-      r['SLA נותר/איחור'] = (delta >= 0) ? `נותרו ${fmtDuration(delta)}` : `באיחור ${fmtDuration(delta)}`;
-      r['SLA סטטוס']      = (delta >= 0) ? 'בזמן' : 'חריגה';
-      return r;
-    });
+    const due   = new Date(openedAt.getTime() + rule.ms);
+    const delta = due.getTime() - Date.now();
+    r['SLA יעד']        = fmtDateTimeTZ(due);
+    r['SLA נותר/איחור'] = (delta >= 0) ? `נותרו ${fmtDuration(delta)}` : `באיחור ${fmtDuration(delta)}`;
+    r['SLA סטטוס']      = (delta >= 0) ? 'בזמן' : 'חריגה';
+    return r;
   }
 
-  // -------- Dataset helpers --------
+  function annotateRows(rows){ return rows.map(annotateRowWithSLA); }
+
+  // ---------- Dataset ----------
   async function ensureDatasetLoaded() {
     if (Array.isArray(window.__dataset) && window.__dataset.length) return;
     if (!window.__lastFile || !window.XLSX) return;
-    try {
-      const buf = await window.__lastFile.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const first = wb.SheetNames && wb.SheetNames[0];
-      if (!first) return;
-      const sheet = wb.Sheets[first];
-      window.__dataset = XLSX.utils.sheet_to_json(sheet, { defval: null });
-    } catch(e){ console.warn('ensureDatasetLoaded failed', e); }
+    const buf = await window.__lastFile.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    window.__dataset = XLSX.utils.sheet_to_json(sheet, { defval: null });
   }
   function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
 
-  // -------- Modal + Table + Export --------
+  // ---------- Modal ----------
   function ensureModal() {
     if ($('biModal')) return;
     const html = `
@@ -1125,8 +1106,8 @@
         <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
           <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
             <div class="text-lg font-bold" id="biModalTitle">נתונים</div>
-            <button id="biExportBtn" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15">ייצוא ל-XLSX</button>
-            <button id="biCloseBtn" class="ms-2 px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
+            <button id="biExportBtn" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא ל-XLSX</button>
+            <button id="biCloseBtn" class="ms-2 px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
           </div>
           <div class="p-4 overflow-auto" style="max-height:70vh">
             <table id="biTable" class="w-full text-sm border-separate border-spacing-0">
@@ -1138,103 +1119,70 @@
       </div>`;
     $('biModalHost').insertAdjacentHTML('beforeend', html);
     $('biCloseBtn').addEventListener('click', () => $('biModal').classList.add('hidden'));
-    $('biModal').addEventListener('click', (e) => { if (e.target.id === 'biModal') $('biModal').classList.add('hidden'); });
-    $('biExportBtn').addEventListener('click', () => exportXLSX($('biModalTitle').dataset.filename || 'export.xlsx'));
+    $('biModal').addEventListener('click', e => { if (e.target.id==='biModal') $('biModal').classList.add('hidden'); });
+    $('biExportBtn').addEventListener('click', () => exportXLSX($('biModalTitle').dataset.filename||'export.xlsx'));
   }
-
-  function escapeHTML(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-
   function renderTable(rows) {
-    const tHead = $('biThead'), tBody = $('biTbody'), empty = $('biEmpty');
-    window.__BI_CURRENT_ROWS = rows || [];
-    if (!rows.length) { tHead.innerHTML=''; tBody.innerHTML=''; empty.classList.remove('hidden'); return; }
+    const tHead=$('biThead'), tBody=$('biTbody'), empty=$('biEmpty');
+    window.__BI_CURRENT_ROWS = rows;
+    if (!rows.length){ tHead.innerHTML='';tBody.innerHTML='';empty.classList.remove('hidden');return;}
     empty.classList.add('hidden');
-
-    const headers = Array.from(rows.reduce((set, r) => { Object.keys(r).forEach(k => set.add(k)); return set; }, new Set()));
-    tHead.innerHTML = `<tr>${headers.map(h => `<th class="sticky top-0 bg-[#0b1220] text-ink-200/80 font-semibold px-3 py-2 border-b border-white/10 text-right">${escapeHTML(h)}</th>`).join('')}</tr>`;
-    tBody.innerHTML = rows.map(r => `<tr class="hover:bg-white/5">${
-      headers.map(h => `<td class="px-3 py-2 border-b border-white/5 align-top">${escapeHTML(r[h] ?? '')}</td>`).join('')
-    }</tr>`).join('');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+    tHead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
+    tBody.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${r[h]??''}</td>`).join('')+'</tr>').join('');
   }
-
-  function exportXLSX(filename='export.xlsx') {
-    if (!window.XLSX) return alert('ספריית XLSX לא נטענה.');
-    const ws = XLSX.utils.json_to_sheet(window.__BI_CURRENT_ROWS || []);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Data');
-    XLSX.writeFile(wb, filename);
+  function exportXLSX(fn='export.xlsx'){
+    if (!window.XLSX) return;
+    const ws=XLSX.utils.json_to_sheet(window.__BI_CURRENT_ROWS||[]);
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Data');XLSX.writeFile(wb,fn);
   }
-
-  async function openModalWith(rows, titleText, fileBase) {
+  function openModal(rows,title,file){
     ensureModal();
-    // 💡 כאן אנו מבטיחים SLA: מחשבים על השורות שמוצגות עכשיו
-    const withSLA = annotateRowsWithSLA(rows);
-    $('biModalTitle').textContent = titleText;
-    $('biModalTitle').dataset.filename = `${fileBase}.xlsx`;
-    renderTable(withSLA);
+    renderTable(annotateRows(rows));
+    $('biModalTitle').textContent=title;
+    $('biModalTitle').dataset.filename=file+'.xlsx';
     $('biModal').classList.remove('hidden');
   }
 
-  // -------- מקורות הקליקים --------
+  // ---------- KPI ----------
   function rowsOpenTotal(){ return getDataset().filter(isOpenRow); }
-  function rowsOpenedDay(key) {
-    const rows = getDataset();
-    const dateCol = rows.length ? findCol(rows[0], COLS.openedAt) : null;
-    if (!dateCol) return [];
-    return rows.filter(r => isOpenRow(r) && normalizeDateOnly(r[dateCol]) === key);
+  function rowsOpenedDay(key){
+    const rows=getDataset();
+    const dateCol=rows.length?findCol(rows[0],COLS.openedAt):null;
+    if (!dateCol) return[];
+    return rows.filter(r=>isOpenRow(r)&&normalizeDateOnly(r[dateCol])===key);
   }
-  function filterBy(name, kind) {
-    const rows = getDataset();
-    const col = rows.length ? findCol(rows[0], kind === 'city' ? COLS.city : COLS.unit) : null;
-    if (!col) return [];
-    return rows.filter(r => isOpenRow(r) && String(r[col] ?? '').trim() === name);
+  function rowsSLAStatus(status){
+    return annotateRows(getDataset().filter(isOpenRow)).filter(r=>r['SLA סטטוס']===status);
   }
 
-  // -------- חיבור קליקים (גם אם האלמנטים נוספו קודם) --------
-  function bindKPIs() {
+  function bindKPIs(){
     [
-      ['kpiOpenTotal','כל הפניות הפתוחות','open_tickets', rowsOpenTotal],
-      ['kpiOpenedToday','פניות שנפתחו היום','opened_today', () => rowsOpenedDay(todayKey())],
-      ['kpiOpenedYesterday','פניות שנפתחו אתמול','opened_yesterday', () => rowsOpenedDay(yesterdayKey())]
-    ].forEach(([id, title, file, fn]) => {
-      const el = $(id);
-      if (!el || el.dataset.bound === '1') return;
-      el.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
-      el.addEventListener('click', async () => {
-        await ensureDatasetLoaded();
-        openModalWith(fn(), title, file); // חישוב SLA נעשה בתוך openModalWith
-      });
-      el.dataset.bound = '1';
+      ['kpiOpenTotal','כל הפניות הפתוחות','open_total',rowsOpenTotal],
+      ['kpiOpenedToday','פניות שנפתחו היום','opened_today',()=>rowsOpenedDay(todayKey())],
+      ['kpiOpenedYesterday','פניות שנפתחו אתמול','opened_yesterday',()=>rowsOpenedDay(yesterdayKey())],
+      ['kpiSLAOkVal','בזמן SLA','sla_ok',()=>rowsSLAStatus('בזמן')],
+      ['kpiSLAOverVal','חריגה SLA','sla_over',()=>rowsSLAStatus('חריגה')]
+    ].forEach(([id,title,file,fn])=>{
+      const el=$(id);if(!el||el.dataset.bound) return;
+      el.parentElement.classList.add('cursor-pointer');
+      el.addEventListener('click',()=>openModal(fn(),title,file));
+      el.dataset.bound=1;
     });
   }
 
-  function bindLists() {
-    [['listByCity','פניות פתוחות לפי עיר','city'],
-     ['listByUnit','פניות פתוחות לפי יחידה','unit']].forEach(([id, titlePrefix, kind]) => {
-      const box = $(id);
-      if (!box || box.dataset.bound === '1') return;
-      box.classList.add('cursor-pointer');
-      box.addEventListener('click', async (e) => {
-        const row = e.target.closest('div.py-2');
-        if (!row) return;
-        const nameEl = row.querySelector('span');
-        if (!nameEl) return;
-        const name = nameEl.textContent.trim();
-        await ensureDatasetLoaded();
-        openModalWith(filterBy(name, kind), `${titlePrefix} — ${name}`, `${kind}_${name.replace(/[\\/:*?"<>|]+/g,'_').slice(0,60)}`);
-      });
-      box.dataset.bound = '1';
-    });
+  // אחרי טעינת קובץ נעדכן את המספרים
+  if (typeof window.updateSuccessUI==='function'&&!window.__BI_STEP4_WRAP){
+    const prev=window.updateSuccessUI;
+    window.updateSuccessUI=async function(){
+      prev.apply(this,arguments);
+      await ensureDatasetLoaded();
+      bindKPIs();
+      $('kpiSLAOkVal').textContent=rowsSLAStatus('בזמן').length;
+      $('kpiSLAOverVal').textContent=rowsSLAStatus('חריגה').length;
+    };
+    window.__BI_STEP4_WRAP=true;
   }
-
-  // להריץ עכשיו וגם אם DOM מתעדכן
-  bindKPIs(); bindLists();
-  new MutationObserver(() => { bindKPIs(); bindLists(); })
-    .observe(document.body, { childList:true, subtree:true });
-
 })();
-    </script>
+      </script>
 </body>
