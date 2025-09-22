@@ -1185,4 +1185,192 @@
   }
 })();
 </script>
+  <!-- === STEP 5: השוואה בין דוחות === -->
+<section id="biStep5Compare" class="max-w-6xl mx-auto px-4 mt-6">
+  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+    <div class="flex items-center gap-3 mb-6">
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 5 (השוואה בין דוחות)</span>
+    </div>
+    <div id="compareSummary" class="mb-4 text-sm text-ink-200/70">טרם הועלו שני דוחות להשוואה.</div>
+    <table class="w-full text-sm border-separate border-spacing-0">
+      <thead>
+        <tr class="text-ink-200/80 border-b border-white/10">
+          <th class="px-3 py-2 text-right">מחלקה</th>
+          <th class="px-3 py-2 text-right">דוח קודם</th>
+          <th class="px-3 py-2 text-right">דוח חדש</th>
+          <th class="px-3 py-2 text-right">שינוי %</th>
+          <th class="px-3 py-2 text-right">מגמה</th>
+        </tr>
+      </thead>
+      <tbody id="compareTable"></tbody>
+    </table>
+  </div>
+</section>
+  <script>
+(() => {
+  // =========================
+  // שלב 5: השוואת דוחות (קודם מול חדש)
+  // =========================
+
+  // ---- הגדרות בסיס ----
+  const TZ = 'Asia/Jerusalem';
+  const CLOSED_WORDS = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const OPEN_STATUS_COL_KEYS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  const DEPT_KEYS = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
+
+  // ---- עזרי DOM ----
+  const $ = (id) => document.getElementById(id);
+  const tblBody = $('compareTable');
+  const summaryBox = $('compareSummary');
+
+  // ---- שמירה אוטומטית של "דוח קודם" כאשר נבחר קובץ חדש ----
+  // אם בוחרים קובץ חדש, נשמור את הדאטה הנוכחי כקודם – BEFORE הקליטה החדשה
+  function snapshotPreviousIfNeeded() {
+    if (Array.isArray(window.__dataset) && window.__dataset.length) {
+      try {
+        window.__prevDataset = JSON.parse(JSON.stringify(window.__dataset));
+        window.__prevMeta = {
+          when: new Date().toLocaleString('he-IL', { timeZone: TZ }),
+          note: 'נשמר אוטומטית בעת בחירת קובץ חדש'
+        };
+      } catch (e) { console.warn('prev snapshot failed', e); }
+    }
+  }
+  const fileInput = document.getElementById('fileInput');
+  const dropzone  = document.getElementById('dropzone');
+  if (fileInput) fileInput.addEventListener('change', snapshotPreviousIfNeeded, { capture: true });
+  if (dropzone)  dropzone.addEventListener('drop',    snapshotPreviousIfNeeded, { capture: true });
+
+  // ---- פונקציות עזר (עמודות/סטטוס/מחלקה) ----
+  function findCol(row, keys) {
+    if (!row) return null;
+    for (const k of keys) if (k in row) return k;
+    const norm = (s) => String(s).replace(/\s+/g,'').toLowerCase();
+    const targets = keys.map(norm);
+    for (const k in row) if (targets.includes(norm(k))) return k;
+    return null;
+  }
+  function isOpenRow(row) {
+    const key = findCol(row, OPEN_STATUS_COL_KEYS);
+    if (!key) return true;
+    const v = String(row[key] ?? '').trim();
+    return !CLOSED_WORDS.some(c => v === c || v.includes(c));
+  }
+  function deptOf(row) {
+    const k = findCol(row, DEPT_KEYS);
+    return k ? String(row[k] ?? 'לא מוגדר').trim() : 'לא מוגדר';
+  }
+
+  // ---- אגרגציה לפי מחלקה (פניות פתוחות בלבד) ----
+  function aggregateOpenByDept(rows) {
+    const map = new Map(); // dept -> count
+    if (!Array.isArray(rows)) return map;
+    for (const r of rows) {
+      if (!isOpenRow(r)) continue;
+      const d = deptOf(r);
+      map.set(d, (map.get(d) || 0) + 1);
+    }
+    return map;
+  }
+  function totalFromMap(m) {
+    let sum = 0;
+    m.forEach(v => sum += v);
+    return sum;
+  }
+
+  // ---- השוואה באחוזים ----
+  function pctChange(prev, curr) {
+    if (prev === 0 && curr === 0) return 0;
+    if (prev === 0 && curr > 0)  return 100;   // מ-0 ל>0 – 100% עליה (מוגדר מוסכמות)
+    return ((curr - prev) / prev) * 100;
+  }
+  function fmtNum(n) { return Number(n).toLocaleString('he-IL'); }
+  function fmtPct(p) {
+    const sign = (p > 0 ? '+' : (p < 0 ? '' : ''));
+    return sign + p.toFixed(1) + '%';
+  }
+
+  // ---- רנדר טבלה ----
+  function renderComparison(prevMap, currMap) {
+    // איחוד כל המחלקות
+    const allDepts = new Set([...prevMap.keys(), ...currMap.keys()]);
+    const rows = [];
+    allDepts.forEach(dept => {
+      const prev = prevMap.get(dept) || 0;
+      const curr = currMap.get(dept) || 0;
+      const p = pctChange(prev, curr);
+      rows.push({ dept, prev, curr, pct: p });
+    });
+    // סדר: הגדולות בחדש תחילה
+    rows.sort((a,b) => b.curr - a.curr);
+
+    // סיכום כללי
+    const totalPrev = totalFromMap(prevMap);
+    const totalCurr = totalFromMap(currMap);
+    const totalPct  = pctChange(totalPrev, totalCurr);
+
+    summaryBox.innerHTML = `
+      <div class="flex flex-wrap items-center gap-3">
+        <span>סה״כ כל המחלקות:</span>
+        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">קודם: ${fmtNum(totalPrev)}</span>
+        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">חדש: ${fmtNum(totalCurr)}</span>
+        <span class="px-2 py-1 rounded ${totalPct<0?'bg-emerald-600/20 border-emerald-400/30':'bg-rose-600/20 border-rose-400/30'} border">
+          שינוי: ${fmtPct(totalPct)} ${totalPct<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
+        </span>
+        ${window.__prevMeta ? `<span class="text-ink-200/60">(דוח קודם נשמר: ${window.__prevMeta.when})</span>` : ''}
+      </div>
+    `;
+
+    // טבלה
+    tblBody.innerHTML = rows.map(r => `
+      <tr class="border-b border-white/10">
+        <td class="px-3 py-2">${r.dept}</td>
+        <td class="px-3 py-2">${fmtNum(r.prev)}</td>
+        <td class="px-3 py-2">${fmtNum(r.curr)}</td>
+        <td class="px-3 py-2">${fmtPct(r.pct)}</td>
+        <td class="px-3 py-2 ${r.pct<0?'text-emerald-400':'text-rose-400'}">
+          ${r.pct<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  // ---- הרצה כאשר יש שני דוחות ----
+  async function computeStep5() {
+    const prev = window.__prevDataset;
+    const curr = window.__dataset;
+
+    if (!Array.isArray(curr) || !curr.length) {
+      summaryBox.textContent = 'טרם הועלה דוח חדש.';
+      tblBody.innerHTML = '';
+      return;
+    }
+    if (!Array.isArray(prev) || !prev.length) {
+      summaryBox.textContent = 'אין דוח קודם להשוואה. העלי דוח אחד, ואז העלי דוח נוסף להשוואה.';
+      tblBody.innerHTML = '';
+      return;
+    }
+
+    const prevMap = aggregateOpenByDept(prev);
+    const currMap = aggregateOpenByDept(curr);
+    renderComparison(prevMap, currMap);
+  }
+
+  // ---- חיבור לפלואו קיים: לאחר קליטת קובץ → לחשב השוואה ----
+  if (typeof window.updateSuccessUI === 'function') {
+    const __old = window.updateSuccessUI;
+    window.updateSuccessUI = function() {
+      __old.apply(this, arguments);
+      // אחרי שהדאטה החדש נטען ל-__dataset, נריץ השוואה מול __prevDataset (אם יש)
+      setTimeout(computeStep5, 0);
+    };
+  }
+
+  // אם כבר יש שני דוחות בזיכרון (רענון אחרי העלאות) – ננסה עכשיו
+  if (Array.isArray(window.__prevDataset) && window.__prevDataset.length &&
+      Array.isArray(window.__dataset)     && window.__dataset.length) {
+    computeStep5();
+  }
+})();
+  </script>
   </body>
