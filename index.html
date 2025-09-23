@@ -2714,4 +2714,184 @@
   document.addEventListener('bi:data-loaded', ()=>{ if(!MOD.classList.contains('hidden')) renderDashboard(); });
 })();
 </script>
+  <!-- === FIX: Export to XLSX Patch === -->
+<script>
+(() => {
+  // עוטפים את הפונקציה הגלובלית שלנו לכתיבה לקובץ
+  if (window.XLSX && XLSX.writeFile) {
+    const orig = XLSX.writeFile;
+    XLSX.writeFile = function(wb, filename, opts) {
+      if (typeof filename === 'string' && !filename.endsWith('.xlsx')) {
+        filename = filename.replace(/\.[^/.]+$/, '') + '.xlsx';
+      }
+      return orig.call(this, wb, filename, opts);
+    };
+  }
+})();
+</script>
+
+<!-- === STEP 11: Dashboard (Enhanced) === -->
+<button id="biOpenDashboardBtn"
+  class="fixed bottom-5 left-5 z-[900] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 shadow-luxe text-sm font-semibold">
+  דשבורד
+</button>
+
+<div id="biDashboard" class="fixed inset-0 z-[1000] hidden">
+  <div class="absolute inset-0 bg-black/60"></div>
+  <div class="relative mx-auto my-6 max-w-7xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+    <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b border-white/10">
+      <div class="text-lg font-bold">דשבורד — סקירה חזותית</div>
+      <div class="ms-auto flex items-center gap-3">
+        <label class="text-xs text-ink-200/70">מחלקה:</label>
+        <select id="biDashDept"
+          class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5">
+          <option value="__ACTIVE__">מהטאב הפעיל</option>
+          <option value="כללי">כללי</option>
+        </select>
+        <input type="date" id="biDashDate"
+          class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5 text-white"/>
+        <button id="biDashExportImg"
+          class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-gold-500">הורד תמונה</button>
+        <button id="biDashClose"
+          class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+      </div>
+    </div>
+    <div id="biDashboardContent" class="p-5 space-y-5 overflow-y-auto" style="max-height:78vh">
+      <!-- כאן נטען הדשבורד -->
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas"></script>
+<script>
+(() => {
+  const BTN=document.getElementById('biOpenDashboardBtn');
+  const MOD=document.getElementById('biDashboard');
+  const CLOSE=document.getElementById('biDashClose');
+  const SEL=document.getElementById('biDashDept');
+  const DATE=document.getElementById('biDashDate');
+  const EXPORT=document.getElementById('biDashExportImg');
+  const CONTENT=document.getElementById('biDashboardContent');
+
+  function getData(){ return Array.isArray(window.__dataset)?window.__dataset:[]; }
+
+  function filterByDept(rows){
+    let dept = SEL.value==='__ACTIVE__' ? (window.__biActiveDept||'כללי') : SEL.value;
+    if (dept==='כללי') return rows;
+    const dk = rows.length? Object.keys(rows[0]).find(k=>/מחלקה/.test(k)) : null;
+    if (!dk) return rows;
+    return rows.filter(r=>String(r[dk]||'').trim()===dept);
+  }
+
+  function filterByDate(rows, keyWords, selectedDate){
+    const k = rows.length? Object.keys(rows[0]).find(c=>keyWords.includes(c)) : null;
+    if (!k) return [];
+    function normalize(val){
+      if (!val) return null;
+      const d = new Date(val);
+      if (!isNaN(d)) return d.toISOString().slice(0,10);
+      return null;
+    }
+    return rows.filter(r=>{
+      const v = normalize(r[k]);
+      return v===selectedDate;
+    });
+  }
+
+  let charts=[];
+  function destroyCharts(){ charts.forEach(c=>c.destroy()); charts=[]; }
+
+  function render(){
+    destroyCharts();
+    const all=getData(); if(!all.length) return;
+    const scoped=filterByDept(all);
+
+    CONTENT.innerHTML=`
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">סה״כ פתוחות</div>
+          <div id="dbOpen" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">היום</div>
+          <div id="dbToday" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">אתמול</div>
+          <div id="dbYest" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">מקור הפניה (כלל)</div>
+          <div id="dbSourceAll" class="text-3xl font-bold mt-1">—</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
+        <div><canvas id="chSourceAll"></canvas></div>
+        <div><canvas id="chSourceDate"></canvas></div>
+      </div>
+    `;
+
+    const today=new Date().toISOString().slice(0,10);
+    const yest=new Date(Date.now()-86400000).toISOString().slice(0,10);
+    const dateCol=Object.keys(all[0]||{}).find(k=>/תאריך/.test(k) && /פתיחה/.test(k));
+
+    function normDate(v){
+      if (!v) return null;
+      const d=new Date(v);
+      return !isNaN(d)?d.toISOString().slice(0,10):null;
+    }
+
+    const openRows=scoped;
+    const todayRows=openRows.filter(r=>normDate(r[dateCol])===today);
+    const yestRows=openRows.filter(r=>normDate(r[dateCol])===yest);
+    document.getElementById('dbOpen').textContent=openRows.length;
+    document.getElementById('dbToday').textContent=todayRows.length;
+    document.getElementById('dbYest').textContent=yestRows.length;
+
+    // מקור הפניה
+    const srcCol=Object.keys(all[0]||{}).find(k=>/מקור/.test(k)||/source/i.test(k));
+    if (srcCol){
+      function agg(rows){
+        const m={}; rows.forEach(r=>{
+          const v=String(r[srcCol]||'לא ידוע').trim();
+          m[v]=(m[v]||0)+1;
+        }); return m;
+      }
+      const allAgg=agg(openRows);
+      const dateSel=DATE.value||today;
+      const dateAgg=agg(filterByDate(openRows,[dateCol],dateSel));
+
+      document.getElementById('dbSourceAll').textContent=Object.values(allAgg).reduce((a,b)=>a+b,0);
+
+      const ch1=new Chart(document.getElementById('chSourceAll'),{
+        type:'pie',
+        data:{ labels:Object.keys(allAgg), datasets:[{data:Object.values(allAgg)}] },
+        options:{ plugins:{legend:{labels:{color:'#cbd5e1'}}}}
+      });
+      const ch2=new Chart(document.getElementById('chSourceDate'),{
+        type:'pie',
+        data:{ labels:Object.keys(dateAgg), datasets:[{data:Object.values(dateAgg)}] },
+        options:{ plugins:{legend:{labels:{color:'#cbd5e1'}},title:{display:true,text:`מקור בתאריך ${dateSel}`,color:'#fff'}}}
+      });
+      charts.push(ch1,ch2);
+    }
+  }
+
+  BTN.addEventListener('click',()=>{MOD.classList.remove('hidden');render();});
+  CLOSE.addEventListener('click',()=>MOD.classList.add('hidden'));
+  MOD.addEventListener('click',(e)=>{if(e.target===MOD)MOD.classList.add('hidden');});
+  SEL.addEventListener('change',render);
+  DATE.addEventListener('change',render);
+
+  EXPORT.addEventListener('click',()=>{
+    html2canvas(CONTENT).then(canvas=>{
+      const link=document.createElement('a');
+      link.download='dashboard.png';
+      link.href=canvas.toDataURL('image/png');
+      link.click();
+    });
+  });
+})();
+</script>
   </body>
