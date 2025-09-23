@@ -1309,4 +1309,145 @@
   }
 })();
 </script>
+  <script>
+(() => {
+  // ---- Utilities (תואם סעיף 6) ----
+  const $ = (id) => document.getElementById(id);
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const COLS = {
+    dept:   ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    status: ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    city:   { exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'], kw:[['עיר'],['יישוב']] },
+    unit:   { exact:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'], kw:[['יחידת','דואר','שם'],['שם','יחידה']] },
+    tracking:{ exact:['מספר מעקב','מספר משלוח','מספר פריט','Tracking','tracking','מספר שבלי','מספר שבל״י'], kw:[['מספר','מעקב'],['מספר','משלוח'],['מספר','פריט']] },
+    name:    { exact:['שם לקוח','שם הלקוח','שם שולח','שם המקבל'], kw:[['שם','לקוח'],['שם','שולח'],['שם','מקבל']] },
+    email:   { exact:['דואר אלקטרוני','אימייל','מייל','Email','email','כתובת דוא״ל','כתובת דואל'], kw:[['דואר','אלקטרוני'],['email']] }
+  };
+  const HEB = /[\u0591-\u05C7]/g, SEP=/[·•:;|/_\-()\[\]{}]/g;
+  const normHeader = s => String(s).replace(HEB,'').replace(SEP,'').replace(/\s+/g,'').toLowerCase();
+
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+  function activeDept(){ return window.__biActiveDept || 'כללי'; }
+  function findCol(row, keysOrSpec){
+    if (!row) return null;
+    const headers = Object.keys(row);
+    if (keysOrSpec && keysOrSpec.exact){
+      for (const h of headers){ if (keysOrSpec.exact.includes(h)) return h;
+        const hn=normHeader(h); for (const ex of keysOrSpec.exact) if (hn===normHeader(ex)) return h; }
+      for (const h of headers){ const n=normHeader(h);
+        if (keysOrSpec.kw.some(set => set.every(w => n.includes(normHeader(w))))) return h; }
+      return null;
+    }
+    for (const k of keysOrSpec) if (k in row) return k;
+    const targets = keysOrSpec.map(k => normHeader(k));
+    for (const h of headers) if (targets.includes(normHeader(h))) return h;
+    return null;
+  }
+  function isOpenRow(row){
+    const k=findCol(row, COLS.status);
+    if (!k) return true;
+    const v=String(row[k]??'').trim();
+    return !CLOSED.some(c => v===c || v.includes(c));
+  }
+  function filterRowsByDept(rows){
+    const d = activeDept();
+    if (d === 'כללי') return rows;
+    const col = rows.length ? findCol(rows[0], COLS.dept) : null;
+    return col ? rows.filter(r => String(r[col]??'').trim() === d) : rows;
+  }
+
+  // ---- Modal (קומפקט) ----
+  function ensureModal(){
+    if ($('biModal')) return;
+    const html = `
+      <div id="biModal" class="fixed inset-0 z-[1000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
+            <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="biClose" class="ms-2 text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+          </div>
+          <div class="p-4 overflow-auto" style="max-height:70vh">
+            <table class="w-full text-sm border-separate border-spacing-0">
+              <thead id="biThead"></thead><tbody id="biTbody"></tbody>
+            </table>
+            <div id="biEmpty" class="hidden text-ink-200/70 text-sm p-4">אין נתונים.</div>
+          </div>
+        </div>
+      </div>`;
+    (document.getElementById('biModalHost')||document.body).insertAdjacentHTML('beforeend', html);
+    $('biClose').onclick=()=>$('biModal').classList.add('hidden');
+    $('biModal').onclick=e=>{ if(e.target.id==='biModal') $('biModal').classList.add('hidden'); };
+    $('biExport').onclick=()=>exportXLSX(($('biModalTitle').dataset.filename||'export')+'.xlsx');
+  }
+  let __ROWS__=[];
+  function renderTable(rows){
+    __ROWS__=rows||[];
+    const H=$('biThead'), B=$('biTbody'), E=$('biEmpty');
+    if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
+    E.classList.add('hidden');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+    H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
+    B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${r[h]??''}</td>`).join('')+'</tr>').join('');
+  }
+  function exportXLSX(fn){
+    if (!window.XLSX) return alert('XLSX לא נטענה');
+    const ws=XLSX.utils.json_to_sheet(__ROWS__); const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb,fn);
+  }
+  function openModal(rows,title,fileBase){
+    ensureModal(); renderTable(rows);
+    const t=$('biModalTitle'); t.textContent=title; t.dataset.filename=fileBase;
+    $('biModal').classList.remove('hidden');
+  }
+
+  // ---- חישוב רשומות כפולות עבור ערך שנלחץ ----
+  function rowsForDuplicate(kind, value){
+    const rows = filterRowsByDept(getDataset());
+    if (!rows.length) return [];
+    const first = rows[0];
+    let col, normVal = s=>String(s).trim();
+    if (kind==='tracking'){ col = findCol(first, COLS.tracking); normVal = s=>String(s).replace(/\s+/g,'').trim(); }
+    if (kind==='name')    { col = findCol(first, COLS.name);     normVal = s=>String(s).replace(/\s+/g,' ').trim(); }
+    if (kind==='email')   { col = findCol(first, COLS.email);    normVal = s=>String(s).trim().toLowerCase(); }
+    if (!col) return [];
+    const target = normVal(value);
+    return rows.filter(r => isOpenRow(r) && normVal(r[col] ?? '') === target);
+  }
+
+  // ---- Delegation: מחבר קליקים לרשימות הכפילויות גם אחרי רינדור מחדש ----
+  function bindDupClicks(containerId, kind, titlePrefix, filePrefix){
+    const box = $(containerId);
+    if (!box || box.__biBound) return;
+    box.__biBound = true;
+    box.addEventListener('click', (e)=>{
+      const row = e.target.closest('#'+containerId+' > div');
+      if (!row) return;
+      const nameEl = row.querySelector('span');    // הטקסט הראשון בשורה
+      const name = nameEl ? nameEl.textContent.trim() : '';
+      if (!name) return;
+      const rows = rowsForDuplicate(kind, name);
+      openModal(rows, `${titlePrefix} — ${name}`, `${filePrefix}_${name}`.replace(/[\\/:*?"<>|]+/g,'_').slice(0,64));
+    });
+  }
+
+  // חיבור ראשוני + לאחר כל שינוי מחלקה/קובץ
+  function bindAll(){ 
+    bindDupClicks('listTracking','tracking','מספר מעקב','dup_tracking');
+    bindDupClicks('listName','name','שם לקוח','dup_name');
+    bindDupClicks('listEmail','email','דוא״ל לקוח','dup_email');
+  }
+  bindAll();
+
+  // כשסעיף 6 משנה מחלקה
+  window.addEventListener('bi:dept-change', bindAll);
+
+  // אחרי קליטת קובץ
+  if (typeof window.updateSuccessUI==='function'){
+    const prev=window.updateSuccessUI;
+    window.updateSuccessUI=function(){ const r=prev.apply(this,arguments); Promise.resolve(r).finally(bindAll); };
+  }
+})();
+  </script>
     </body>
