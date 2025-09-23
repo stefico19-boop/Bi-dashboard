@@ -2776,165 +2776,163 @@
   }
 })();
 </script>
-<!-- ==== PERSISTENCE v3: אחרון בלבד + גיבוי בטוח + ייצוא/יבוא ==== -->
+<!-- === LAST DATASET SAVE/RESTORE (localStorage) + UI buttons === -->
 <script>
 (function(){
-  const DB_NAME='biStore', STORE='datasets';
-  const KEY_LAST='last_only', KEY_BACKUP='last_backup';
-  const MIN_ACCEPT = 1; // אל תשמרי אם אין אפילו שורה אחת
+  const LS_KEY_DATA = 'bi:lastDataset';
+  const LS_KEY_NAME = 'bi:lastFilename';
 
-  // ---------- IndexedDB helpers ----------
-  function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,1);
-    r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);};
-    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);});}
-  function idbGet(k){return idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(STORE,'readonly');const s=tx.objectStore(STORE);const q=s.get(k);q.onsuccess=()=>res(q.result||null);q.onerror=()=>rej(q.error);}));}
-  function idbSet(k,v){return idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');const s=tx.objectStore(STORE);const q=s.put(v,k);q.onsuccess=()=>res(true);q.onerror=()=>rej(q.error);}));}
-  function idbDel(k){return idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');const s=tx.objectStore(STORE);const q=s.delete(k);q.onsuccess=()=>res(true);q.onerror=()=>rej(q.error);}));}
-
-  // ---------- Save / Load ----------
-  async function saveSnapshot(key, rows, meta={}){
-    if(!Array.isArray(rows) || rows.length<MIN_ACCEPT) return false;
-    const snap={ ts:Date.now(), filename: meta.filename||window.__lastFilename||'', count: rows.length, rows };
-    try{ await idbSet(key, snap); return true; }catch(e){ console.warn('[persist] save fail',e); return false; }
+  // ---- Helpers ----
+  function getCurrentRows(){
+    if (Array.isArray(window.__dataset) && window.__dataset.length) return window.__dataset;
+    if (Array.isArray(window.__BI_CURRENT_ROWS) && window.__BI_CURRENT_ROWS.length) return window.__BI_CURRENT_ROWS;
+    return null;
   }
-  async function loadSnapshot(key){ try{ return await idbGet(key); }catch(e){ return null; } }
-
-  async function saveLastWithBackup(rows, meta={}){
-    // לא דורס אם אין נתונים
-    if(!Array.isArray(rows) || rows.length<MIN_ACCEPT) return;
-    // שמור אחרון
-    await saveSnapshot(KEY_LAST, rows, meta);
-    // שמור גם גיבוי (נחליף אותו תמיד כדי שיהיה "תואם לאחרון")
-    await saveSnapshot(KEY_BACKUP, rows, meta);
-  }
-
-  async function restoreLastPreferExact(){
-    const last = await loadSnapshot(KEY_LAST);
-    if(last && Array.isArray(last.rows) && last.rows.length>=MIN_ACCEPT) return last;
-    // אם אין אחרון—ננסה גיבוי
-    const backup = await loadSnapshot(KEY_BACKUP);
-    return (backup && Array.isArray(backup.rows) && backup.rows.length>=MIN_ACCEPT) ? backup : null;
-  }
-
-  // ---------- Banner helper ----------
-  function banner(text){
+  function setCurrentRows(rows, filename){
+    window.__dataset = Array.isArray(rows) ? rows : [];
+    window.__BI_CURRENT_ROWS = window.__dataset;
+    window.__lastFilename = filename || window.__lastFilename || '';
+    // טריגר לכל השלבים שמקשיבים
+    document.dispatchEvent(new Event('bi:data-loaded'));
+    // עדכון שורת הסטטוס אם קיימת
     try{
-      const stTitle=document.getElementById('statusTitle');
-      const stSub  =document.getElementById('statusSub');
-      const chip   =document.getElementById('chipRows');
-      const resLine=document.getElementById('resultLine');
-      const resTitle=document.getElementById('resultTitle');
-      const resSub =document.getElementById('resultSub');
-      const rowsPill=document.getElementById('rowsPill');
-      if(stTitle) stTitle.textContent='שוחזר הקובץ האחרון';
-      if(stSub)   stSub.textContent=text;
-      const n=(window.__dataset?.length||0).toLocaleString('he-IL');
-      if(chip){ chip.textContent=`${n} שורות`; chip.classList.remove('hidden'); }
-      if(resTitle) resTitle.textContent='שוחזר';
-      if(resSub)   resSub.textContent=text;
-      if(rowsPill){ rowsPill.textContent=`${n} שורות`; rowsPill.classList.remove('hidden'); }
-      if(resLine)  resLine.classList.remove('hidden');
+      const n = rows.length.toLocaleString('he-IL');
+      const stTitle = document.getElementById('statusTitle');
+      const stSub   = document.getElementById('statusSub');
+      const chip    = document.getElementById('chipRows');
+      const resLine = document.getElementById('resultLine');
+      const resTitle= document.getElementById('resultTitle');
+      const resSub  = document.getElementById('resultSub');
+      const rowsPill= document.getElementById('rowsPill');
+      if (stTitle) stTitle.textContent = 'שוחזר הקובץ האחרון';
+      if (stSub)   stSub.textContent   = `${window.__lastFilename || 'ללא שם'} • ${n} שורות`;
+      if (chip)    { chip.textContent = `${n} שורות`; chip.classList.remove('hidden'); }
+      if (resLine) resLine.classList.remove('hidden');
+      if (resTitle) resTitle.textContent = 'שוחזר';
+      if (resSub)   resSub.textContent   = `${window.__lastFilename || 'ללא שם'} • ${n} שורות`;
+      if (rowsPill) { rowsPill.textContent = `${n} שורות`; rowsPill.classList.remove('hidden'); }
     }catch(_){}
   }
 
-  // ---------- Hook: לאחר טעינת קובץ מצליחה – שמירת "האחרון + גיבוי" ----------
-  if(typeof window.updateSuccessUI==='function' && !window.__BI_PERSIST_V3_WRAP){
-    const prev=window.updateSuccessUI;
-    window.updateSuccessUI = async function(filename, rowsCount){
-      const ret = prev.apply(this, arguments);
-      try{
-        let rows = (Array.isArray(window.__dataset)&&window.__dataset.length) ? window.__dataset : null;
-        if(!rows && window.__lastFile && window.XLSX){
-          const buf=await window.__lastFile.arrayBuffer();
-          const wb=XLSX.read(buf,{type:'array'});
-          const sh=wb.Sheets[wb.SheetNames[0]];
-          rows = XLSX.utils.sheet_to_json(sh,{defval:null});
-          window.__dataset = rows;
-        }
-        if(Array.isArray(rows) && rows.length>=MIN_ACCEPT){
-          window.__lastFilename = filename || window.__lastFilename || (window.__lastFile?.name||'');
-          await saveLastWithBackup(rows, { filename: window.__lastFilename });
-        }
-        setTimeout(()=>document.dispatchEvent(new Event('bi:data-loaded')),0);
-      }catch(e){ console.warn('[persist v3] wrap error',e); }
-      return ret;
-    };
-    window.__BI_PERSIST_V3_WRAP = true;
+  async function saveLast(rows, filename){
+    if (!Array.isArray(rows) || !rows.length) { alert('אין נתונים לשמירה.'); return false; }
+    try{
+      localStorage.setItem(LS_KEY_DATA, JSON.stringify(rows));
+      if (filename) localStorage.setItem(LS_KEY_NAME, filename);
+      return true;
+    }catch(e){ console.warn('saveLast failed', e); alert('שגיאה בשמירה'); return false; }
+  }
+  function loadLast(){
+    try{
+      const s = localStorage.getItem(LS_KEY_DATA);
+      if (!s) return null;
+      const rows = JSON.parse(s);
+      const filename = localStorage.getItem(LS_KEY_NAME) || '';
+      if (!Array.isArray(rows) || !rows.length) return null;
+      return { rows, filename };
+    }catch(e){ console.warn('loadLast failed', e); return null; }
+  }
+  function clearLast(){
+    localStorage.removeItem(LS_KEY_DATA);
+    localStorage.removeItem(LS_KEY_NAME);
   }
 
-  // ---------- Restore on load ----------
-  document.addEventListener('DOMContentLoaded', async ()=>{
+  // ---- Hook: נשמור אוטומטית אחרי קליטת קובץ (עוטף את updateSuccessUI אם קיימת) ----
+  if (typeof window.updateSuccessUI === 'function' && !window.__BI_LS_WRAP){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = async function(filename, rowsCount){
+      const r = prev.apply(this, arguments);
+      try{
+        const rows = getCurrentRows();
+        if (rows) await saveLast(rows, filename || window.__lastFilename || '');
+      }catch(e){ console.warn('auto-save after updateSuccessUI failed', e); }
+      // לתת לשלבים אחרים להתעדכן
+      setTimeout(()=>document.dispatchEvent(new Event('bi:data-loaded')), 0);
+      return r;
+    };
+    window.__BI_LS_WRAP = true;
+  }
+
+  // ---- נסה לשחזר בעת טעינת הדף אם אין דאטה חי ----
+  document.addEventListener('DOMContentLoaded', ()=>{
     if (Array.isArray(window.__dataset) && window.__dataset.length) return;
-    const snap = await restoreLastPreferExact();
-    if(snap){
-      window.__dataset = snap.rows;
-      window.__lastFilename = snap.filename||'';
-      banner(`${snap.filename||'ללא שם'} • ${snap.count.toLocaleString('he-IL')} שורות`);
-      document.dispatchEvent(new Event('bi:data-loaded'));
-    }
+    const snap = loadLast();
+    if (snap) setCurrentRows(snap.rows, snap.filename);
   });
 
-  // ---------- Export / Import (JSON) ----------
-  function exportJSON(filename='bi-backup.json', rows){
-    try{
-      const blob = new Blob([JSON.stringify(rows)], {type:'application/json'});
-      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-    }catch(e){ alert('נכשל ייצוא'); }
+  // ---- Import/Export JSON (גיבוי ידני) ----
+  function exportJSON(filename, rows){
+    const blob = new Blob([JSON.stringify(rows)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || 'bi-backup.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
   }
-  function importJSONFile(file){
-    return new Promise((res,rej)=>{
-      const fr=new FileReader();
-      fr.onerror=()=>rej(fr.error);
-      fr.onload=()=>{ try{ const data=JSON.parse(fr.result); res(Array.isArray(data)?data:null); } catch(e){ rej(e); } };
+  function importJSON(file){
+    return new Promise((res, rej)=>{
+      const fr = new FileReader();
+      fr.onerror = () => rej(fr.error);
+      fr.onload  = () => {
+        try { const data = JSON.parse(fr.result); res(Array.isArray(data) ? data : null); }
+        catch(e){ rej(e); }
+      };
       fr.readAsText(file);
     });
   }
 
-  // ---------- UI קטנה לפינה (אפשר להסיר אם לא צריך) ----------
-  if(!document.getElementById('biPersistMini')){
-    const wrap=document.createElement('div');
-    wrap.id='biPersistMini';
-    wrap.className='fixed bottom-4 right-4 z-[1800] flex flex-wrap gap-2';
-    wrap.innerHTML=`
-      <button id="biExp" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">ייצוא גיבוי</button>
+  // ---- כפתורי UI קבועים בפינה ----
+  if (!document.getElementById('biLSBtns')) {
+    const box = document.createElement('div');
+    box.id = 'biLSBtns';
+    box.className = 'fixed bottom-4 right-4 z-[1800] flex flex-wrap gap-2';
+    box.innerHTML = `
+      <button id="biBtnSave" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">💾 שמור</button>
+      <button id="biBtnRestore" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">♻️ שחזר</button>
+      <button id="biBtnClear" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">🧹 נקה</button>
+      <button id="biBtnExport" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">⬇️ ייצוא JSON</button>
       <label class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15 cursor-pointer">
-        יבוא גיבוי<input id="biImp" type="file" accept="application/json" class="hidden">
+        ⬆️ יבוא JSON
+        <input id="biBtnImport" type="file" accept="application/json" class="hidden">
       </label>
-      <button id="biRestore" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">שחזור אחרון</button>
-      <button id="biClear" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">ניקוי שמירה</button>`;
-    document.body.appendChild(wrap);
+    `;
+    document.body.appendChild(box);
 
-    document.getElementById('biExp').onclick=()=>{
-      if(Array.isArray(window.__dataset)&&window.__dataset.length) exportJSON((window.__lastFilename||'bi')+'.json', window.__dataset);
-      else alert('אין נתונים לייצוא.');
+    // אירועים
+    document.getElementById('biBtnSave').onclick = async ()=>{
+      const rows = getCurrentRows();
+      const ok = await saveLast(rows || [], window.__lastFilename || '');
+      if (ok) alert('נשמר הקובץ האחרון.');
     };
-    document.getElementById('biImp').onchange=async(e)=>{
-      const f=e.target.files?.[0]; if(!f) return;
+    document.getElementById('biBtnRestore').onclick = ()=>{
+      const snap = loadLast();
+      if (!snap) return alert('אין קובץ אחרון שמור.');
+      setCurrentRows(snap.rows, snap.filename);
+      alert('שוחזר הקובץ האחרון.');
+    };
+    document.getElementById('biBtnClear').onclick = ()=>{
+      if (confirm('למחוק את השמירה המקומית?')) { clearLast(); alert('השמירה נוקתה.'); }
+    };
+    document.getElementById('biBtnExport').onclick = ()=>{
+      const rows = getCurrentRows();
+      if (!rows) return alert('אין נתונים לייצוא.');
+      const name = (window.__lastFilename || 'bi') + '.json';
+      exportJSON(name, rows);
+    };
+    document.getElementById('biBtnImport').onchange = async (e)=>{
+      const f = e.target.files?.[0]; if (!f) return;
       try{
-        const rows = await importJSONFile(f);
-        if(!Array.isArray(rows) || !rows.length) return alert('קובץ לא תקין.');
-        window.__dataset = rows; window.__lastFilename = f.name.replace(/\.json$/i,'');
-        await saveLastWithBackup(rows,{filename:window.__lastFilename});
-        banner(`${window.__lastFilename} • ${rows.length.toLocaleString('he-IL')} שורות (מיובא)`);
-        document.dispatchEvent(new Event('bi:data-loaded'));
-      }catch(err){ alert('יבוא נכשל'); }
-      e.target.value='';
-    };
-    document.getElementById('biRestore').onclick=async()=>{
-      const s=await restoreLastPreferExact();
-      if(!s) return alert('אין שמירה אחרונה.');
-      window.__dataset=s.rows; window.__lastFilename=s.filename||''; banner(`${s.filename||'ללא שם'} • ${s.count.toLocaleString('he-IL')} שורות`); document.dispatchEvent(new Event('bi:data-loaded'));
-    };
-    document.getElementById('biClear').onclick=async()=>{
-      if(!confirm('למחוק את השמירה האחרונה והגיבוי?')) return;
-      await idbDel(KEY_LAST); await idbDel(KEY_BACKUP);
-      alert('נוקתה השמירה.'); 
+        const rows = await importJSON(f);
+        if (!rows) return alert('קובץ לא תקין.');
+        setCurrentRows(rows, f.name.replace(/\.json$/i,''));
+        await saveLast(rows, window.__lastFilename || '');
+        alert('הנתונים יובאו ונשמרו כ״האחרון״.');
+      }catch(err){
+        console.error(err); alert('יבוא נכשל');
+      }
+      e.target.value = '';
     };
   }
-
-  // ---------- APIs למתקדמים בקונסול ----------
-  window.__BI_SAVE_NOW   = async()=>{ if(Array.isArray(window.__dataset)&&window.__dataset.length) await saveLastWithBackup(window.__dataset,{filename:window.__lastFilename||''}); };
-  window.__BI_EXPORT_NOW = ()=>{ if(Array.isArray(window.__dataset)&&window.__dataset.length) exportJSON((window.__lastFilename||'bi')+'.json', window.__dataset); };
 })();
 </script>
 </body>
