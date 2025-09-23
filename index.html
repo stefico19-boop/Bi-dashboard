@@ -2673,4 +2673,113 @@
 
 })();
   </script>
+  <!-- ==== XLSX Export Fix (robust, with stable headers & table fallback) ==== -->
+<script>
+(function(){
+  if (!window.XLSX) { console.warn('XLSX not loaded'); return; }
+
+  // איסוף כל הכותרות מכל השורות, לפי סדר הופעה יציב
+  function collectHeaders(rows){
+    const seen = new Set(); const headers = [];
+    rows.forEach(r=>{
+      Object.keys(r||{}).forEach(k=>{
+        if(!seen.has(k)){ seen.add(k); headers.push(k); }
+      });
+    });
+    return headers;
+  }
+
+  // המרה בטוחה של שורות -> Worksheet (כולל כותרות)
+  function rowsToWorksheet(rows){
+    const headers = collectHeaders(rows);
+    if (!headers.length) return XLSX.utils.aoa_to_sheet([['(אין כותרות)','']]);
+
+    // בניית AOA: שורה ראשונה כותרות, אח"כ נתונים
+    const aoa = [headers];
+    rows.forEach(r=>{
+      const line = headers.map(h=>{
+        let v = (r && r[h] != null) ? r[h] : '';
+        // תאריכים: אם זה אובייקט Date – נהפוך לטקסט קריא (שקל לפתוח באקסל)
+        if (v instanceof Date && !isNaN(v)) {
+          try {
+            // dd/mm/yyyy hh:mm
+            const d = new Intl.DateTimeFormat('he-IL', {year:'numeric',month:'2-digit',day:'2-digit',
+              hour:'2-digit',minute:'2-digit'}).format(v);
+            v = d.replace(',', '');
+          } catch(_) {}
+        }
+        return v;
+      });
+      aoa.push(line);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // רוחבי עמודות אוטומטיים בסיסיים
+    const colWidths = headers.map((h,i)=>{
+      const maxLen = Math.max(
+        String(h).length,
+        ...rows.map(r => String((r && r[h] != null) ? r[h] : '').length)
+      );
+      return { wch: Math.min(Math.max(8, maxLen + 2), 60) };
+    });
+    ws['!cols'] = colWidths;
+
+    return ws;
+  }
+
+  // קריאת נתונים מהטבלה במסך אם אין __BI_CURRENT_ROWS
+  function tableToRows(){
+    const table = document.getElementById('biTable');
+    if (!table) return null;
+    const ths = [...(table.querySelectorAll('thead th')||[])].map(th=>th.textContent.trim());
+    const trs = [...(table.querySelectorAll('tbody tr')||[])];
+    if (!ths.length || !trs.length) return null;
+    return trs.map(tr=>{
+      const tds = [...tr.querySelectorAll('td')];
+      const obj = {};
+      ths.forEach((h,idx)=>{ obj[h] = (tds[idx]?.textContent||'').trim(); });
+      return obj;
+    });
+  }
+
+  // הורדה בפועל
+  function downloadXLSX(rows, filename){
+    if (!Array.isArray(rows) || !rows.length){
+      alert('אין נתונים לייצוא.');
+      return;
+    }
+    const ws = rowsToWorksheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data');
+    // כתיבה כ-.xlsx אמיתי (לא .bin), עם דחיסה
+    XLSX.writeFile(wb, filename || 'export.xlsx', { bookType:'xlsx', compression:true });
+  }
+
+  // API גלובלי (עוקף ישן): window.exportXLSX(rows, name)
+  window.exportXLSX = function(rows, name){
+    const src = Array.isArray(rows) && rows.length ? rows
+              : (Array.isArray(window.__BI_CURRENT_ROWS) && window.__BI_CURRENT_ROWS.length ? window.__BI_CURRENT_ROWS
+              : tableToRows());
+    const fn = name || (document.getElementById('biModalTitle')?.dataset?.filename) || 'export.xlsx';
+    downloadXLSX(src || [], fn);
+  };
+
+  // חיבור אוטומטי לכפתור במודאל אם קיים
+  document.addEventListener('click', (e)=>{
+    const id = e.target?.id || '';
+    if (id === 'biExportBtn' || e.target?.closest('#biExportBtn')){
+      e.preventDefault();
+      window.exportXLSX();
+    }
+    // תמיכה גם בכל אלמנט עם data-export-xlsx
+    if (e.target?.closest('[data-export-xlsx]')){
+      e.preventDefault();
+      window.exportXLSX();
+    }
+  });
+
+  console.log('XLSX Export Fix loaded');
+})();
+</script>
 </body>
