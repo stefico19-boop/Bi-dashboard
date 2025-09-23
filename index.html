@@ -2782,274 +2782,440 @@
   console.log('XLSX Export Fix loaded');
 })();
 </script>
-<!-- === שלב 12: Heatmap עומסים (בר + מטריצה) – FULL === -->
+  <!-- === Insights Modal — Quality Analysis w/ SLA (no removals) === -->
 <script>
 (function(){
-  // ---------- טעינת ספריות (Chart.js + DataLabels + Matrix) ----------
-  function ensureScript(src){
-    return new Promise((ok, err)=>{
-      if ([...document.scripts].some(s=>s.src===src)) return ok();
-      const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=err; document.head.appendChild(s);
-    });
-  }
-  async function ensureDeps(){
-    if(!window.Chart) await ensureScript('https://cdn.jsdelivr.net/npm/chart.js@4');
-    if(!window.ChartDataLabels) await ensureScript('https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2');
-    if(!window.ChartMatrixRegistered){
-      await ensureScript('https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@3');
-      window.ChartMatrixRegistered = true;
-    }
+  // ── כפתור פתיחה קבוע ────────────────────────────────────────────────────
+  if(!document.getElementById('biInsightsBtn')){
+    const btn=document.createElement('button');
+    btn.id='biInsightsBtn';
+    btn.className='fixed bottom-4 left-4 z-[1500] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow';
+    btn.textContent='🧠 תובנות';
+    btn.title='חלון תובנות איכותיות';
+    document.body.appendChild(btn);
+    btn.addEventListener('click', openInsights);
   }
 
-  // ---------- הזרקת ה־UI של שלב 12 ----------
-  function injectStage12(){
-    if (document.getElementById('biStep12')) return;
-    const host = document.querySelector('main') || document.body;
-    host.insertAdjacentHTML('beforeend', `
-      <section id="biStep12" class="max-w-6xl mx-auto px-4 mt-6">
-        <div class="rounded-3xl bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
-          <div class="flex items-center gap-3 mb-4">
-            <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 12</span>
-            <div class="ms-auto flex items-center gap-2">
-              <button id="biStep12BtnBar" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm font-semibold">עמודות לפי שעה</button>
-              <button id="biStep12BtnMatrix" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm">Heatmap מטריצה (שעה × יום)</button>
+  // ── מודאל תובנות ───────────────────────────────────────────────────────
+  function ensureInsightsModal(){
+    if (document.getElementById('biInsightsModal')) return;
+    const html=`
+      <div id="biInsightsModal" class="fixed inset-0 z-[1600] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div class="text-xl font-bold">תובנות איכותיות</div>
+            <div class="ms-auto flex items-center gap-3 text-sm">
+              <label class="inline-flex items-center gap-2"><input id="insOpenOnly" type="checkbox" class="accent-violet-500" checked/> רק פניות פתוחות</label>
+              <label class="inline-flex items-center gap-2">עיר: <select id="insCitySel" class="bg-white/10 border border-white/20 rounded px-2 py-1"></select></label>
+              <button id="insRefresh" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">רענון</button>
+              <button id="insClose" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
             </div>
           </div>
-          <div class="text-xs text-ink-200/70 mb-3">אם בחרת מחלקה בטאבים — החישוב יתבצע עליה בלבד.</div>
-          <div>
-            <canvas id="biStep12Bar" height="160"></canvas>
-            <canvas id="biStep12Matrix" height="260" style="display:none"></canvas>
-            <div id="biStep12Empty" class="text-ink-200/70 text-sm mt-3 hidden">אין נתונים מתאימים להצגה (לא נמצאה עמודת תאריך פתיחה/אין שורות).</div>
+          <div class="p-5 space-y-5 overflow-auto" style="max-height:70vh">
+            <div class="text-xs text-ink-200/70">
+              הניתוח מכבד את הטאב הפעיל של <b>מחלקה מטפלת</b> (אם קיים). עמודות נדרשות: "עיר/יישוב", "סיווג נושא", "סיווג בעיה", "סיווג מוצר", "שעת/תאריך פתיחה ".
+            </div>
+
+            <!-- A) למה עיר X מובילה -->
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-bold">למה העיר <span id="insCityName">—</span> מייצרת הכי הרבה פניות?</h3>
+                <span id="insCityTotal" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
+              </div>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">פירוק לפי סיווג נושא (Top 3)</div>
+                  <div id="insCitySubject" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">פירוק לפי סיווג בעיה (Top 3)</div>
+                  <div id="insCityProblem" class="space-y-1"></div>
+                </div>
+              </div>
+              <div id="insCityHypo" class="mt-3 text-sm"></div>
+              <div class="mt-3">
+                <button id="insCityRowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+                <button id="insCityExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+              </div>
+            </section>
+
+            <!-- B) מי גורם יותר תקלות -->
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-bold">מה גורם ליותר תקלות? סיווג מוצר או סיווג נושא</h3>
+              </div>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">סיווג מוצר — שיעור “תקלות”</div>
+                  <div id="insProdFaults" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">סיווג נושא — שיעור “תקלות”</div>
+                  <div id="insSubjFaults" class="space-y-1"></div>
+                </div>
+              </div>
+              <div class="mt-3">
+                <button id="insFaultRowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+                <button id="insFaultExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+              </div>
+            </section>
+
+            <!-- C) מי חורג מ-SLA -->
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-bold">אילו סוגי פניות כמעט תמיד חורגים מ־SLA?</h3>
+              </div>
+              <div class="grid md:grid-cols-3 gap-4">
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">לפי סיווג מוצר</div>
+                  <div id="insSLAProd" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">לפי סיווג נושא</div>
+                  <div id="insSLASubj" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">לפי סיווג בעיה</div>
+                  <div id="insSLAProb" class="space-y-1"></div>
+                </div>
+              </div>
+              <div id="insSLARecommendations" class="mt-3 text-sm"></div>
+              <div class="mt-3">
+                <button id="insSLARowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+                <button id="insSLAExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+              </div>
+            </section>
           </div>
         </div>
-      </section>
-    `);
-    // כפתורי החלפה
-    const btnBar = document.getElementById('biStep12BtnBar');
-    const btnMx  = document.getElementById('biStep12BtnMatrix');
-    btnBar.addEventListener('click', ()=>{ toggleView('bar'); renderBar(); });
-    btnMx .addEventListener('click', ()=>{ toggleView('matrix'); renderMatrix(); });
-
-    // האזנה לטאבים של מחלקות (אם קיימים) כדי לרנדר אחרי שינוי
-    const tabs = document.getElementById('deptTabs');
-    if (tabs && !tabs.dataset.heatmapHooked){
-      tabs.addEventListener('click', ()=> setTimeout(renderAll, 0));
-      tabs.dataset.heatmapHooked = '1';
-    }
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('insClose').onclick = () => document.getElementById('biInsightsModal').classList.add('hidden');
+    document.getElementById('biInsightsModal').addEventListener('click', (e)=>{ if(e.target.id==='biInsightsModal') e.currentTarget.classList.add('hidden'); });
+    document.getElementById('insRefresh').onclick = () => renderInsights();
   }
 
-  function toggleView(which){
-    const bar = document.getElementById('biStep12Bar');
-    const mx  = document.getElementById('biStep12Matrix');
-    const b1  = document.getElementById('biStep12BtnBar');
-    const b2  = document.getElementById('biStep12BtnMatrix');
-    if (which==='matrix'){ bar.style.display='none'; mx.style.display='';  b2.classList.add('font-semibold'); b1.classList.remove('font-semibold'); }
-    else                 { bar.style.display='';    mx.style.display='none'; b1.classList.add('font-semibold'); b2.classList.remove('font-semibold'); }
+  function openInsights(){
+    ensureInsightsModal();
+    renderInsights();
+    document.getElementById('biInsightsModal').classList.remove('hidden');
   }
 
-  // ---------- עזרי נתונים ----------
-  const TZ='Asia/Jerusalem', DAY=24*60*60*1000;
-  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/\s+/g,'').toLowerCase();
-  const COLS_OPENED = [
-    'שעת/תאריך פתיחה ','שעת/תאריך פתיחה', 'תאריך/שעת פתיחה', 'תאריך פתיחה',
-    'opened_at','date_opened','פתיחה'
-  ];
-  const COLS_DEPT   = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
-
-  function findCol(row, candidates){
-    if(!row) return null;
-    for(const c of candidates) if (c in row) return c;
-    const t=candidates.map(norm);
-    for(const k in row) if (t.includes(norm(k))) return k;
+  // ── עזרי עמודות/תאריכים/SLA ─────────────────────────────────────────────
+  const DAY=24*60*60*1000, TZ='Asia/Jerusalem';
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  function findColumnFlexible(row0, exactList, keywordSets){
+    if(!row0) return null;
+    const headers=Object.keys(row0);
+    for(const h of headers){ if (exactList.includes(h)) return h;
+      const hNorm=norm(h); for(const ex of exactList){ if (hNorm===norm(ex)) return h; } }
+    for(const h of headers){ const n=norm(h); if (keywordSets?.some(set=>set.every(k=>n.includes(norm(k))))) return h; }
     return null;
   }
-  function excelToDate(n){
-    const epoch=new Date(Date.UTC(1899,11,30));
-    return new Date(epoch.getTime()+n*DAY);
-  }
+  const COL = {
+    city:  { exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'], kw:[['עיר'],['יישוב']] },
+    subj:  { exact:['סיווג נושא','נושא','סיווג נושא '], kw:[['סיווג','נושא'],['נושא']] },
+    prob:  { exact:['סיווג בעיה','בעיה','סיווג בעיה '], kw:[['סיווג','בעיה'],['בעיה']] },
+    prod:  { exact:['סיווג מוצר','מוצר','שם מוצר'], kw:[['סיווג','מוצר'],['מוצר']] },
+    dept:  { exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '], kw:[['מחלקה','מטפלת'],['מחלקה']] },
+    status:{ exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'], kw:[] },
+    opened:{ exact:['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'], kw:[['פתיחה'],['תאריך']] }
+  };
+  function findCol(row0, spec){ return findColumnFlexible(row0, spec.exact, spec.kw); }
+
+  function excelToDate(n){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+n*DAY); }
   function parseDate(val){
-    if (val==null || val==='') return null;
+    if (val==null||val==='') return null;
     if (typeof val==='number') return excelToDate(val);
-    let d = new Date(val);
-    if (!isNaN(d)) return d;
-    // dd/mm/yyyy HH:MM (או עם נקודות/מקפים)
+    let d=new Date(val);
+    if(!isNaN(d)) return d;
     const m=String(val).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
-    if (m){ let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy;
-      d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`);
-      if (!isNaN(d)) return d;
-    }
+    if (m){ let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy; d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`); if(!isNaN(d)) return d; }
     return null;
   }
-  function hourInTZ(d){
-    const parts = new Intl.DateTimeFormat('he-IL',{timeZone:TZ,hour:'2-digit',hourCycle:'h23'}).formatToParts(d);
-    const h = parts.find(p=>p.type==='hour')?.value;
-    return h ? +h : null;
+  const CLOSED_WORDS=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  function isOpenRow(r){ const k=findCol(r,COL.status); if(!k) return true; const v=String(r[k]??'').trim(); return !CLOSED_WORDS.some(c=>v===c||v.includes(c)); }
+
+  function pickSLARule(row){
+    const dept = norm(row[findCol(row, COL.dept)]||'');
+    const subj = norm(row[findCol(row, COL.subj)]||'');
+    const prob = norm(row[findCol(row, COL.prob)]||'');
+
+    if (dept.includes('פנים') && dept.includes('ארצי') && (subj.includes('חלוקתדואר') || subj.includes('יחידותדואר')))
+      return {ms: 8*DAY, label:'8 ימים — חלוקת/יחידות דואר (פנים-ארצי)'};
+    if ((prob.includes('תקל') && prob.includes('פורטל')) && (dept.includes('שליח') || dept.includes('בינלאומי')))
+      return {ms: 1*DAY, label:'24 שעות — תקלה בפורטל (שליחים/בינלאומי)'};
+    if ((prob.includes('איסוף') || prob.includes('הזמנה')) && dept.includes('שליח'))
+      return {ms: 1*DAY, label:'24 שעות — איסוף/הזמנה (שליחים)'};
+    if ((dept.includes('פנים')&&dept.includes('ארצי')) || dept.includes('שליח'))
+      return {ms: 30*DAY, label:'30 ימים — ברירת מחדל (פנים-ארצי/שליחים)'};
+    if (dept.includes('בינלאומי'))
+      return {ms: 60*DAY, label:'60 ימים — ברירת מחדל (בינלאומי)'};
+    return null;
   }
-  function weekdayIndexTZ(d){
-    const s = new Intl.DateTimeFormat('en-IL',{timeZone:TZ,weekday:'short'}).format(d); // Sun..Sat
-    return ({Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6})[s] ?? null; // 0=א'
+  function isSLABreach(row){
+    if(!isOpenRow(row)) return false;
+    const k=findCol(row,COL.opened); if(!k) return false;
+    const opened=parseDate(row[k]); if(!opened) return false;
+    const rule=pickSLARule(row); if(!rule) return false;
+    return Date.now() > (opened.getTime()+rule.ms);
   }
-  function activeDeptName(){
+  function isFaultRow(row){
+    const pKey=findCol(row, COL.prob), sKey=findCol(row, COL.subj);
+    const txt=(String(row[pKey]||'')+' '+String(row[sKey]||'')).toLowerCase();
+    return /(תקלה|שגיאה|כשל|קריסה|פורטל)/.test(txt);
+  }
+
+  // כיבוד טאב מחלקה
+  function activeDept(){
     const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
-    // כפתור עם רקע גרדיאנט (ככה בוצע בשלבים קודמים)
     const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('bg-gradient-to-r')||b.className.includes('from-brand-600'));
     return (btn?.textContent||'כללי').trim();
   }
-  function rowsScopedByDept(allRows){
-    const dept=activeDeptName();
-    if (dept==='כללי') return allRows;
-    const col=findCol(allRows[0], COLS_DEPT);
-    if (!col) return allRows;
-    return allRows.filter(r => String(r[col]??'').trim()===dept);
+  function scopeByDept(rows){
+    const dept=activeDept(); if (dept==='כללי') return rows;
+    const key=findCol(rows[0], COL.dept); if(!key) return rows;
+    return rows.filter(r=>String(r[key]??'').trim()===dept);
   }
 
-  // ניסיון להביא נתונים ממקורות שונים כדי שלא "ייפול בין הכיסאות"
-  async function ensureRows(){
-    // 1) __dataset גלובלי
-    if (Array.isArray(window.__dataset) && window.__dataset.length) return window.__dataset;
+  // ── רנדר תובנות ─────────────────────────────────────────────────────────
+  function renderInsights(){
+    ensureInsightsModal();
+    const openOnly = document.getElementById('insOpenOnly').checked;
+    const rowsAll  = Array.isArray(window.__dataset)? window.__dataset : [];
+    if (!rowsAll.length) return;
 
-    // 2) טבלת מודאל קיימת (#biTable) → לקרוא לשורות
-    const table = document.getElementById('biTable');
-    if (table){
-      const ths=[...(table.querySelectorAll('thead th')||[])].map(th=>th.textContent.trim());
-      const trs=[...(table.querySelectorAll('tbody tr')||[])];
-      if (ths.length && trs.length){
-        const rows = trs.map(tr=>{
-          const tds=[...tr.querySelectorAll('td')];
-          const obj={}; ths.forEach((h,i)=>obj[h]=(tds[i]?.textContent||'').trim());
-          return obj;
-        });
-        window.__dataset = rows;
-        return rows;
-      }
+    let rows = scopeByDept(rowsAll);
+    if (openOnly) rows = rows.filter(isOpenRow);
+
+    const r0 = rows[0] || {};
+    const cityCol = findCol(r0, COL.city);
+    const subjCol = findCol(r0, COL.subj);
+    const probCol = findCol(r0, COL.prob);
+    const prodCol = findCol(r0, COL.prod);
+
+    // ערים + ברירת מחדל
+    const mapCity = new Map();
+    if (cityCol){ rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(!c) return; mapCity.set(c,(mapCity.get(c)||0)+1); }); }
+    const cities=[...mapCity.entries()].sort((a,b)=>b[1]-a[1]).map(([n,c])=>({name:n,count:c}));
+    const sel=document.getElementById('insCitySel');
+    sel.innerHTML='<option value="">(בחרי עיר)</option>'+cities.map(x=>`<option value="${escapeHtml(x.name)}">${escapeHtml(x.name)} — ${x.count.toLocaleString('he-IL')}</option>`).join('');
+    if (!sel.value && cities[0]) sel.value=cities[0].name;
+
+    // A) עיר נבחרת
+    const chosenCity = sel.value || (cities[0]?.name||'');
+    document.getElementById('insCityName').textContent = chosenCity || '—';
+    const cityRows = chosenCity? rows.filter(r => String(r[cityCol]||'').trim()===chosenCity) : [];
+    document.getElementById('insCityTotal').textContent = chosenCity? `${cityRows.length.toLocaleString('he-IL')} פניות` : '';
+
+    renderTopList('insCitySubject', cityRows, subjCol);
+    renderTopList('insCityProblem', cityRows, probCol);
+    const topSubj = topKey(cityRows, subjCol);
+    const topProb = topKey(cityRows, probCol);
+    document.getElementById('insCityHypo').innerHTML = buildHypothesisBlock(topSubj, topProb);
+    document.getElementById('insCityRowsBtn').onclick   = ()=> openRowsModal(cityRows, `שורות — ${chosenCity}`);
+    document.getElementById('insCityExportBtn').onclick = ()=> exportAny(cityRows, `city_${sanitize(chosenCity)||'all'}.xlsx`);
+
+    // B) “גורמי תקלות”
+    const faultRows = rows.filter(isFaultRow);
+    const prodRates = rateByKey(rows, prodCol, isFaultRow);
+    const subjRates = rateByKey(rows, subjCol, isFaultRow);
+    renderRates('insProdFaults', prodRates);
+    renderRates('insSubjFaults', subjRates);
+    document.getElementById('insFaultRowsBtn').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
+    document.getElementById('insFaultExportBtn').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
+
+    // C) חרגי SLA
+    const slaRows = rows.filter(isSLABreach);
+    const slaProd = rateByKey(rows, prodCol, isSLABreach);
+    const slaSubj = rateByKey(rows, subjCol, isSLABreach);
+    const slaProb = rateByKey(rows, probCol, isSLABreach);
+    renderRates('insSLAProd', slaProd, true);
+    renderRates('insSLASubj', slaSubj, true);
+    renderRates('insSLAProb', slaProb, true);
+    document.getElementById('insSLARowsBtn').onclick   = ()=> openRowsModal(slaRows, 'שורות — חרגי SLA');
+    document.getElementById('insSLAExportBtn').onclick = ()=> exportAny(slaRows, 'sla_breach_rows.xlsx');
+    document.getElementById('insSLARecommendations').innerHTML =
+      buildSLASuggestions(slaProd.top?.name||'', slaSubj.top?.name||'', slaProb.top?.name||'');
+
+    // שינויי בקרה → רנדר מחדש
+    sel.onchange = () => renderInsights();
+    document.getElementById('insOpenOnly').onchange = () => renderInsights();
+  }
+
+  // ── עזרי רנדר ───────────────────────────────────────────────────────────
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
+
+  function renderTopList(containerId, rows, col){
+    const el=document.getElementById(containerId); el.innerHTML='';
+    if (!col || !rows.length){ el.textContent='—'; return; }
+    const map=new Map(); rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3);
+    const total=rows.length||1;
+    items.forEach(([name,count])=>{
+      const row=document.createElement('div');
+      row.className='flex items-center gap-2';
+      row.innerHTML=`
+        <span class="text-ink-50/90">${escapeHtml(name)}</span>
+        <span class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">${count.toLocaleString('he-IL')} • ${Math.round(count*100/total)}%</span>`;
+      el.appendChild(row);
+    });
+    if (!items.length) el.textContent='—';
+  }
+
+  function topKey(rows, col){
+    if (!col) return {name:'', count:0, pct:0};
+    const map=new Map(); rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]);
+    const total=rows.length||1;
+    if (!items.length) return {name:'',count:0,pct:0};
+    return {name:items[0][0], count:items[0][1], pct: Math.round(items[0][1]*100/total)};
+  }
+
+  function rateByKey(allRows, col, predicateFn, minN=20){
+    if (!col || !allRows.length) return {list:[], top:null};
+    const buckets=new Map(); // name -> {n, yes}
+    allRows.forEach(r=>{
+      const key=(r[col]??'').toString().trim() || '(לא צוין)';
+      const b=buckets.get(key)||{n:0,yes:0};
+      b.n++; if (predicateFn(r)) b.yes++;
+      buckets.set(key,b);
+    });
+    const list=[...buckets.entries()].map(([name,{n,yes}])=>({name, yes, n, rate: n? (yes/n):0 }));
+    const filtered=list.filter(x=>x.n>=minN).sort((a,b)=>b.rate-a.rate||b.n-a.n).slice(0,5);
+    return { list: filtered, top: filtered[0]||null };
+  }
+
+  function renderRates(containerId, data, emphasizeHigh=false){
+    const el=document.getElementById(containerId); el.innerHTML='';
+    if (!data.list.length){ el.textContent='—'; return; }
+    data.list.forEach(item=>{
+      const p=Math.round(item.rate*100);
+      const bar=document.createElement('div');
+      bar.className='text-xs';
+      bar.innerHTML=`
+        <div class="flex items-center gap-2">
+          <span class="text-ink-50/90">${escapeHtml(item.name)}</span>
+          <span class="ms-auto">${item.yes.toLocaleString('he-IL')}/${item.n.toLocaleString('he-IL')} • ${p}%</span>
+        </div>
+        <div class="h-1.5 bg-white/10 rounded mt-1 overflow-hidden">
+          <div class="${emphasizeHigh?'bg-red-500':'bg-brand-500'}" style="width:${p}%"></div>
+        </div>`;
+      el.appendChild(bar);
+    });
+  }
+
+  function buildHypothesisBlock(topSubj, topProb){
+    const hints=[];
+    if ((topSubj.name||'').includes('חלוקת') || (topSubj.name||'').includes('יחידות דואר') || (topProb.name||'').includes('חלוקת')){
+      hints.push({ issue:'עומס בחלוקת דואר/יחידות דואר', cause:'קיבולת שליחים/סניפים וזמני מיון.', fix:'תיעדוף לפי SLA 8 ימים, ניטור עומסים יומי והסטת משלוחים בין יחידות עמוסות.' });
     }
-
-    // 3) יש קובץ אחרון? ננסה לקרוא (צריך XLSX)
-    if (window.__lastFile && window.XLSX){
-      try{
-        const buf=await window.__lastFile.arrayBuffer();
-        const wb =XLSX.read(buf,{type:'array'});
-        const sh =wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sh,{defval:null});
-        window.__dataset = rows;
-        return rows;
-      }catch(_){}
+    if ((topProb.name||'').includes('פורטל') || /(תקלה|שגיאה|כשל|קריסה)/.test(topProb.name||'')){
+      hints.push({ issue:'תקלות מערכת/פורטלים', cause:'באגים/רגרסיות או זמינות נמוכה.', fix:'פתיחת באגים מסווגים, בדיקות רגרסיה אוטומטיות וניטור זמינות; תקשורת סטטוס לנציגים.' });
     }
-    return [];
+    if (!hints.length){
+      hints.push({ issue:'ריכוזיות קטגוריה מובילה', cause:'תהליך שירות לא אופטימלי בקטגוריה המובילה.', fix:'סקירת תהליך קצה־לקצה, קיצור נקודות חיכוך והדרכת צוותים.' });
+    }
+    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
+      <div class="font-semibold mb-1">השערה ופעולה</div>
+      <ul class="list-disc ms-5">
+        ${hints.map(h=>`<li><b>בעיה:</b> ${escapeHtml(h.issue)} → <b>סיבה אפשרית:</b> ${escapeHtml(h.cause)} → <b>פתרון מוצע:</b> ${escapeHtml(h.fix)}</li>`).join('')}
+      </ul>
+    </div>`;
   }
 
-  // ---------- רנדר בר ----------
-  async function renderBar(){
-    await ensureDeps(); injectStage12();
-    const canvas=document.getElementById('biStep12Bar'), empty=document.getElementById('biStep12Empty');
-    if(!canvas) return;
-    const all = await ensureRows();
-    const rows = rowsScopedByDept(all);
-    if (!rows.length){ showEmpty(true); destroyCharts(); return; }
-    const openedCol=findCol(rows[0], COLS_OPENED);
-    if (!openedCol){ showEmpty(true); destroyCharts(); return; }
-    showEmpty(false);
+  function buildSLASuggestions(prodName, subjName, probName){
+    const keys=[prodName,subjName,probName].join(' ').toLowerCase();
+    const recs=[];
+    if (/חלוקת|יחידות/.test(keys)) recs.push('החלת בקרות קיבולת ביחידות עמוסות, SLA 8 ימים, ניטור תפוקה יומי.');
+    if (/פורטל|תקלה|שגיאה|כשל|קריסה/.test(keys)) recs.push('יציבות פורטל: ניטור שגיאות, בדיקות רגרסיה, תור טיפול מהיר (SLA 24 שעות).');
+    if (/איסוף|הזמנה/.test(keys)) recs.push('בדיקת זרימת הזמנות ואימות SLA 24 שעות לשחרור/תיאום איסוף.');
+    if (/בינלאומי/.test(keys)) recs.push('סינכרון עם ספקי חוץ/מכס והצגת ציפיות SLA 60 ימים ללקוחות.');
+    if (!recs.length) recs.push('מיפוי שלבי התהליך בקטגוריות החורגות, קיצור צווארי בקבוק והוספת אוטומציה.');
+    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
+      <div class="font-semibold mb-1">המלצות פעולה</div>
+      <ul class="list-disc ms-5">${recs.map(r=>`<li>${escapeHtml(r)}</li>`).join('')}</ul>
+    </div>`;
+  }
 
-    const counts=Array(24).fill(0);
-    rows.forEach(r=>{ const d=parseDate(r[openedCol]); if(!d) return; const h=hourInTZ(d); if(h!=null) counts[h]++; });
-    const total=counts.reduce((s,v)=>s+v,0)||1;
-    if (window.__biStep12Bar) try{ window.__biStep12Bar.destroy(); }catch{}
+  // ── טבלת שורות + ייצוא ──────────────────────────────────────────────────
+  function openRowsModal(rows, title){
+    // שימוש במודאל הכללי אם יש (biModal)
+    if (document.getElementById('biModal') && typeof window.exportXLSX==='function'){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      const tHead=document.getElementById('biThead'), tBody=document.getElementById('biTbody');
+      document.getElementById('biModalTitle').textContent=title||'נתונים';
+      document.getElementById('biModalTitle').dataset.filename=sanitize(title||'export')+'.xlsx';
+      if (rows.length){
+        tHead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+        tBody.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+      }else{ tHead.innerHTML=''; tBody.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+      document.getElementById('biModal').classList.remove('hidden');
+      return;
+    }
+    // אחרת – מודאל קטן פנימי
+    let host=document.getElementById('insRowsModal');
+    if (!host){
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="insRowsModal" class="fixed inset-0 z-[1700] hidden">
+          <div class="absolute inset-0 bg-black/60"></div>
+          <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-2xl bg-[#0b1220] border border-white/10">
+            <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
+              <div id="insRowsTitle" class="font-bold">נתונים</div>
+              <button id="insRowsExport" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
+              <button id="insRowsClose" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+            </div>
+            <div class="p-3 overflow-auto" style="max-height:70vh">
+              <table class="w-full text-sm border-separate border-spacing-0">
+                <thead id="insRowsHead"></thead><tbody id="insRowsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>`);
+      host=document.getElementById('insRowsModal');
+      document.getElementById('insRowsClose').onclick=()=>host.classList.add('hidden');
+      document.getElementById('insRowsExport').onclick=()=>{
+        if (typeof window.exportXLSX==='function') window.exportXLSX(__INS_ROWS||[], sanitize(document.getElementById('insRowsTitle').textContent||'export')+'.xlsx');
+        else alert('פונקציית ייצוא לא זמינה.');
+      };
+    }
+    window.__INS_ROWS = rows;
+    document.getElementById('insRowsTitle').textContent = title||'נתונים';
+    const head=document.getElementById('insRowsHead'), body=document.getElementById('insRowsBody');
+    if (rows.length){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+      body.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+    }else{ head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+    host.classList.remove('hidden');
+  }
 
-    window.__biStep12Bar=new Chart(canvas.getContext('2d'),{
-      type:'bar', plugins:[ChartDataLabels],
-      data:{ labels:Array.from({length:24},(_,h)=>`${h}:00`),
-             datasets:[{ data:counts,
-               backgroundColor:counts.map(v=>`rgba(99,102,241,${0.2 + (v? (v/Math.max(...counts,1))*0.8 : 0)})`)
-             }]},
-      options:{
-        plugins:{
-          legend:{display:false},
-          datalabels:{anchor:'end',align:'end',color:'#fff',
-            formatter:(v)=> v?`${v} (${Math.round(v*100/total)}%)`:'', font:{weight:'600'}},
-          tooltip:{callbacks:{label:(ctx)=>` ${ctx.raw} פניות (${Math.round(ctx.raw*100/total)}%)`}}
-        },
-        scales:{ x:{ticks:{color:'#cbd5e1'}}, y:{ticks:{color:'#cbd5e1'}}}
-      }
+  function exportAny(rows, filename){
+    if (typeof window.exportXLSX==='function') window.exportXLSX(rows, filename||'export.xlsx');
+    else alert('פונקציית ייצוא לא זמינה (ודאי שהדבקת את בלוק XLSX Export Fix).');
+  }
+
+  // ── עוזרי חישוב לרייטים ────────────────────────────────────────────────
+  function rateByKey(allRows, col, predicateFn, minN=20){
+    if (!col || !allRows.length) return {list:[], top:null};
+    const buckets=new Map();
+    allRows.forEach(r=>{
+      const key=(r[col]??'').toString().trim() || '(לא צוין)';
+      const b=buckets.get(key)||{n:0,yes:0};
+      b.n++; if (predicateFn(r)) b.yes++;
+      buckets.set(key,b);
     });
+    const list=[...buckets.entries()].map(([name,{n,yes}])=>({name, yes, n, rate: n? (yes/n):0 }));
+    const filtered=list.filter(x=>x.n>=minN).sort((a,b)=>b.rate-a.rate||b.n-a.n).slice(0,5);
+    return { list: filtered, top: filtered[0]||null };
   }
 
-  // ---------- רנדר מטריצה ----------
-  async function renderMatrix(){
-    await ensureDeps(); injectStage12();
-    const canvas=document.getElementById('biStep12Matrix');
-    if(!canvas) return;
-    const all = await ensureRows();
-    const rows = rowsScopedByDept(all);
-    if (!rows.length){ showEmpty(true); destroyCharts(); return; }
-    const openedCol=findCol(rows[0], COLS_OPENED);
-    if (!openedCol){ showEmpty(true); destroyCharts(); return; }
-    showEmpty(false);
-
-    const grid=Array.from({length:7},()=>Array(24).fill(0));
-    rows.forEach(r=>{
-      const d=parseDate(r[openedCol]); if(!d) return;
-      const h=hourInTZ(d), w=weekdayIndexTZ(d);
-      if(h==null||w==null) return;
-      grid[w][h] += 1;
-    });
-    const vmax=Math.max(1,...grid.flat());
-    const points=[]; for(let y=0;y<7;y++) for(let x=0;x<24;x++) points.push({x,y,v:grid[y][x]});
-    const dayLabels=['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
-
-    if (window.__biStep12Matrix) try{ window.__biStep12Matrix.destroy(); }catch{}
-    window.__biStep12Matrix=new Chart(canvas.getContext('2d'),{
-      type:'matrix', plugins:[ChartDataLabels],
-      data:{ datasets:[{
-        data:points,
-        width:({chart})=>(chart.chartArea.width/24)-2,
-        height:({chart})=>(chart.chartArea.height/7)-2,
-        backgroundColor:(ctx)=>{ const r=ctx.raw?.v||0; const a=0.15+(r/vmax)*0.85; return `rgba(99,102,241,${a})`; },
-        borderColor:'rgba(255,255,255,0.08)', borderWidth:1
-      }]},
-      options:{
-        maintainAspectRatio:false,
-        plugins:{
-          legend:{display:false},
-          tooltip:{callbacks:{ title:(its)=>{const it=its[0]?.raw; return `יום ${dayLabels[it.y]} • ${it.x}:00`;},
-                               label:(it)=>` ${it.raw.v.toLocaleString('he-IL')} פניות`}},
-          datalabels:{display:(ctx)=>ctx.raw.v>0, color:'#fff', formatter:(v)=>v.v, font:{weight:'600'}}
-        },
-        scales:{
-          x:{type:'linear',min:-.5,max:23.5,ticks:{callback:(v)=>`${v}:00`,color:'#cbd5e1',maxTicksLimit:12},grid:{display:false}},
-          y:{type:'linear',min:-.5,max:6.5,ticks:{callback:(v)=>dayLabels[v]??'',color:'#cbd5e1',stepSize:1},grid:{display:false}}
-        }
-      }
-    });
-  }
-
-  function showEmpty(flag){
-    const el=document.getElementById('biStep12Empty');
-    if (el) el.classList.toggle('hidden', !flag);
-  }
-
-  function destroyCharts(){
-    if (window.__biStep12Bar) try{window.__biStep12Bar.destroy()}catch{};
-    if (window.__biStep12Matrix) try{window.__biStep12Matrix.destroy()}catch{};
-  }
-
-  function renderAll(){
-    const barVisible = document.getElementById('biStep12Bar')?.style.display !== 'none';
-    if (barVisible) renderBar(); else renderMatrix();
-  }
-
-  // ---------- חיבור לאירועים ----------
-  // כשנטענים/משוחזרים נתונים (רוב השלבים משדרים את זה)
-  document.addEventListener('bi:data-loaded', async ()=>{
-    await ensureDeps(); injectStage12(); renderAll();
+  // ── אירועים מערכתיים ───────────────────────────────────────────────────
+  document.addEventListener('bi:data-loaded', ()=>{
+    const m=document.getElementById('biInsightsModal');
+    if (m && !m.classList.contains('hidden')) renderInsights();
   });
-
-  // אם כבר יש נתונים עכשיו (למשל משוחזרים) — נרנדר
-  if (Array.isArray(window.__dataset) && window.__dataset.length){
-    (async()=>{ await ensureDeps(); injectStage12(); renderAll(); })();
-  } else {
-    // נסה גם אחרי שהדף נטען לגמרי (למקרה ש__dataset מגיע מאוחר)
-    window.addEventListener('load', async()=>{ await ensureDeps(); injectStage12(); renderAll(); });
-  }
 })();
 </script>
 </body>
