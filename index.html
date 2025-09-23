@@ -2776,48 +2776,48 @@
   }
 })();
 </script>
-  <!-- ==== PERSISTENCE (LAST ONLY): שמירת ושחזור הקובץ האחרון בלבד ==== -->
+<!-- ==== PERSISTENCE v3: אחרון בלבד + גיבוי בטוח + ייצוא/יבוא ==== -->
 <script>
 (function(){
-  const DB_NAME='biStore', STORE='datasets', KEY_LAST='latest_only';
+  const DB_NAME='biStore', STORE='datasets';
+  const KEY_LAST='last_only', KEY_BACKUP='last_backup';
+  const MIN_ACCEPT = 1; // אל תשמרי אם אין אפילו שורה אחת
 
-  // --- IndexedDB helpers ---
-  function idbOpen(){
-    return new Promise((res,rej)=>{
-      const r=indexedDB.open(DB_NAME,1);
-      r.onupgradeneeded=()=>{const db=r.result; if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);};
-      r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
-    });
+  // ---------- IndexedDB helpers ----------
+  function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,1);
+    r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);};
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);});}
+  function idbGet(k){return idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(STORE,'readonly');const s=tx.objectStore(STORE);const q=s.get(k);q.onsuccess=()=>res(q.result||null);q.onerror=()=>rej(q.error);}));}
+  function idbSet(k,v){return idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');const s=tx.objectStore(STORE);const q=s.put(v,k);q.onsuccess=()=>res(true);q.onerror=()=>rej(q.error);}));}
+  function idbDel(k){return idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');const s=tx.objectStore(STORE);const q=s.delete(k);q.onsuccess=()=>res(true);q.onerror=()=>rej(q.error);}));}
+
+  // ---------- Save / Load ----------
+  async function saveSnapshot(key, rows, meta={}){
+    if(!Array.isArray(rows) || rows.length<MIN_ACCEPT) return false;
+    const snap={ ts:Date.now(), filename: meta.filename||window.__lastFilename||'', count: rows.length, rows };
+    try{ await idbSet(key, snap); return true; }catch(e){ console.warn('[persist] save fail',e); return false; }
   }
-  function idbGet(key){
-    return idbOpen().then(db=>new Promise((res,rej)=>{
-      const tx=db.transaction(STORE,'readonly'); const st=tx.objectStore(STORE);
-      const rq=st.get(key); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error);
-    }));
-  }
-  function idbSet(key,val){
-    return idbOpen().then(db=>new Promise((res,rej)=>{
-      const tx=db.transaction(STORE,'readwrite'); const st=tx.objectStore(STORE);
-      const rq=st.put(val,key); rq.onsuccess=()=>res(true); rq.onerror=()=>rej(rq.error);
-    }));
-  }
-  function idbDel(key){
-    return idbOpen().then(db=>new Promise((res,rej)=>{
-      const tx=db.transaction(STORE,'readwrite'); const st=tx.objectStore(STORE);
-      const rq=st.delete(key); rq.onsuccess=()=>res(true); rq.onerror=()=>rej(rq.error);
-    }));
+  async function loadSnapshot(key){ try{ return await idbGet(key); }catch(e){ return null; } }
+
+  async function saveLastWithBackup(rows, meta={}){
+    // לא דורס אם אין נתונים
+    if(!Array.isArray(rows) || rows.length<MIN_ACCEPT) return;
+    // שמור אחרון
+    await saveSnapshot(KEY_LAST, rows, meta);
+    // שמור גם גיבוי (נחליף אותו תמיד כדי שיהיה "תואם לאחרון")
+    await saveSnapshot(KEY_BACKUP, rows, meta);
   }
 
-  // --- Save/Load last only ---
-  async function saveLast(dataset, meta={}){
-    if(!Array.isArray(dataset) || !dataset.length) return;
-    const snap={ ts:Date.now(), filename: meta.filename||window.__lastFilename||'', count: dataset.length, rows: dataset };
-    try{ await idbSet(KEY_LAST, snap); }catch(e){ console.warn('[persist last] save failed',e); }
+  async function restoreLastPreferExact(){
+    const last = await loadSnapshot(KEY_LAST);
+    if(last && Array.isArray(last.rows) && last.rows.length>=MIN_ACCEPT) return last;
+    // אם אין אחרון—ננסה גיבוי
+    const backup = await loadSnapshot(KEY_BACKUP);
+    return (backup && Array.isArray(backup.rows) && backup.rows.length>=MIN_ACCEPT) ? backup : null;
   }
-  async function loadLast(){ try{ return await idbGet(KEY_LAST); }catch(e){ return null; } }
 
-  // --- UI helper (לא חובה) ---
-  function markBanner(text){
+  // ---------- Banner helper ----------
+  function banner(text){
     try{
       const stTitle=document.getElementById('statusTitle');
       const stSub  =document.getElementById('statusSub');
@@ -2837,69 +2837,104 @@
     }catch(_){}
   }
 
-  // --- Wrap updateSuccessUI: נשמור את האחרון בלבד ---
-  if(typeof window.updateSuccessUI==='function' && !window.__BI_PERSIST_LAST_WRAP){
+  // ---------- Hook: לאחר טעינת קובץ מצליחה – שמירת "האחרון + גיבוי" ----------
+  if(typeof window.updateSuccessUI==='function' && !window.__BI_PERSIST_V3_WRAP){
     const prev=window.updateSuccessUI;
     window.updateSuccessUI = async function(filename, rowsCount){
       const ret = prev.apply(this, arguments);
       try{
-        // אם כבר נבנה __dataset בשלבים → נשמור; אחרת נקרא מהקובץ האחרון
-        let data = (Array.isArray(window.__dataset) && window.__dataset.length) ? window.__dataset : null;
-        if(!data && window.__lastFile && window.XLSX){
+        let rows = (Array.isArray(window.__dataset)&&window.__dataset.length) ? window.__dataset : null;
+        if(!rows && window.__lastFile && window.XLSX){
           const buf=await window.__lastFile.arrayBuffer();
-          const wb = XLSX.read(buf,{type:'array'});
-          const sh = wb.Sheets[wb.SheetNames[0]];
-          data = XLSX.utils.sheet_to_json(sh,{defval:null});
-          window.__dataset = data;
+          const wb=XLSX.read(buf,{type:'array'});
+          const sh=wb.Sheets[wb.SheetNames[0]];
+          rows = XLSX.utils.sheet_to_json(sh,{defval:null});
+          window.__dataset = rows;
         }
-        if(Array.isArray(data) && data.length){
+        if(Array.isArray(rows) && rows.length>=MIN_ACCEPT){
           window.__lastFilename = filename || window.__lastFilename || (window.__lastFile?.name||'');
-          await saveLast(data, { filename: window.__lastFilename });
+          await saveLastWithBackup(rows, { filename: window.__lastFilename });
         }
-        // עדכן מודולים אחרים
         setTimeout(()=>document.dispatchEvent(new Event('bi:data-loaded')),0);
-      }catch(e){ console.warn('[persist last] wrap error',e); }
+      }catch(e){ console.warn('[persist v3] wrap error',e); }
       return ret;
     };
-    window.__BI_PERSIST_LAST_WRAP = true;
+    window.__BI_PERSIST_V3_WRAP = true;
   }
 
-  // --- Restore at startup: טוען תמיד את "האחרון" בלבד ---
+  // ---------- Restore on load ----------
   document.addEventListener('DOMContentLoaded', async ()=>{
     if (Array.isArray(window.__dataset) && window.__dataset.length) return;
-    const last = await loadLast();
-    if(last && Array.isArray(last.rows) && last.rows.length){
-      window.__dataset = last.rows;
-      window.__lastFilename = last.filename||'';
-      markBanner(`${last.filename||'ללא שם'} • ${last.count.toLocaleString('he-IL')} שורות`);
+    const snap = await restoreLastPreferExact();
+    if(snap){
+      window.__dataset = snap.rows;
+      window.__lastFilename = snap.filename||'';
+      banner(`${snap.filename||'ללא שם'} • ${snap.count.toLocaleString('he-IL')} שורות`);
       document.dispatchEvent(new Event('bi:data-loaded'));
     }
   });
 
-  // --- כפתורים אופציונליים קטנים (אם תרצי בפינה למטה) ---
-  if(!document.getElementById('biPersistLastBtns')){
-    const box=document.createElement('div');
-    box.id='biPersistLastBtns';
-    box.className='fixed bottom-4 right-4 z-[1800] flex gap-2';
-    box.innerHTML=`
-      <button id="biSaveLast" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">שמור אחרון</button>
-      <button id="biLoadLast" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">טען אחרון</button>
-      <button id="biClearLast" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">נקה שמירה</button>`;
-    document.body.appendChild(box);
-    document.getElementById('biSaveLast').onclick = async()=>{
-      if(Array.isArray(window.__dataset)&&window.__dataset.length){
-        await saveLast(window.__dataset,{filename:window.__lastFilename||''});
-        alert('נשמר הקובץ האחרון.');
-      }else alert('אין נתונים לשמירה.');
+  // ---------- Export / Import (JSON) ----------
+  function exportJSON(filename='bi-backup.json', rows){
+    try{
+      const blob = new Blob([JSON.stringify(rows)], {type:'application/json'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    }catch(e){ alert('נכשל ייצוא'); }
+  }
+  function importJSONFile(file){
+    return new Promise((res,rej)=>{
+      const fr=new FileReader();
+      fr.onerror=()=>rej(fr.error);
+      fr.onload=()=>{ try{ const data=JSON.parse(fr.result); res(Array.isArray(data)?data:null); } catch(e){ rej(e); } };
+      fr.readAsText(file);
+    });
+  }
+
+  // ---------- UI קטנה לפינה (אפשר להסיר אם לא צריך) ----------
+  if(!document.getElementById('biPersistMini')){
+    const wrap=document.createElement('div');
+    wrap.id='biPersistMini';
+    wrap.className='fixed bottom-4 right-4 z-[1800] flex flex-wrap gap-2';
+    wrap.innerHTML=`
+      <button id="biExp" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">ייצוא גיבוי</button>
+      <label class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15 cursor-pointer">
+        יבוא גיבוי<input id="biImp" type="file" accept="application/json" class="hidden">
+      </label>
+      <button id="biRestore" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">שחזור אחרון</button>
+      <button id="biClear" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">ניקוי שמירה</button>`;
+    document.body.appendChild(wrap);
+
+    document.getElementById('biExp').onclick=()=>{
+      if(Array.isArray(window.__dataset)&&window.__dataset.length) exportJSON((window.__lastFilename||'bi')+'.json', window.__dataset);
+      else alert('אין נתונים לייצוא.');
     };
-    document.getElementById('biLoadLast').onclick = async()=>{
-      const s=await loadLast(); if(!s) return alert('אין קובץ אחרון שמור.');
-      window.__dataset=s.rows; window.__lastFilename=s.filename||''; markBanner(`${s.filename||'ללא שם'} • ${s.count.toLocaleString('he-IL')} שורות`); document.dispatchEvent(new Event('bi:data-loaded'));
+    document.getElementById('biImp').onchange=async(e)=>{
+      const f=e.target.files?.[0]; if(!f) return;
+      try{
+        const rows = await importJSONFile(f);
+        if(!Array.isArray(rows) || !rows.length) return alert('קובץ לא תקין.');
+        window.__dataset = rows; window.__lastFilename = f.name.replace(/\.json$/i,'');
+        await saveLastWithBackup(rows,{filename:window.__lastFilename});
+        banner(`${window.__lastFilename} • ${rows.length.toLocaleString('he-IL')} שורות (מיובא)`);
+        document.dispatchEvent(new Event('bi:data-loaded'));
+      }catch(err){ alert('יבוא נכשל'); }
+      e.target.value='';
     };
-    document.getElementById('biClearLast').onclick = async()=>{
-      await idbDel(KEY_LAST); alert('נוקתה השמירה של הקובץ האחרון.');
+    document.getElementById('biRestore').onclick=async()=>{
+      const s=await restoreLastPreferExact();
+      if(!s) return alert('אין שמירה אחרונה.');
+      window.__dataset=s.rows; window.__lastFilename=s.filename||''; banner(`${s.filename||'ללא שם'} • ${s.count.toLocaleString('he-IL')} שורות`); document.dispatchEvent(new Event('bi:data-loaded'));
+    };
+    document.getElementById('biClear').onclick=async()=>{
+      if(!confirm('למחוק את השמירה האחרונה והגיבוי?')) return;
+      await idbDel(KEY_LAST); await idbDel(KEY_BACKUP);
+      alert('נוקתה השמירה.'); 
     };
   }
+
+  // ---------- APIs למתקדמים בקונסול ----------
+  window.__BI_SAVE_NOW   = async()=>{ if(Array.isArray(window.__dataset)&&window.__dataset.length) await saveLastWithBackup(window.__dataset,{filename:window.__lastFilename||''}); };
+  window.__BI_EXPORT_NOW = ()=>{ if(Array.isArray(window.__dataset)&&window.__dataset.length) exportJSON((window.__lastFilename||'bi')+'.json', window.__dataset); };
 })();
 </script>
 </body>
