@@ -1835,7 +1835,7 @@
   });
 })();
   </script>
-  <!-- === STEP 8: גיל פתיחה עד היום + חריגים (24ש / 8/30/60 ימים) === -->
+  <!-- === STEP 8 (FIXED): גיל פתיחה עד היום — תאריך בלבד (ללא שעה), תמיכה ב"שעת/תאריך פתיחה " === -->
 <section id="biAgingHost" class="max-w-6xl mx-auto px-4 mt-6">
   <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
     <div class="flex flex-wrap items-center gap-3 mb-4">
@@ -1844,149 +1844,198 @@
       <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">TZ: Asia/Jerusalem</span>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-6 gap-4" id="agingRow">
-      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-xs text-ink-200/70">בזמן</div>
-        <div id="agingOk" class="text-3xl font-bold mt-1">—</div>
-      </div>
-      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-xs text-ink-200/70">חריגה</div>
-        <div id="agingOver" class="text-3xl font-bold mt-1">—</div>
-      </div>
-      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-xs text-ink-200/70">24 שעות (מידע/פורטל)</div>
-        <div id="aging24h" class="text-2xl font-bold mt-1">—</div>
-      </div>
-      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-xs text-ink-200/70">8 ימים (חלוקת/יחידות)</div>
-        <div id="aging8d" class="text-2xl font-bold mt-1">—</div>
-      </div>
-      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-xs text-ink-200/70">30 ימים (פנים־ארצי/שליחים)</div>
-        <div id="aging30d" class="text-2xl font-bold mt-1">—</div>
-      </div>
-      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-xs text-ink-200/70">60 ימים (בינלאומי)</div>
-        <div id="aging60d" class="text-2xl font-bold mt-1">—</div>
-      </div>
+    <!-- KPIs -->
+    <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4"><div class="text-xs text-ink-200/70">בזמן</div><div id="agingOk" class="text-3xl font-bold mt-1">—</div></div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4"><div class="text-xs text-ink-200/70">חריגה</div><div id="agingOver" class="text-3xl font-bold mt-1">—</div></div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4"><div class="text-xs text-ink-200/70">24 שעות (מידע/פורטל)</div><div id="aging24h" class="text-2xl font-bold mt-1">—</div></div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4"><div class="text-xs text-ink-200/70">8 ימים (חלוקת/יחידות)</div><div id="aging8d" class="text-2xl font-bold mt-1">—</div></div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4"><div class="text-xs text-ink-200/70">30 ימים (פנים־ארצי/שליחים)</div><div id="aging30d" class="text-2xl font-bold mt-1">—</div></div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4"><div class="text-xs text-ink-200/70">60 ימים (בינלאומי)</div><div id="aging60d" class="text-2xl font-bold mt-1">—</div></div>
     </div>
 
     <div class="mt-6 text-[11px] text-ink-200/60">
-      הכללים: 30 יום למחלקות פנים־ארצי/שליחים, 60 יום לבינלאומי. חריגים לפי <b>סיווג מוצר</b>:
-      „פניה לקבלת מידע”, „תקלה בפורטל” → 24 שעות; „חלוקת דואר”, „יחידות דואר” → 8 ימים.
-      לחיצה על כל מספר תפתח טבלה מסוננת עם יצוא ל-XLSX, ובחירת מחלקה מסננת בהתאם.
+      חישוב לפי <b>תאריך־בלבד</b> (ללא שעה). חריגים לפי <b>סיווג מוצר</b> — „פניה לקבלת מידע”, „תקלה בפורטל” → 24 שעות; „חלוקת דואר”, „יחידות דואר” → 8 ימים. לחיצה על כל מספר תפתח טבלה עם יצוא ל-XLSX. בחירת מחלקה מסננת בהתאם.
     </div>
   </div>
 </section>
 
 <script>
 (() => {
-  const $  = (id) => document.getElementById(id);
+  // ------- Utils -------
+  const $ = (id) => document.getElementById(id);
   const TZ = 'Asia/Jerusalem';
+  const DAY_MS = 24*60*60*1000;
   const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
 
+  // עמודות (כולל "שעת/תאריך פתיחה " בוריאציות)
   const COLS = {
-    openedAt: ['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'],
-    dept:     ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
-    status:   ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
-    // כאן "סיווג מוצר" בעדיפות ראשונה
-    product:  [
+    openedAt: [
+      'שעת/תאריך פתיחה ','שעת/תאריך פתיחה', // הבקשה שלך
+      'תאריך/שעת פתיחה','תאריך פתיחה','פתיחה',
+      'date_opened','opened_at'
+    ],
+    dept:   ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    status: ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    product:[
       'סיווג מוצר','קו מוצר','סיווג נושא','נושא','סיווג בעיה',
-      'קטגוריה','קטגוריית מוצר','סוג פניה',
+      'קטגוריה','קטגוריית מוצר','סוג פניה','סוג פנייה',
       'Product Line','Product','Category','Issue Type','Topic'
     ]
   };
 
-  const ONE_H = 60*60*1000, ONE_D = 24*ONE_H;
+  // חיפוש עמודה עם נירמול רווחים/רישיות
+  function findCol(row, keys){
+    if (!row) return null;
+    const norm = s => String(s).replace(/\s+/g,'').toLowerCase();
+    for (const k of keys) if (k in row) return k;
+    const targets = keys.map(norm);
+    for (const k in row) if (targets.includes(norm(k))) return k;
+    return null;
+  }
 
   function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
   function activeDept(){ return window.__biActiveDept || 'כללי'; }
 
-  function findCol(row, keys){
-    if (!row) return null;
-    for (const k of keys) if (k in row) return k;
-    const targets = keys.map(k=>k.replace(/\s+/g,'').toLowerCase());
-    for (const k in row) if (targets.includes(k.replace(/\s+/g,'').toLowerCase())) return k;
+  // --------- פונקציות תאריך: תאריך־בלבד לפי ישראל ---------
+  // מפיק {y,m,d} מ-cellVal — מתעלם משעה. תומך בסריאל אקסל או מחרוזת ("dd/mm/yyyy ..." וכד').
+  function ymdFromCell(cellVal){
+    if (cellVal == null || cellVal === '') return null;
+
+    // Excel serial (מספר): לוקחים את החלק השלם (ימים), מתעלמים מהשעה
+    if (typeof cellVal === 'number'){
+      const serialDays = Math.floor(cellVal); // מתעלם מזמן
+      const epoch = new Date(Date.UTC(1899,11,30));
+      const d = new Date(epoch.getTime() + serialDays*DAY_MS);
+      return ymdFromDateTZ(d);
+    }
+
+    const s = String(cellVal).trim();
+
+    // regex ל-dd/mm/yyyy (אפשר גם נקודה/מקף; מתעלם מכל מה שאחרי)
+    const m = s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+    if (m){
+      let [_, dd, mm, yy] = m;
+      if (yy.length === 2) yy = '20'+yy;
+      return { y:+yy, m:+mm, d:+dd };
+    }
+
+    // fallback: Date ואז פענוח חלקים לפי TZ ישראל
+    const d = new Date(s);
+    if (!isNaN(d)) return ymdFromDateTZ(d);
+
     return null;
   }
 
-  function parseOpenDate(row){
-    const k = findCol(row, COLS.openedAt);
-    if (!k) return null;
-    const v = row[k];
-    if (v==null || v==='') return null;
-    if (typeof v === 'number'){ // Excel serial
-      const epoch = new Date(Date.UTC(1899,11,30));
-      return new Date(epoch.getTime() + v*ONE_D);
-    }
-    const d = new Date(v);
-    return isNaN(d) ? null : d;
+  // מפרק Date לחלקים לפי Asia/Jerusalem
+  function ymdFromDateTZ(date){
+    const parts = new Intl.DateTimeFormat('he-IL', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(date);
+    const m = Object.fromEntries(parts.map(p=>[p.type,p.value]));
+    return { y:+m.year, m:+m.month, d:+m.day };
   }
 
+  // ממיר {y,m,d} למחרוזת dd/mm/yyyy
+  function fmtYMD(ymd){ return `${String(ymd.d).padStart(2,'0')}/${String(ymd.m).padStart(2,'0')}/${ymd.y}`; }
+
+  // יוצר UTC Date מחלקי תאריך (להפרש ימים אמין)
+  function dateFromYMD_UTC(ymd){ return new Date(Date.UTC(ymd.y, ymd.m-1, ymd.d)); }
+
+  // הוספת N ימים
+  function addDays(ymd, n){
+    const dt = dateFromYMD_UTC(ymd);
+    const d2 = new Date(dt.getTime() + n*DAY_MS);
+    return { y:d2.getUTCFullYear(), m:d2.getUTCMonth()+1, d:d2.getUTCDate() };
+  }
+
+  // השוואה (תאריך־בלבד)
+  function cmpYMD(a,b){
+    if (a.y!==b.y) return a.y-b.y;
+    if (a.m!==b.m) return a.m-b.m;
+    return a.d-b.d;
+  }
+
+  // גיל בימים: היום-פתיחה (תאריך־בלבד)
+  function diffDays(a,b){ // a,b הם YMD; מחזיר a-b
+    const da = dateFromYMD_UTC(a), db = dateFromYMD_UTC(b);
+    return Math.floor((da-db)/DAY_MS);
+  }
+
+  // היום (תאריך־בלבד) לפי ישראל
+  function todayYMD(){
+    const now = new Date();
+    return ymdFromDateTZ(now);
+  }
+
+  // --------- סינון וחריגים ---------
   function isOpenRow(row){
     const k = findCol(row, COLS.status);
     if (!k) return true;
     const v = String(row[k] ?? '').trim();
     return !CLOSED.some(c => v === c || v.includes(c));
   }
+
   function filterByDept(rows){
     const d = activeDept();
     if (d === 'כללי') return rows;
     const k = rows.length ? findCol(rows[0], COLS.dept) : null;
-    return k ? rows.filter(r => String(r[k]??'').trim() === d) : rows;
+    return k ? rows.filter(r => String(r[k] ?? '').trim() === d) : rows;
   }
+
+  const rmNiq = s => String(s||'').replace(/[\u0591-\u05C7]/g,'').toLowerCase();
+
   function getProduct(row){
     const k = findCol(row, COLS.product);
     return k ? String(row[k] ?? '') : '';
   }
 
-  // נירמול עברית ללא ניקוד
-  const rmNiqqud = s => String(s||'').replace(/[\u0591-\u05C7]/g,'').toLowerCase();
-
-  function pickTarget(row){
-    const dept = rmNiqqud((() => {
-      const k=findCol(row, COLS.dept); return k ? row[k] : '';
-    })());
-    const product = rmNiqqud(getProduct(row));
+  // בחירת כלל יעד
+  function pickTargetDays(row){
+    const dept = rmNiq((() => { const k=findCol(row, COLS.dept); return k ? row[k] : ''; })());
+    const prod = rmNiq(getProduct(row));
 
     // חריגים לפי סיווג מוצר
-    if (product.includes('פניה לקבלת מידע') || product.includes('בקשת מידע') ||
-        product.includes('תקלה בפורטל')     || product.includes('portal'))
-      return {ms:24*ONE_H, label:'24 שעות', key:'24h'};
+    if (prod.includes('פניה לקבלת מידע') || prod.includes('בקשת מידע') || prod.includes('תקלה בפורטל') || prod.includes('portal'))
+      return { days: 1,  label: '24 שעות', key:'24h' }; // יום אחד
 
-    if (product.includes('חלוקת דואר') || product.includes('חלוקתדואר') ||
-        product.includes('יחידות דואר') || product.includes('יחידת דואר'))
-      return {ms:8*ONE_D, label:'8 ימים', key:'8d'};
+    if (prod.includes('חלוקת דואר') || prod.includes('חלוקתדואר') || prod.includes('יחידות דואר') || prod.includes('יחידת דואר'))
+      return { days: 8,  label: '8 ימים',  key:'8d' };
 
-    // כלל לפי מחלקה
-    if (dept.includes('בינלאומי'))                        return {ms:60*ONE_D, label:'60 ימים', key:'60d'};
-    if (dept.includes('שליח'))                            return {ms:30*ONE_D, label:'30 ימים', key:'30d'};
-    if (dept.includes('פנים') && dept.includes('ארצי'))   return {ms:30*ONE_D, label:'30 ימים', key:'30d'};
+    // לפי מחלקה
+    if (dept.includes('בינלאומי'))                       return { days: 60, label: '60 ימים', key:'60d' };
+    if (dept.includes('שליח'))                           return { days: 30, label: '30 ימים', key:'30d' };
+    if (dept.includes('פנים') && dept.includes('ארצי'))  return { days: 30, label: '30 ימים', key:'30d' };
 
     // דיפולט
-    return {ms:30*ONE_D, label:'30 ימים', key:'30d'};
+    return { days: 30, label:'30 ימים', key:'30d' };
   }
 
-  function annotate(row){
-    const opened = parseOpenDate(row);
-    const rule = pickTarget(row);
-    const r = {...row, 'SLA כלל':rule.label, 'SLA יעד':'—', 'SLA סטטוס':'—'};
-    if (opened){
-      const due = new Date(opened.getTime()+rule.ms);
-      r['SLA יעד'] = formatTZ(due);
-      r['גיל (ימים)'] = Math.floor((Date.now()-opened.getTime())/ONE_D);
-      r['SLA סטטוס'] = (due.getTime() - Date.now() >= 0) ? 'בזמן' : 'חריגה';
-    }
-    return {...r, __targetKey: rule.key};
+  // --------- אנוטציה לשורה ---------
+  function annotateRow(row){
+    const ymdOpen = (() => {
+      const k = findCol(row, COLS.openedAt);
+      return k ? ymdFromCell(row[k]) : null;
+    })();
+
+    const rule = pickTargetDays(row);
+
+    const r = { ...row, 'SLA כלל': rule.label, 'SLA יעד': '—', 'SLA סטטוס': '—', 'גיל (ימים)': '—' };
+    r.__openYMD = ymdOpen;
+    r.__ruleKey = rule.key;
+
+    if (!ymdOpen) return r;
+
+    const ymdDue = addDays(ymdOpen, rule.days);
+    const ymdToday = todayYMD();
+
+    r.__dueYMD = ymdDue;
+    r['SLA יעד'] = fmtYMD(ymdDue);
+    r['גיל (ימים)'] = diffDays(ymdToday, ymdOpen);        // היום - פתיחה
+    r['SLA סטטוס']  = (cmpYMD(ymdDue, ymdToday) >= 0) ? 'בזמן' : 'חריגה'; // תאריך־בלבד
+
+    return r;
   }
 
-  function formatTZ(date){
-    const p = new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(date);
-    const m = Object.fromEntries(p.map(x=>[x.type,x.value]));
-    return `${m.day}/${m.month}/${m.year} ${m.hour}:${m.minute}`;
-  }
-
-  // מודאל מינימלי לשימוש חוזר
+  // --------- מודאל טבלה ---------
   function ensureModal(){
     if (document.getElementById('biModal')) return;
     const html = `
@@ -2017,16 +2066,20 @@
       XLSX.writeFile(wb,fn);
     };
   }
+
   function renderTable(rows){
     const H=$('biThead'), B=$('biTbody'), E=$('biEmpty');
     window.__BI_MODAL_ROWS__ = rows;
     if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
     E.classList.add('hidden');
+
+    // הסר שדות עזר פנימיים
     const headers=[...new Set(rows.flatMap(r=>Object.keys(r).filter(k=>!k.startsWith('__'))))];
     H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
     const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h])}</td>`).join('')+'</tr>').join('');
   }
+
   function openModal(rows, title, fileBase){
     ensureModal();
     renderTable(rows);
@@ -2034,38 +2087,46 @@
     document.getElementById('biModal').classList.remove('hidden');
   }
 
-  // עדכון המספרים והקליקים
-  const el = { ok:$('agingOk'), ov:$('agingOver'), h24:$('aging24h'), d8:$('aging8d'), d30:$('aging30d'), d60:$('aging60d') };
+  // --------- חישוב והצגה ---------
+  const nodes = { ok:$('agingOk'), over:$('agingOver'), h24:$('aging24h'), d8:$('aging8d'), d30:$('aging30d'), d60:$('aging60d') };
   const fmt = n => n.toLocaleString('he-IL');
-  function setKpi(node, rows, title, file){ node.textContent=fmt(rows.length); node.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30'); node.onclick=()=>openModal(rows,title,file); }
+  function makeClickable(node, rows, title, file){
+    node.textContent = fmt(rows.length);
+    node.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
+    node.onclick = () => openModal(rows, title, file);
+  }
 
   function compute(){
     $('agingDeptChip').textContent = `מחלקה: ${activeDept()}`;
 
+    // רק פתוחות + רק שורות עם תאריך פתיחה תקין
     const base = filterByDept(getDataset()).filter(isOpenRow);
-    const ann  = base.map(annotate);
+    const annotated = base.map(annotateRow).filter(r => !!r.__openYMD);
 
     const buckets = { '24h':[], '8d':[], '30d':[], '60d':[] };
     const ok=[], over=[];
-    for (const r of ann){
-      (buckets[r.__targetKey]||[]).push(r);
+
+    for (const r of annotated){
+      (buckets[r.__ruleKey]||[]).push(r);
       (r['SLA סטטוס']==='בזמן' ? ok : over).push(r);
     }
 
-    setKpi(el.ok,  ok,                'בזמן (לפי כללים)', 'aging_ok');
-    setKpi(el.ov,  over,              'חריגה (לפי כללים)', 'aging_over');
-    setKpi(el.h24, buckets['24h'],    'כללים 24 שעות (מידע/פורטל)', 'aging_24h');
-    setKpi(el.d8,  buckets['8d'],     'כללים 8 ימים (חלוקת/יחידות)', 'aging_8d');
-    setKpi(el.d30, buckets['30d'],    'כללים 30 ימים (פנים־ארצי/שליחים/דיפולט)', 'aging_30d');
-    setKpi(el.d60, buckets['60d'],    'כללים 60 ימים (בינלאומי)', 'aging_60d');
+    makeClickable(nodes.ok,   ok,                 'בזמן (לפי כללים — תאריך בלבד)', 'aging_ok');
+    makeClickable(nodes.over, over,               'חריגה (לפי כללים — תאריך בלבד)', 'aging_over');
+    makeClickable(nodes.h24,  buckets['24h'],     'כללים 24 שעות (מידע/פורטל)',     'aging_24h');
+    makeClickable(nodes.d8,   buckets['8d'],      'כללים 8 ימים (חלוקת/יחידות)',    'aging_8d');
+    makeClickable(nodes.d30,  buckets['30d'],     'כללים 30 ימים (פנים־ארצי/שליחים/דיפולט)', 'aging_30d');
+    makeClickable(nodes.d60,  buckets['60d'],     'כללים 60 ימים (בינלאומי)',        'aging_60d');
   }
 
+  // טריגרים: אחרי קליטת קובץ + שינוי מחלקה
   if (typeof window.updateSuccessUI === 'function'){
     const prev = window.updateSuccessUI;
     window.updateSuccessUI = function(){ const r=prev.apply(this,arguments); Promise.resolve(r).finally(compute); };
   }
   window.addEventListener('bi:dept-change', compute);
+
   if (getDataset().length) compute();
 })();
-        </script>
+                                    </script>
   </body>
