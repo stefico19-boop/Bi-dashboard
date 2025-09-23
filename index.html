@@ -3490,4 +3490,89 @@
   document.addEventListener('bi:data-loaded', ()=>{ if (!document.getElementById('biDashModal')?.classList.contains('hidden')) window.__BI_RENDER_DASHBOARD(); });
 })();
         </script>
+  <!-- Export dashboards as images (single + all) -->
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script>
+(() => {
+  const DASH_SELECTOR = 'section[id^="biStep"]'; // כל הסקשנים של השלבים/דשבורדים
+
+  async function exportElAsPNG(el, filename='dashboard.png'){
+    if(!el) return alert('לא נמצא דשבורד לייצוא');
+    // לוודא רינדור מלא לפני צילום
+    await new Promise(r => requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#0b1220',
+      scale: window.devicePixelRatio > 1 ? 2 : 2, // איכות טובה גם בנייד
+      useCORS: true,
+      windowWidth: document.documentElement.scrollWidth,
+      windowHeight: document.documentElement.scrollHeight
+    });
+    const a = document.createElement('a');
+    a.download = filename;
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  }
+
+  // ייצוא דשבורד יחיד לפי selector
+  async function exportDashboard(selector){
+    const el = document.querySelector(selector);
+    return exportElAsPNG(el, `${selector.replace('#','')||'dashboard'}.png`);
+  }
+
+  // ייצוא כל הדשבורדים כתמונה אחת ארוכה
+  async function exportAllDashboards(){
+    const nodes = Array.from(document.querySelectorAll(DASH_SELECTOR));
+    if(!nodes.length) return alert('לא נמצאו דשבורדים לייצוא');
+    // שיבוט לדיב זמני כדי לצלם יחד (ללא פגיעה בעמוד)
+    const container = document.createElement('div');
+    container.style.background = '#0b1220';
+    container.style.padding = '24px';
+    container.style.width = '100%';
+    container.style.boxSizing = 'border-box';
+    nodes.forEach((n,i)=>{
+      const clone = n.cloneNode(true);
+      clone.style.marginBottom = '36px';
+      // הסרת כפתור הייצוא המשובט מתוך התמונה (אם קיים בסקשן)
+      const btn = clone.querySelector('[data-export-btn]');
+      if (btn) btn.remove();
+      container.appendChild(clone);
+    });
+    document.body.appendChild(container);
+    await exportElAsPNG(container, 'all_dashboards.png');
+    document.body.removeChild(container);
+  }
+
+  // הוספת כפתור גלובלי – ייצוא כל הדשבורדים
+  const btnAll = document.createElement('button');
+  btnAll.textContent = '📸 ייצוא כל הדשבורדים';
+  btnAll.type = 'button';
+  btnAll.className = 'fixed bottom-4 left-4 z-[2000] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white font-semibold shadow-lg hover:opacity-90';
+  btnAll.addEventListener('click', exportAllDashboards);
+  document.body.appendChild(btnAll);
+
+  // הוספת כפתור ייצוא לכל דשבורד בנפרד (בתוך הסקשן)
+  function injectSingleButtons(){
+    document.querySelectorAll(DASH_SELECTOR).forEach(sec=>{
+      // אם כבר הוזרק – לא שוב
+      if (sec.querySelector('[data-export-btn]')) return;
+      const holder = document.createElement('div');
+      holder.className = 'mb-3';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-export-btn','1');
+      btn.className = 'px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15';
+      btn.textContent = '📷 ייצוא כתמונה';
+      btn.addEventListener('click', ()=> exportDashboard('#'+sec.id));
+      holder.appendChild(btn);
+      sec.insertBefore(holder, sec.firstChild);
+    });
+  }
+
+  // הזרקה ראשונית ושוב כאשר תוכן נטען דינמית
+  injectSingleButtons();
+  // אם אתם מחליפים דפים/לשוניות דינמית – נוודא הזרקה מחדש:
+  const mo = new MutationObserver(()=>injectSingleButtons());
+  mo.observe(document.body, {childList:true, subtree:true});
+})();
+</script>
   </body>
