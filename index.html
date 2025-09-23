@@ -2782,208 +2782,209 @@
   console.log('XLSX Export Fix loaded');
 })();
 </script>
-  <!-- === שלב 12 (הרחבה): Heatmap מטריצה (שעות × ימים) + החלפה בין תצוגות === -->
-<!-- תוסף למטריצה של Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@3"></script>
-
+  <!-- === שלב 12: Heatmap עומסים לפי שעות (בר + מטריצה) === -->
 <script>
 (function(){
-  const TZ = 'Asia/Jerusalem';
-  const DAY_MS = 24*60*60*1000;
-
-  // מוסיף כפתורי החלפה + קנבס נוסף לשלב 12 אם לא קיימים
-  function ensureStage12UI(){
-    const box = document.getElementById('heatmapHours')?.parentElement;
-    if (!box || document.getElementById('heatmapToggleBar')) return;
-
-    const controls = document.createElement('div');
-    controls.className = 'flex items-center gap-2 mb-3';
-    controls.innerHTML = `
-      <button id="heatmapToggleBar"
-        class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15 font-semibold">
-        עמודות לפי שעה
-      </button>
-      <button id="heatmapToggleMatrix"
-        class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">
-        Heatmap מטריצה (שעה × יום)
-      </button>
-    `;
-    box.parentElement.insertBefore(controls, box);
-
-    // קנבס למטריצה
-    const matrixWrap = document.createElement('div');
-    matrixWrap.id = 'heatmapMatrixWrap';
-    matrixWrap.className = 'mt-4';
-    matrixWrap.innerHTML = `<canvas id="heatmapMatrix" height="220" style="display:none"></canvas>`;
-    box.parentElement.appendChild(matrixWrap);
-
-    // החלפת תצוגה
-    document.getElementById('heatmapToggleBar').addEventListener('click', ()=>{
-      document.getElementById('heatmapHours').style.display = '';
-      document.getElementById('heatmapMatrix').style.display = 'none';
-      document.getElementById('heatmapToggleBar').classList.add('font-semibold');
-      document.getElementById('heatmapToggleMatrix').classList.remove('font-semibold');
-    });
-    document.getElementById('heatmapToggleMatrix').addEventListener('click', ()=>{
-      document.getElementById('heatmapHours').style.display = 'none';
-      document.getElementById('heatmapMatrix').style.display = '';
-      document.getElementById('heatmapToggleMatrix').classList.add('font-semibold');
-      document.getElementById('heatmapToggleBar').classList.remove('font-semibold');
-      buildMatrix();  // בניה בקליק ראשון כדי לחסוך זמן טעינה
-    });
+  // ---- טעינת ספריות במידת הצורך ----
+  function ensureScript(src){return new Promise((ok,err)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=err;document.head.appendChild(s);});}
+  async function ensureDeps(){
+    if(!window.Chart) await ensureScript('https://cdn.jsdelivr.net/npm/chart.js@4');
+    if(!window.ChartDataLabels) await ensureScript('https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2');
+    if(!window.ChartMatrix) await ensureScript('https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@3');
   }
 
-  // עזרי TZ כדי להוציא שעה/יום נכון לישראל
-  function hourInTZ(dateLike){
-    const d = (dateLike instanceof Date) ? dateLike : new Date(dateLike);
-    const parts = new Intl.DateTimeFormat('he-IL', { timeZone: TZ, hour: '2-digit', hourCycle:'h23' }).formatToParts(d);
+  // ---- הזרקת UI אם חסר ----
+  function ensureStage12Section(){
+    if (document.getElementById('biStep12')) return;
+    const host = document.querySelector('main') || document.body;
+    const html = `
+      <section id="biStep12" class="max-w-6xl mx-auto px-4 mt-6">
+        <div class="rounded-3xl bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 12</span>
+            <div class="ms-auto flex items-center gap-2">
+              <button id="biStep12BtnBar" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm font-semibold">עמודות לפי שעה</button>
+              <button id="biStep12BtnMatrix" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm">Heatmap מטריצה (שעה × יום)</button>
+            </div>
+          </div>
+          <div class="text-xs text-ink-200/70 mb-2">אם בחרת מחלקה בטאבים — החישוב יתבצע עליה בלבד.</div>
+          <div>
+            <canvas id="biStep12Bar" height="160"></canvas>
+            <canvas id="biStep12Matrix" height="260" style="display:none"></canvas>
+          </div>
+        </div>
+      </section>`;
+    host.insertAdjacentHTML('beforeend', html);
+
+    // החלפה בין תצוגות
+    const btnBar = document.getElementById('biStep12BtnBar');
+    const btnMx  = document.getElementById('biStep12BtnMatrix');
+    btnBar.addEventListener('click', ()=>{
+      document.getElementById('biStep12Bar').style.display='';
+      document.getElementById('biStep12Matrix').style.display='none';
+      btnBar.classList.add('font-semibold'); btnMx.classList.remove('font-semibold');
+      renderBar(); // רנדר מחדש כדי להתאים גודל
+    });
+    btnMx.addEventListener('click', async ()=>{
+      document.getElementById('biStep12Bar').style.display='none';
+      document.getElementById('biStep12Matrix').style.display='';
+      btnMx.classList.add('font-semibold'); btnBar.classList.remove('font-semibold');
+      await renderMatrix();
+    });
+
+    // אם יש טאבים של מחלקות — נרענן אחרי לחיצה
+    const tabs = document.getElementById('deptTabs');
+    if (tabs && !tabs.dataset.heatmapHooked){
+      tabs.addEventListener('click', (e)=>{ setTimeout(()=>renderAll(), 0); });
+      tabs.dataset.heatmapHooked = '1';
+    }
+  }
+
+  // ---- עזרי נתונים ----
+  const TZ='Asia/Jerusalem', DAY=24*60*60*1000;
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/\s+/g,'').toLowerCase();
+  const COLS_OPENED = ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'];
+  const COLS_DEPT   = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
+
+  function findCol(row, candidates){
+    if(!row) return null;
+    for(const c of candidates) if (c in row) return c;
+    const t=candidates.map(norm);
+    for(const k in row) if (t.includes(norm(k))) return k;
+    return null;
+  }
+  function excelToDate(n){
+    const epoch=new Date(Date.UTC(1899,11,30));
+    return new Date(epoch.getTime()+n*DAY);
+  }
+  function getHourTZ(val){
+    if (val==null || val==='') return null;
+    let d = (typeof val==='number') ? excelToDate(val) : new Date(val);
+    if (isNaN(d)) {
+      // ניסיון dd/mm/yyyy hh:mm
+      const m=String(val).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+      if (m){ let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy; d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`); }
+    }
+    if (isNaN(d)) return null;
+    const parts = new Intl.DateTimeFormat('he-IL',{timeZone:TZ,hour:'2-digit',hourCycle:'h23'}).formatToParts(d);
     const h = parts.find(p=>p.type==='hour')?.value;
     return h ? +h : null;
   }
-  function weekdayIndexInTZ(dateLike){
-    // 0=ראשון ... 6=שבת
-    const fmt = new Intl.DateTimeFormat('en-IL', { timeZone: TZ, weekday: 'short' });
-    const name = fmt.format(dateLike); // Sun, Mon...
-    const map = {Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6};
-    return map[name] ?? null;
+  function weekdayIndexTZ(d){
+    const parts = new Intl.DateTimeFormat('en-IL',{timeZone:TZ,weekday:'short'}).format(d); // Sun..Sat
+    return ({Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6})[parts] ?? null; // 0=א'
+  }
+  function activeDeptName(){
+    const container=document.getElementById('deptTabs'); if(!container) return 'כללי';
+    const btn=[...container.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600'));
+    return (btn?.textContent||'כללי').trim();
+  }
+  function scopeRowsByDept(rows){
+    const dept=activeDeptName();
+    if (dept==='כללי') return rows;
+    const col=findCol(rows[0], COLS_DEPT); if(!col) return rows;
+    return rows.filter(r => String(r[col]??'').trim()===dept);
+  }
+  function getRows(){
+    const rows = Array.isArray(window.__dataset) ? window.__dataset : [];
+    return rows.length ? scopeRowsByDept(rows) : [];
   }
 
-  // איתור עמודת תאריך פתיחה
-  function findOpenedCol(rows){
-    if (!rows.length) return null;
-    const keys = Object.keys(rows[0]);
-    const candidates = ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened'];
-    // חיפוש מדויק ואז רופף
-    for (const c of candidates) if (keys.includes(c)) return c;
-    const norm = s=>String(s).replace(/\s+/g,'').toLowerCase();
-    const target = candidates.map(norm);
-    for (const k of keys) if (target.includes(norm(k))) return k;
-    return null;
-  }
+  // ---- רנדר עמודות לפי שעה ----
+  async function renderBar(){
+    await ensureDeps(); ensureStage12Section();
+    const canvas=document.getElementById('biStep12Bar'); if(!canvas) return;
+    const rows=getRows(); if(!rows.length) { destroyCharts(); return; }
+    const openedCol=findCol(rows[0], COLS_OPENED); if(!openedCol){ destroyCharts(); return; }
 
-  // בניית מטריצת עומסים: 7 ימים × 24 שעות
-  function computeMatrix(rows, openedCol){
-    const grid = Array.from({length:7},()=>Array(24).fill(0));
-    for (const r of rows){
-      const v = r[openedCol];
-      if (!v) continue;
-      const d = new Date(v);
-      if (isNaN(d)) continue;
-      const h = hourInTZ(d);
-      const w = weekdayIndexInTZ(d);
-      if (h==null || w==null) continue;
-      grid[w][h] += 1;
-    }
-    return grid;
-  }
+    // ספירה לשעות 0..23
+    const counts=Array(24).fill(0);
+    rows.forEach(r=>{ const h=getHourTZ(r[openedCol]); if(h!=null) counts[h]++; });
+    const total=counts.reduce((s,v)=>s+v,0)||1, max=Math.max(...counts,1);
 
-  // צביעה ידידותית: ככל שהמספר גדול – הצבע כהה יותר
-  function makeColor(v, vmax){
-    const ratio = vmax ? (v / vmax) : 0;
-    const alpha = 0.15 + ratio * 0.85;
-    return `rgba(99,102,241,${alpha})`; // Indigo
-  }
-
-  // שרטוט המטריצה עם chartjs-chart-matrix
-  function buildMatrix(){
-    const rows = window.__dataset || [];
-    if (!rows.length) return;
-    const openedCol = findOpenedCol(rows);
-    if (!openedCol) return;
-
-    // הכנה
-    const grid = computeMatrix(rows, openedCol);
-    const vmax = Math.max(1, ...grid.flat());
-    const dataPoints = [];
-    for (let y=0; y<7; y++){
-      for (let x=0; x<24; x++){
-        dataPoints.push({ x, y, v: grid[y][x] });
-      }
-    }
-
-    const dayLabels = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳']; // 0=א׳ (ראשון)
-    const hourLabels = Array.from({length:24},(_,h)=>`${h}:00`);
-
-    const ctx = document.getElementById('heatmapMatrix')?.getContext('2d');
-    if (!ctx) return;
-
-    // השמד גרף קודם אם קיים
-    if (window.__heatmapMatrixChart) { try{ window.__heatmapMatrixChart.destroy(); }catch{} }
-
-    window.__heatmapMatrixChart = new Chart(ctx, {
-      type: 'matrix',
-      data: {
-        datasets: [{
-          label: 'עומס לפי שעה ויום',
-          data: dataPoints,
-          width: ({chart}) => (chart.chartArea.width / 24) - 2,
-          height: ({chart}) => (chart.chartArea.height / 7) - 2,
-          backgroundColor: ctx => makeColor(ctx.raw.v, vmax),
-          borderColor: 'rgba(255,255,255,0.08)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              title: items => {
-                const it = items[0]?.raw;
-                return `יום ${dayLabels[it.y]} • ${hourLabels[it.x]}`;
-              },
-              label: it => ` ${it.raw.v.toLocaleString('he-IL')} פניות`
-            }
+    if (window.__biStep12Bar) try{ window.__biStep12Bar.destroy(); }catch{}
+    window.__biStep12Bar=new Chart(canvas.getContext('2d'),{
+      type:'bar', plugins:[ChartDataLabels],
+      data:{ labels:Array.from({length:24},(_,h)=>`${h}:00`), datasets:[{ data:counts }]},
+      options:{
+        plugins:{
+          legend:{display:false},
+          datalabels:{
+            anchor:'end', align:'end', color:'#fff',
+            formatter:(v)=> v?`${v} (${Math.round(v*100/total)}%)`:'' , font:{weight:'600'}
           },
-          datalabels: {
-            display: ctx => ctx.raw.v > 0,
-            color: '#fff',
-            formatter: v => v.v,
-            font: { weight: '600' }
-          }
+          tooltip:{callbacks:{label:(ctx)=>` ${ctx.raw} פניות (${Math.round(ctx.raw*100/total)}%)`}}
         },
-        scales: {
-          x: {
-            type: 'linear',
-            min: -0.5, max: 23.5,
-            ticks: {
-              callback: (val) => `${val}:00`,
-              color: '#cbd5e1',
-              maxRotation: 0, autoSkip: true, maxTicksLimit: 12
-            },
-            grid: { display: false }
-          },
-          y: {
-            type: 'linear',
-            min: -0.5, max: 6.5,
-            ticks: {
-              callback: (val)=> dayLabels[val] ?? '',
-              color: '#cbd5e1',
-              stepSize: 1
-            },
-            reverse: false,
-            grid: { display: false }
-          }
+        scales:{ x:{ticks:{color:'#cbd5e1'}}, y:{ticks:{color:'#cbd5e1'}}}
+      }
+    });
+  }
+
+  // ---- רנדר מטריצה שעה×יום ----
+  async function renderMatrix(){
+    await ensureDeps(); ensureStage12Section();
+    const canvas=document.getElementById('biStep12Matrix'); if(!canvas) return;
+    const rows=getRows(); if(!rows.length){ destroyCharts(); return; }
+    const openedCol=findCol(rows[0], COLS_OPENED); if(!openedCol){ destroyCharts(); return; }
+
+    // בניית גריד 7×24
+    const grid=Array.from({length:7},()=>Array(24).fill(0));
+    rows.forEach(r=>{
+      const v=r[openedCol];
+      let d=(typeof v==='number')?excelToDate(v):new Date(v);
+      if (isNaN(d)) return;
+      const h=getHourTZ(d); const w=weekdayIndexTZ(d);
+      if(h==null||w==null) return;
+      grid[w][h] += 1;
+    });
+    const vmax=Math.max(1,...grid.flat());
+    const points=[];
+    for(let y=0;y<7;y++) for(let x=0;x<24;x++) points.push({x,y,v:grid[y][x]});
+    const dayLabels=['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+
+    if (window.__biStep12Matrix) try{ window.__biStep12Matrix.destroy(); }catch{}
+    window.__biStep12Matrix=new Chart(canvas.getContext('2d'),{
+      type:'matrix', plugins:[ChartDataLabels],
+      data:{ datasets:[{
+        data:points,
+        width:({chart})=>(chart.chartArea.width/24)-2,
+        height:({chart})=>(chart.chartArea.height/7)-2,
+        backgroundColor:(ctx)=>{ const r=ctx.raw?.v||0; const a=0.15+(r/vmax)*0.85; return `rgba(99,102,241,${a})`; },
+        borderColor:'rgba(255,255,255,0.08)', borderWidth:1
+      }]},
+      options:{
+        maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{callbacks:{ title:(its)=>{const it=its[0]?.raw; return `יום ${dayLabels[it.y]} • ${it.x}:00`;},
+                               label:(it)=>` ${it.raw.v.toLocaleString('he-IL')} פניות`}},
+          datalabels:{display:(ctx)=>ctx.raw.v>0, color:'#fff', formatter:(v)=>v.v, font:{weight:'600'}}
+        },
+        scales:{
+          x:{type:'linear',min:-.5,max:23.5,ticks:{callback:(v)=>`${v}:00`,color:'#cbd5e1',maxTicksLimit:12},grid:{display:false}},
+          y:{type:'linear',min:-.5,max:6.5,ticks:{callback:(v)=>dayLabels[v]??'',color:'#cbd5e1',stepSize:1},grid:{display:false}}
         }
       }
     });
   }
 
-  // הרצה אחרי שהדאטה נטענת + בניית UI
-  document.addEventListener('bi:data-loaded', ()=>{
-    ensureStage12UI();       // דואג לכפתורים וקנבס המטריצה
-    // אם כרגע מוצג מצב המטריצה – נבנה אותה
-    const m = document.getElementById('heatmapMatrix');
-    if (m && m.style.display !== 'none') buildMatrix();
-  });
+  function destroyCharts(){
+    if (window.__biStep12Bar) try{window.__biStep12Bar.destroy()}catch{};
+    if (window.__biStep12Matrix) try{window.__biStep12Matrix.destroy()}catch{};
+  }
 
-  // אם הדף כבר עם דאטה (שוחזר) – נוודא הזרקה
+  // ---- רענון כאשר יש דאטה / שינוי מחלקה ----
+  function renderAll(){ 
+    const barVisible = document.getElementById('biStep12Bar')?.style.display !== 'none';
+    if (barVisible) renderBar(); else renderMatrix();
+  }
+
+  // התחלה: אחרי טעינת דאטה
+  document.addEventListener('bi:data-loaded', async ()=>{ await ensureDeps(); ensureStage12Section(); renderAll(); });
+
+  // אם כבר יש דאטה משוחזר – נריץ
   if (Array.isArray(window.__dataset) && window.__dataset.length){
-    ensureStage12UI();
+    (async()=>{ await ensureDeps(); ensureStage12Section(); renderAll(); })();
   }
 })();
 </script>
