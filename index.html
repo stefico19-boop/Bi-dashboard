@@ -1716,4 +1716,123 @@
   if (getDataset().length) renderOwners();
 })();
 </script>
+  <script>
+// --- HOTFIX לבעלי מקרה: פתיחת טבלה בקליק על המספר (delegation) ---
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const ownersTbody = document.getElementById('ownersTable');
+  if (!ownersTbody) return;
+
+  // כלי עזר תואם סעיפים קודמים
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+  function activeDept(){ return window.__biActiveDept || 'כללי'; }
+  function findSimpleCol(row, candidates){
+    if (!row) return null;
+    for (const k of candidates) if (k in row) return k;
+    const norm = s => String(s).replace(/\s+/g,'').toLowerCase();
+    const targets = candidates.map(norm);
+    for (const k in row) if (targets.includes(norm(k))) return k;
+    return null;
+  }
+  function isOpenRow(row, statusCols){
+    const k = findSimpleCol(row, statusCols);
+    if (!k) return true;
+    const v = String(row[k] ?? '').trim();
+    return !CLOSED.some(c => v === c || v.includes(c));
+  }
+  function filterRowsByDept(rows, deptCols){
+    const d = activeDept();
+    if (d === 'כללי') return rows;
+    const col = rows.length ? findSimpleCol(rows[0], deptCols) : null;
+    return col ? rows.filter(r => String(r[col] ?? '').trim() === d) : rows;
+  }
+
+  // ננסה להשתמש בעמודה שנבחרה והוצגה בצ'יפ; אם אין—נחפש לפי שם מדויק
+  function getOwnerCol(rows){
+    const chip = document.getElementById('ownersColChip');
+    const hinted = chip && chip.textContent && chip.textContent.replace(/^עמודה:\s*/,'').trim();
+    if (hinted && rows.length && hinted in rows[0]) return hinted;
+
+    // fallback: נסי כותרים שכיחים
+    const candidates = [
+      'בעלי מקרה: שם','שם בעל מקרה','בעלי מקרה','בעל מקרה','שם מטפל',
+      'Owner Name','Owner','Case Owner','Assigned To','AssignedTo'
+    ];
+    return rows.length ? findSimpleCol(rows[0], candidates) : null;
+  }
+
+  // אם אין פונקציות מודאל קיימות – נוודא שיש (קומפקט)
+  function ensureModal(){
+    if (document.getElementById('biModal')) return;
+    const html = `
+      <div id="biModal" class="fixed inset-0 z-[1000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
+            <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="biClose" class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+          </div>
+          <div class="p-4 overflow-auto" style="max-height:70vh">
+            <table class="w-full text-sm border-separate border-spacing-0">
+              <thead id="biThead"></thead><tbody id="biTbody"></tbody>
+            </table>
+            <div id="biEmpty" class="hidden text-ink-200/70 text-sm p-4">אין נתונים.</div>
+          </div>
+        </div>
+      </div>`;
+    (document.getElementById('biModalHost')||document.body).insertAdjacentHTML('beforeend', html);
+    document.getElementById('biClose').onclick=()=>document.getElementById('biModal').classList.add('hidden');
+    document.getElementById('biModal').onclick=e=>{ if(e.target.id==='biModal') e.currentTarget.classList.add('hidden'); };
+    document.getElementById('biExport').onclick=()=> {
+      if (!window.XLSX) return alert('XLSX לא נטענה');
+      const ws=XLSX.utils.json_to_sheet(window.__BI_ROWS__||[]);
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data');
+      const fn=(document.getElementById('biModalTitle').dataset.filename||'export')+'.xlsx';
+      XLSX.writeFile(wb,fn);
+    };
+  }
+  function renderModal(rows, title, fileBase){
+    ensureModal();
+    window.__BI_ROWS__ = rows || [];
+    const H=document.getElementById('biThead'), B=document.getElementById('biTbody'), E=document.getElementById('biEmpty');
+    if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); }
+    else{
+      E.classList.add('hidden');
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
+      const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h])}</td>`).join('')+'</tr>').join('');
+    }
+    const t=document.getElementById('biModalTitle'); t.textContent=title; t.dataset.filename=fileBase;
+    document.getElementById('biModal').classList.remove('hidden');
+  }
+
+  // האזנה אחת לטבלה כולה – קליק על הכפתור עם המספר
+  ownersTbody.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.open-owner');
+    if (!btn) return;
+
+    // שם בעל המקרה – מהתא הראשון בשורה (לא מ-data-attr)
+    const tr = e.target.closest('tr');
+    const nameCell = tr && tr.querySelector('td:first-child');
+    const ownerName = nameCell ? nameCell.textContent.trim() : '';
+    if (!ownerName) return;
+
+    // מסננים לפי מחלקה פעילה, ורק פניות פתוחות
+    const all = getDataset();
+    const rowsDept = filterRowsByDept(all, ['מחלקה מטפלת','מחלקה','מחלקה מטפלת ']);
+    if (!rowsDept.length) return;
+
+    const ownerCol = getOwnerCol(rowsDept);
+    if (!ownerCol) return;
+
+    const openRows = rowsDept.filter(r => isOpenRow(r, ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status']));
+    const rows = openRows.filter(r => String(r[ownerCol] ?? '').trim() === ownerName);
+
+    renderModal(rows, `פניות פתוחות — ${ownerName} (${activeDept()})`, `owners_${ownerName}`.replace(/[\\/:*?"<>|]+/g,'_').slice(0,64));
+  });
+})();
+  </script>
   </body>
