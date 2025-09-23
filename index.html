@@ -2782,4 +2782,282 @@
   console.log('XLSX Export Fix loaded');
 })();
 </script>
+  <!-- === שלב 12: Heatmap עומסים לפי שעות ביום === -->
+<div class="p-4 rounded-2xl shadow bg-white/5 mt-6 max-w-6xl mx-auto">
+  <h2 class="text-lg font-bold mb-2">שלב 12 — Heatmap עומסים לפי שעות ביום</h2>
+  <canvas id="heatmapHours" height="140"></canvas>
+</div>
+
+<script>
+(function(){
+  function buildHeatmap(){
+    const rows = window.__dataset || [];
+    if (!rows.length) return;
+
+    // חיפוש עמודת תאריך פתיחה
+    const col = Object.keys(rows[0]).find(k => k.includes('תאריך') || k.includes('פתיחה'));
+    if (!col) return;
+
+    // ספירה לפי שעה
+    const counts = {};
+    rows.forEach(r=>{
+      if (!r[col]) return;
+      let d = new Date(r[col]);
+      if (isNaN(d)) {
+        // ניסיון לפצל טקסט תאריך
+        const onlyDate = String(r[col]).split(' ')[0];
+        d = new Date(onlyDate);
+      }
+      if (isNaN(d)) return;
+      const h = d.getHours();
+      counts[h] = (counts[h]||0)+1;
+    });
+
+    const labels = [...Array(24).keys()].map(h => `${h}:00`);
+    const data = labels.map((_,h) => counts[h] || 0);
+    const maxVal = Math.max(...data, 1);
+
+    const ctx = document.getElementById('heatmapHours').getContext('2d');
+    if (window.__heatmapChart) window.__heatmapChart.destroy();
+
+    window.__heatmapChart = new Chart(ctx,{
+      type:'bar',
+      data:{
+        labels:labels,
+        datasets:[{
+          label:'כמות פניות לפי שעה',
+          data:data,
+          backgroundColor:data.map(v=>{
+            const ratio=v/maxVal;
+            return `rgba(99,102,241,${0.2+ratio*0.8})`; // צבע כהה יותר ככל שיש יותר פניות
+          })
+        }]
+      },
+      options:{
+        responsive:true,
+        plugins:{
+          legend:{display:false},
+          tooltip:{enabled:true,
+            callbacks:{
+              label:(ctx)=>` ${ctx.raw} פניות (${Math.round(ctx.raw/maxVal*100)}%)`
+            }
+          }
+        },
+        scales:{
+          x:{title:{display:true,text:'שעה ביום'}},
+          y:{title:{display:true,text:'כמות פניות'}}
+        }
+      }
+    });
+  }
+
+  // בניה מחדש בכל טעינה / שחזור דאטה
+  document.addEventListener('bi:data-loaded', buildHeatmap);
+})();
+</script>
+  <!-- === שלב 12 (הרחבה): Heatmap מטריצה (שעות × ימים) + החלפה בין תצוגות === -->
+<!-- תוסף למטריצה של Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@3"></script>
+
+<script>
+(function(){
+  const TZ = 'Asia/Jerusalem';
+  const DAY_MS = 24*60*60*1000;
+
+  // מוסיף כפתורי החלפה + קנבס נוסף לשלב 12 אם לא קיימים
+  function ensureStage12UI(){
+    const box = document.getElementById('heatmapHours')?.parentElement;
+    if (!box || document.getElementById('heatmapToggleBar')) return;
+
+    const controls = document.createElement('div');
+    controls.className = 'flex items-center gap-2 mb-3';
+    controls.innerHTML = `
+      <button id="heatmapToggleBar"
+        class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15 font-semibold">
+        עמודות לפי שעה
+      </button>
+      <button id="heatmapToggleMatrix"
+        class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/15">
+        Heatmap מטריצה (שעה × יום)
+      </button>
+    `;
+    box.parentElement.insertBefore(controls, box);
+
+    // קנבס למטריצה
+    const matrixWrap = document.createElement('div');
+    matrixWrap.id = 'heatmapMatrixWrap';
+    matrixWrap.className = 'mt-4';
+    matrixWrap.innerHTML = `<canvas id="heatmapMatrix" height="220" style="display:none"></canvas>`;
+    box.parentElement.appendChild(matrixWrap);
+
+    // החלפת תצוגה
+    document.getElementById('heatmapToggleBar').addEventListener('click', ()=>{
+      document.getElementById('heatmapHours').style.display = '';
+      document.getElementById('heatmapMatrix').style.display = 'none';
+      document.getElementById('heatmapToggleBar').classList.add('font-semibold');
+      document.getElementById('heatmapToggleMatrix').classList.remove('font-semibold');
+    });
+    document.getElementById('heatmapToggleMatrix').addEventListener('click', ()=>{
+      document.getElementById('heatmapHours').style.display = 'none';
+      document.getElementById('heatmapMatrix').style.display = '';
+      document.getElementById('heatmapToggleMatrix').classList.add('font-semibold');
+      document.getElementById('heatmapToggleBar').classList.remove('font-semibold');
+      buildMatrix();  // בניה בקליק ראשון כדי לחסוך זמן טעינה
+    });
+  }
+
+  // עזרי TZ כדי להוציא שעה/יום נכון לישראל
+  function hourInTZ(dateLike){
+    const d = (dateLike instanceof Date) ? dateLike : new Date(dateLike);
+    const parts = new Intl.DateTimeFormat('he-IL', { timeZone: TZ, hour: '2-digit', hourCycle:'h23' }).formatToParts(d);
+    const h = parts.find(p=>p.type==='hour')?.value;
+    return h ? +h : null;
+  }
+  function weekdayIndexInTZ(dateLike){
+    // 0=ראשון ... 6=שבת
+    const fmt = new Intl.DateTimeFormat('en-IL', { timeZone: TZ, weekday: 'short' });
+    const name = fmt.format(dateLike); // Sun, Mon...
+    const map = {Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6};
+    return map[name] ?? null;
+  }
+
+  // איתור עמודת תאריך פתיחה
+  function findOpenedCol(rows){
+    if (!rows.length) return null;
+    const keys = Object.keys(rows[0]);
+    const candidates = ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened'];
+    // חיפוש מדויק ואז רופף
+    for (const c of candidates) if (keys.includes(c)) return c;
+    const norm = s=>String(s).replace(/\s+/g,'').toLowerCase();
+    const target = candidates.map(norm);
+    for (const k of keys) if (target.includes(norm(k))) return k;
+    return null;
+  }
+
+  // בניית מטריצת עומסים: 7 ימים × 24 שעות
+  function computeMatrix(rows, openedCol){
+    const grid = Array.from({length:7},()=>Array(24).fill(0));
+    for (const r of rows){
+      const v = r[openedCol];
+      if (!v) continue;
+      const d = new Date(v);
+      if (isNaN(d)) continue;
+      const h = hourInTZ(d);
+      const w = weekdayIndexInTZ(d);
+      if (h==null || w==null) continue;
+      grid[w][h] += 1;
+    }
+    return grid;
+  }
+
+  // צביעה ידידותית: ככל שהמספר גדול – הצבע כהה יותר
+  function makeColor(v, vmax){
+    const ratio = vmax ? (v / vmax) : 0;
+    const alpha = 0.15 + ratio * 0.85;
+    return `rgba(99,102,241,${alpha})`; // Indigo
+  }
+
+  // שרטוט המטריצה עם chartjs-chart-matrix
+  function buildMatrix(){
+    const rows = window.__dataset || [];
+    if (!rows.length) return;
+    const openedCol = findOpenedCol(rows);
+    if (!openedCol) return;
+
+    // הכנה
+    const grid = computeMatrix(rows, openedCol);
+    const vmax = Math.max(1, ...grid.flat());
+    const dataPoints = [];
+    for (let y=0; y<7; y++){
+      for (let x=0; x<24; x++){
+        dataPoints.push({ x, y, v: grid[y][x] });
+      }
+    }
+
+    const dayLabels = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳']; // 0=א׳ (ראשון)
+    const hourLabels = Array.from({length:24},(_,h)=>`${h}:00`);
+
+    const ctx = document.getElementById('heatmapMatrix')?.getContext('2d');
+    if (!ctx) return;
+
+    // השמד גרף קודם אם קיים
+    if (window.__heatmapMatrixChart) { try{ window.__heatmapMatrixChart.destroy(); }catch{} }
+
+    window.__heatmapMatrixChart = new Chart(ctx, {
+      type: 'matrix',
+      data: {
+        datasets: [{
+          label: 'עומס לפי שעה ויום',
+          data: dataPoints,
+          width: ({chart}) => (chart.chartArea.width / 24) - 2,
+          height: ({chart}) => (chart.chartArea.height / 7) - 2,
+          backgroundColor: ctx => makeColor(ctx.raw.v, vmax),
+          borderColor: 'rgba(255,255,255,0.08)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: items => {
+                const it = items[0]?.raw;
+                return `יום ${dayLabels[it.y]} • ${hourLabels[it.x]}`;
+              },
+              label: it => ` ${it.raw.v.toLocaleString('he-IL')} פניות`
+            }
+          },
+          datalabels: {
+            display: ctx => ctx.raw.v > 0,
+            color: '#fff',
+            formatter: v => v.v,
+            font: { weight: '600' }
+          }
+        },
+        scales: {
+          x: {
+            type: 'linear',
+            min: -0.5, max: 23.5,
+            ticks: {
+              callback: (val) => `${val}:00`,
+              color: '#cbd5e1',
+              maxRotation: 0, autoSkip: true, maxTicksLimit: 12
+            },
+            grid: { display: false }
+          },
+          y: {
+            type: 'linear',
+            min: -0.5, max: 6.5,
+            ticks: {
+              callback: (val)=> dayLabels[val] ?? '',
+              color: '#cbd5e1',
+              stepSize: 1
+            },
+            reverse: false,
+            grid: { display: false }
+          }
+        }
+      }
+    });
+  }
+
+  // הרצה אחרי שהדאטה נטענת + בניית UI
+  document.addEventListener('bi:data-loaded', ()=>{
+    ensureStage12UI();       // דואג לכפתורים וקנבס המטריצה
+    // אם כרגע מוצג מצב המטריצה – נבנה אותה
+    const m = document.getElementById('heatmapMatrix');
+    if (m && m.style.display !== 'none') buildMatrix();
+  });
+
+  // אם הדף כבר עם דאטה (שוחזר) – נוודא הזרקה
+  if (Array.isArray(window.__dataset) && window.__dataset.length){
+    ensureStage12UI();
+  }
+})();
+</script>
 </body>
