@@ -1111,4 +1111,202 @@
   if (Array.isArray(window.__dataset) && window.__dataset.length) runStep4();
 })();
 </script>
+  <!-- === STEP 6: סנכרון תצוגות לפי "מחלקה מטפלת" (פילטר חוצה-שלבים) === -->
+<script>
+(() => {
+  // -------- Helpers --------
+  const $ = (id) => document.getElementById(id);
+  const HEB_DIAC = /[\u0591-\u05C7]/g;
+  const SEP = /[·•:;|/_\-()\[\]{}]/g;
+  const normHeader = s => String(s).replace(HEB_DIAC,'').replace(SEP,'').replace(/\s+/g,'').toLowerCase();
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  const COLS = {
+    dept: ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    city: { exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'], kw:[['עיר'],['יישוב']] },
+    unit: { exact:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'], kw:[['יחידת','דואר','שם'],['שם','יחידה']] },
+    status: ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    tracking: { exact:['מספר מעקב','מספר משלוח','מספר פריט','Tracking','tracking','מספר שבלי','מספר שבל״י'], kw:[['מספר','מעקב'],['מספר','משלוח'],['מספר','פריט']] },
+    name:     { exact:['שם לקוח','שם הלקוח','שם שולח','שם המקבל'], kw:[['שם','לקוח'],['שם','שולח'],['שם','מקבל']] },
+    email:    { exact:['דואר אלקטרוני','אימייל','מייל','Email','email','כתובת דוא״ל','כתובת דואל'], kw:[['דואר','אלקטרוני'],['email']] }
+  };
+
+  function findCol(row, keysOrSpec){
+    if (!row) return null;
+    const headers = Object.keys(row);
+    // spec with exact/kw
+    if (keysOrSpec && keysOrSpec.exact){
+      for (const h of headers){ if (keysOrSpec.exact.includes(h)) return h;
+        const hN=normHeader(h); for (const ex of keysOrSpec.exact) if (hN===normHeader(ex)) return h; }
+      for (const h of headers){ const n=normHeader(h);
+        if (keysOrSpec.kw.some(set=>set.every(w=>n.includes(normHeader(w))))) return h; }
+      return null;
+    }
+    // simple list
+    for (const k of keysOrSpec) if (k in row) return k;
+    const targets = keysOrSpec.map(k=>normHeader(k));
+    for (const h of headers) if (targets.includes(normHeader(h))) return h;
+    return null;
+  }
+
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+  function activeDept(){ return window.__biActiveDept || 'כללי'; }
+  function setActiveDept(name){
+    window.__biActiveDept = name || 'כללי';
+    window.dispatchEvent(new CustomEvent('bi:dept-change',{detail:{dept:window.__biActiveDept}}));
+  }
+
+  function isOpenRow(row){
+    const key = findCol(row, COLS.status);
+    if (!key) return true;
+    const v = String(row[key] ?? '').trim();
+    const closed = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+    return !closed.some(c => v === c || v.includes(c));
+  }
+
+  function filterRowsByDept(rows){
+    const dept = activeDept();
+    if (dept === 'כללי') return rows;
+    const col = rows.length ? findCol(rows[0], COLS.dept) : null;
+    if (!col) return rows; // אם לא נמצאה עמודה – לא נסנן
+    return rows.filter(r => String(r[col] ?? '').trim() === dept);
+  }
+
+  // -------- Re-render STEP 3 (עיר/יחידה) --------
+  const MIN100 = 100;
+  function aggregateCounts(rows, which){
+    if (!rows.length) return {items:[], col:null};
+    const col = which==='city' ? findCol(rows[0], COLS.city) : findCol(rows[0], COLS.unit);
+    if (!col) return {items:[], col:null};
+    const m = new Map();
+    rows.forEach(r => {
+      if (!isOpenRow(r)) return;
+      const key = String(r[col] ?? '').trim();
+      if (!key) return;
+      m.set(key, (m.get(key)||0)+1);
+    });
+    const items = Array.from(m.entries()).filter(([,c])=>c>=MIN100)
+      .sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}));
+    return {items, col};
+  }
+  function renderStep3(){
+    const rows = filterRowsByDept(getDataset());
+    const byCity = aggregateCounts(rows,'city');
+    const byUnit = aggregateCounts(rows,'unit');
+
+    // אם יש לך את שלב 3 “המקוצר”, זה יעדכן את אותם אלמנטים קיימים:
+    const listByCity = $('listByCity'), listByUnit = $('listByUnit');
+    const msgCity = $('msgCity'), msgUnit = $('msgUnit');
+
+    if (listByCity){
+      listByCity.innerHTML = byCity.items.map(it => `
+        <div class="py-2 flex items-center gap-3">
+          <span class="text-ink-50/90">${esc(it.name)}</span>
+          <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10">${it.count.toLocaleString('he-IL')} פניות</span>
+        </div>`).join('');
+      if (msgCity) msgCity.textContent = !byCity.col ? 'לא נמצאה עמודת עיר/יישוב בקובץ.' :
+        (!byCity.items.length ? `אין ערים עם לפחות ${MIN100} פניות פתוחות.` : '');
+    }
+    if (listByUnit){
+      listByUnit.innerHTML = byUnit.items.map(it => `
+        <div class="py-2 flex items-center gap-3">
+          <span class="text-ink-50/90">${esc(it.name)}</span>
+          <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10">${it.count.toLocaleString('he-IL')} פניות</span>
+        </div>`).join('');
+      if (msgUnit) msgUnit.textContent = !byUnit.col ? 'לא נמצאה עמודת "יחידת דואר: שם".' :
+        (!byUnit.items.length ? `אין יחידות עם לפחות ${MIN100} פניות פתוחות.` : '');
+    }
+  }
+
+  // -------- Re-render STEP 4 (כפילויות) --------
+  function dupIndex(rows, col, normVal=(v=>String(v).trim())){
+    if (!col) return [];
+    const m=new Map();
+    rows.forEach(r=>{
+      const v=r[col]; if (v==null||v==='') return;
+      const k=normVal(v); if(!k) return;
+      const b=m.get(k)||{count:0, rows:[]}; b.count++; b.rows.push(r); m.set(k,b);
+    });
+    return Array.from(m.entries()).filter(([,b])=>b.count>=2)
+      .map(([value,b])=>({value,count:b.count,rows:b.rows}))
+      .sort((a,b)=>b.count-a.count);
+  }
+  function renderStep4(){
+    const rows = filterRowsByDept(getDataset());
+    const first = rows[0];
+
+    const colT = first ? findCol(first, COLS.tracking) : null;
+    const colN = first ? findCol(first, COLS.name)     : null;
+    const colE = first ? findCol(first, COLS.email)    : null;
+
+    const itemsT = dupIndex(rows, colT, v=>String(v).replace(/\s+/g,'').trim());
+    const itemsN = dupIndex(rows, colN, v=>String(v).replace(/\s+/g,' ').trim());
+    const itemsE = dupIndex(rows, colE, v=>String(v).trim().toLowerCase());
+
+    const renderShort = (listId,sumId,items,label) => {
+      const list = $(listId), sum=$(sumId);
+      if (!list) return;
+      const SLICE = items.slice(0,20); // טופ-20, כמו בגרסה המקוצרת
+      list.innerHTML = SLICE.map(it => `
+        <div class="py-2 flex items-center gap-3">
+          <span class="truncate max-w-[65%]" title="${esc(it.value)}">${esc(it.value)}</span>
+          <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10">${it.count.toLocaleString('he-IL')} הופעות</span>
+        </div>`).join('');
+      if (sum) sum.textContent = items.length ? `${items.length.toLocaleString('he-IL')} ערכים כפולים` : `אין כפילויות ב${label}`;
+    };
+
+    renderShort('listTracking','sumTracking',itemsT,'מספרי מעקב');
+    renderShort('listName','sumName',itemsN,'שמות לקוח');
+    renderShort('listEmail','sumEmail',itemsE,'דוא״ל');
+  }
+
+  // -------- האזנה לטאבים של שלב 2 --------
+  function bindDeptTabs(){
+    const tabs = document.getElementById('deptTabs');
+    if (!tabs || tabs.__biBound) return;
+    tabs.__biBound = true;
+    tabs.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button'); if (!btn) return;
+      const name = btn.textContent.trim();
+      if (name) setActiveDept(name);
+    });
+  }
+
+  // אם שלב 2 יוצר/מחליף כפתורים אחרי טעינת קובץ, נשתמש ב-MutationObserver
+  const mo = new MutationObserver(bindDeptTabs);
+  mo.observe(document.body, {subtree:true, childList:true});
+
+  // -------- רענון כשיש שינוי מחלקה/קובץ --------
+  window.addEventListener('bi:dept-change', ()=>{
+    renderStep3();
+    renderStep4();
+  });
+
+  // אחרי קליטת קובץ – נבצע רנדר לפי המחלקה הפעילה
+  if (typeof window.updateSuccessUI === 'function'){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){
+      const ret = prev.apply(this, arguments);
+      Promise.resolve(ret).finally(()=>{
+        bindDeptTabs();
+        // אם טרם נקבעה מחלקה – נזהה כפתור נבחר אם יש, אחרת "כללי"
+        if (!window.__biActiveDept){
+          const activeBtn = document.querySelector('#deptTabs button[aria-pressed="true"], #deptTabs button.bg-gradient-to-r');
+          setActiveDept(activeBtn?.textContent?.trim() || 'כללי');
+        }
+        renderStep3();
+        renderStep4();
+      });
+    };
+  }
+
+  // ריצה ראשונית אם כבר נטען קובץ
+  bindDeptTabs();
+  if (getDataset().length){
+    if (!window.__biActiveDept) setActiveDept('כללי');
+    renderStep3();
+    renderStep4();
+  }
+})();
+</script>
     </body>
