@@ -2128,5 +2128,101 @@
 
   if (getDataset().length) compute();
 })();
-                                    </script>
+       <!-- === STEP 8 (MINI + אחוזים): עומד בזמנים / חריג — כללי + לפי מחלקה === -->
+<section id="biAgingMini" class="max-w-6xl mx-auto px-4 mt-6">
+  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — עמידה בזמנים (תאריך פתיחה → היום)</span>
+      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">TZ: Asia/Jerusalem</span>
+    </div>
+
+    <!-- כללי: כל המחלקות -->
+    <div class="mb-4">
+      <div class="text-xs text-ink-200/70 mb-1">כל המחלקות</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">עומד בזמנים — כללי</div>
+          <div id="kpiAllOk" class="text-3xl font-bold mt-1">—</div>
+          <div id="kpiAllOkPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">חריג — כללי</div>
+          <div id="kpiAllOver" class="text-3xl font-bold mt-1">—</div>
+          <div id="kpiAllOverPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- לפי המחלקה הנוכחית (הטאב) -->
+    <div>
+      <div id="deptTitleMini" class="text-xs text-ink-200/70 mb-1">מחלקה: כללי</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">עומד בזמנים — מחלקה</div>
+          <div id="kpiDeptOk" class="text-3xl font-bold mt-1">—</div>
+          <div id="kpiDeptOkPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">חריג — מחלקה</div>
+          <div id="kpiDeptOver" class="text-3xl font-bold mt-1">—</div>
+          <div id="kpiDeptOverPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 text-[11px] text-ink-200/60">
+      חישוב לפי <b>„שעת/תאריך פתיחה ”</b> (תאריך בלבד, ללא שעה). כללים: 24ש (פניה לקבלת מידע/תקלה בפורטל), 8 ימים (חלוקת/יחידות דואר), 30 ימים (פנים-ארצי/שליחים), 60 ימים (בינלאומי). לחיצה על המספר תציג את הרשימה ותאפשר יצוא ל-XLSX.
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  // ... (כל פונקציות העזר מהגרסה הקודמת נשארות זהות) ...
+
+  // ---- חישוב והצגה ----
+  function compute(){
+    const allRaw  = getDataset().filter(isOpenRow);
+    const allAnn  = allRaw.map(annotateRow).filter(r => r.__status !== 'unknown');
+
+    const dept = activeDept();
+    $('deptTitleMini').textContent = `מחלקה: ${dept}`;
+    let deptAnn = allAnn;
+    if (dept !== 'כללי'){
+      const dk = findCol(allRaw[0]||{}, COLS.dept);
+      deptAnn = dk ? allAnn.filter(r => String(r[dk] ?? '').trim() === dept) : [];
+    }
+
+    const allOk   = allAnn.filter(r => r.__status==='ok');
+    const allOver = allAnn.filter(r => r.__status==='over');
+    const dOk     = deptAnn.filter(r => r.__status==='ok');
+    const dOver   = deptAnn.filter(r => r.__status==='over');
+
+    const fmt = n => n.toLocaleString('he-IL');
+    const pct = (part, total) => total ? `${Math.round(part*100/total)}%` : '—';
+
+    const bind = (node, pctNode, rows, title, file, total) => {
+      node.textContent = fmt(rows.length);
+      pctNode.textContent = pct(rows.length, total);
+      node.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
+      node.onclick = () => openModal(rows, title, file);
+    };
+
+    bind($('kpiAllOk'),   $('kpiAllOkPct'),   allOk,   'עומד בזמנים — כל המחלקות', 'all_on_time', allAnn.length);
+    bind($('kpiAllOver'), $('kpiAllOverPct'), allOver, 'חריג — כל המחלקות',        'all_overdue', allAnn.length);
+    bind($('kpiDeptOk'),  $('kpiDeptOkPct'),  dOk,     `עומד בזמנים — ${dept}`,     'dept_on_time', deptAnn.length);
+    bind($('kpiDeptOver'),$('kpiDeptOverPct'),dOver,   `חריג — ${dept}`,             'dept_overdue', deptAnn.length);
+  }
+
+  if (typeof window.updateSuccessUI === 'function'){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){ const r=prev.apply(this,arguments); Promise.resolve(r).finally(compute); };
+  }
+  window.addEventListener('bi:dept-change', compute);
+
+  if (getDataset().length) compute();
+})();
+</script>                             </script>
   </body>
