@@ -1835,4 +1835,237 @@
   });
 })();
   </script>
+  <!-- === STEP 8: גיל פתיחה עד היום + חריגים (24ש / 8/30/60 ימים) === -->
+<section id="biAgingHost" class="max-w-6xl mx-auto px-4 mt-6">
+  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 8 (גיל פתיחה עד היום)</span>
+      <span id="agingDeptChip" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מחלקה: כללי</span>
+      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">TZ: Asia/Jerusalem</span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-6 gap-4" id="agingRow">
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-xs text-ink-200/70">בזמן</div>
+        <div id="agingOk" class="text-3xl font-bold mt-1">—</div>
+      </div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-xs text-ink-200/70">חריגה</div>
+        <div id="agingOver" class="text-3xl font-bold mt-1">—</div>
+      </div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-xs text-ink-200/70">24 שעות (מידע/פורטל)</div>
+        <div id="aging24h" class="text-2xl font-bold mt-1">—</div>
+      </div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-xs text-ink-200/70">8 ימים (חלוקת/יחידות)</div>
+        <div id="aging8d" class="text-2xl font-bold mt-1">—</div>
+      </div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-xs text-ink-200/70">30 ימים (פנים־ארצי/שליחים)</div>
+        <div id="aging30d" class="text-2xl font-bold mt-1">—</div>
+      </div>
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="text-xs text-ink-200/70">60 ימים (בינלאומי)</div>
+        <div id="aging60d" class="text-2xl font-bold mt-1">—</div>
+      </div>
+    </div>
+
+    <div class="mt-6 text-[11px] text-ink-200/60">
+      הכללים: 30 יום למחלקות פנים־ארצי/שליחים, 60 יום לבינלאומי. חריגים לפי <b>סיווג מוצר</b>:
+      „פניה לקבלת מידע”, „תקלה בפורטל” → 24 שעות; „חלוקת דואר”, „יחידות דואר” → 8 ימים.
+      לחיצה על כל מספר תפתח טבלה מסוננת עם יצוא ל-XLSX, ובחירת מחלקה מסננת בהתאם.
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const $  = (id) => document.getElementById(id);
+  const TZ = 'Asia/Jerusalem';
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+
+  const COLS = {
+    openedAt: ['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'],
+    dept:     ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    status:   ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    // כאן "סיווג מוצר" בעדיפות ראשונה
+    product:  [
+      'סיווג מוצר','קו מוצר','סיווג נושא','נושא','סיווג בעיה',
+      'קטגוריה','קטגוריית מוצר','סוג פניה',
+      'Product Line','Product','Category','Issue Type','Topic'
+    ]
+  };
+
+  const ONE_H = 60*60*1000, ONE_D = 24*ONE_H;
+
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+  function activeDept(){ return window.__biActiveDept || 'כללי'; }
+
+  function findCol(row, keys){
+    if (!row) return null;
+    for (const k of keys) if (k in row) return k;
+    const targets = keys.map(k=>k.replace(/\s+/g,'').toLowerCase());
+    for (const k in row) if (targets.includes(k.replace(/\s+/g,'').toLowerCase())) return k;
+    return null;
+  }
+
+  function parseOpenDate(row){
+    const k = findCol(row, COLS.openedAt);
+    if (!k) return null;
+    const v = row[k];
+    if (v==null || v==='') return null;
+    if (typeof v === 'number'){ // Excel serial
+      const epoch = new Date(Date.UTC(1899,11,30));
+      return new Date(epoch.getTime() + v*ONE_D);
+    }
+    const d = new Date(v);
+    return isNaN(d) ? null : d;
+  }
+
+  function isOpenRow(row){
+    const k = findCol(row, COLS.status);
+    if (!k) return true;
+    const v = String(row[k] ?? '').trim();
+    return !CLOSED.some(c => v === c || v.includes(c));
+  }
+  function filterByDept(rows){
+    const d = activeDept();
+    if (d === 'כללי') return rows;
+    const k = rows.length ? findCol(rows[0], COLS.dept) : null;
+    return k ? rows.filter(r => String(r[k]??'').trim() === d) : rows;
+  }
+  function getProduct(row){
+    const k = findCol(row, COLS.product);
+    return k ? String(row[k] ?? '') : '';
+  }
+
+  // נירמול עברית ללא ניקוד
+  const rmNiqqud = s => String(s||'').replace(/[\u0591-\u05C7]/g,'').toLowerCase();
+
+  function pickTarget(row){
+    const dept = rmNiqqud((() => {
+      const k=findCol(row, COLS.dept); return k ? row[k] : '';
+    })());
+    const product = rmNiqqud(getProduct(row));
+
+    // חריגים לפי סיווג מוצר
+    if (product.includes('פניה לקבלת מידע') || product.includes('בקשת מידע') ||
+        product.includes('תקלה בפורטל')     || product.includes('portal'))
+      return {ms:24*ONE_H, label:'24 שעות', key:'24h'};
+
+    if (product.includes('חלוקת דואר') || product.includes('חלוקתדואר') ||
+        product.includes('יחידות דואר') || product.includes('יחידת דואר'))
+      return {ms:8*ONE_D, label:'8 ימים', key:'8d'};
+
+    // כלל לפי מחלקה
+    if (dept.includes('בינלאומי'))                        return {ms:60*ONE_D, label:'60 ימים', key:'60d'};
+    if (dept.includes('שליח'))                            return {ms:30*ONE_D, label:'30 ימים', key:'30d'};
+    if (dept.includes('פנים') && dept.includes('ארצי'))   return {ms:30*ONE_D, label:'30 ימים', key:'30d'};
+
+    // דיפולט
+    return {ms:30*ONE_D, label:'30 ימים', key:'30d'};
+  }
+
+  function annotate(row){
+    const opened = parseOpenDate(row);
+    const rule = pickTarget(row);
+    const r = {...row, 'SLA כלל':rule.label, 'SLA יעד':'—', 'SLA סטטוס':'—'};
+    if (opened){
+      const due = new Date(opened.getTime()+rule.ms);
+      r['SLA יעד'] = formatTZ(due);
+      r['גיל (ימים)'] = Math.floor((Date.now()-opened.getTime())/ONE_D);
+      r['SLA סטטוס'] = (due.getTime() - Date.now() >= 0) ? 'בזמן' : 'חריגה';
+    }
+    return {...r, __targetKey: rule.key};
+  }
+
+  function formatTZ(date){
+    const p = new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(date);
+    const m = Object.fromEntries(p.map(x=>[x.type,x.value]));
+    return `${m.day}/${m.month}/${m.year} ${m.hour}:${m.minute}`;
+  }
+
+  // מודאל מינימלי לשימוש חוזר
+  function ensureModal(){
+    if (document.getElementById('biModal')) return;
+    const html = `
+      <div id="biModal" class="fixed inset-0 z-[1000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
+            <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="biClose"  class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+          </div>
+          <div class="p-4 overflow-auto" style="max-height:70vh">
+            <table class="w-full text-sm border-separate border-spacing-0">
+              <thead id="biThead"></thead><tbody id="biTbody"></tbody>
+            </table>
+            <div id="biEmpty" class="hidden text-ink-200/70 text-sm p-4">אין נתונים.</div>
+          </div>
+        </div>
+      </div>`;
+    (document.getElementById('biModalHost')||document.body).insertAdjacentHTML('beforeend', html);
+    document.getElementById('biClose').onclick=()=>document.getElementById('biModal').classList.add('hidden');
+    document.getElementById('biModal').onclick=e=>{ if(e.target.id==='biModal') e.currentTarget.classList.add('hidden'); };
+    document.getElementById('biExport').onclick=()=>{
+      if (!window.XLSX) return alert('XLSX לא נטענה');
+      const ws=XLSX.utils.json_to_sheet(window.__BI_MODAL_ROWS__||[]);
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data');
+      const fn=(document.getElementById('biModalTitle').dataset.filename||'export')+'.xlsx';
+      XLSX.writeFile(wb,fn);
+    };
+  }
+  function renderTable(rows){
+    const H=$('biThead'), B=$('biTbody'), E=$('biEmpty');
+    window.__BI_MODAL_ROWS__ = rows;
+    if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
+    E.classList.add('hidden');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r).filter(k=>!k.startsWith('__'))))];
+    H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
+    const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h])}</td>`).join('')+'</tr>').join('');
+  }
+  function openModal(rows, title, fileBase){
+    ensureModal();
+    renderTable(rows);
+    const t=$('biModalTitle'); t.textContent=title; t.dataset.filename=fileBase;
+    document.getElementById('biModal').classList.remove('hidden');
+  }
+
+  // עדכון המספרים והקליקים
+  const el = { ok:$('agingOk'), ov:$('agingOver'), h24:$('aging24h'), d8:$('aging8d'), d30:$('aging30d'), d60:$('aging60d') };
+  const fmt = n => n.toLocaleString('he-IL');
+  function setKpi(node, rows, title, file){ node.textContent=fmt(rows.length); node.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30'); node.onclick=()=>openModal(rows,title,file); }
+
+  function compute(){
+    $('agingDeptChip').textContent = `מחלקה: ${activeDept()}`;
+
+    const base = filterByDept(getDataset()).filter(isOpenRow);
+    const ann  = base.map(annotate);
+
+    const buckets = { '24h':[], '8d':[], '30d':[], '60d':[] };
+    const ok=[], over=[];
+    for (const r of ann){
+      (buckets[r.__targetKey]||[]).push(r);
+      (r['SLA סטטוס']==='בזמן' ? ok : over).push(r);
+    }
+
+    setKpi(el.ok,  ok,                'בזמן (לפי כללים)', 'aging_ok');
+    setKpi(el.ov,  over,              'חריגה (לפי כללים)', 'aging_over');
+    setKpi(el.h24, buckets['24h'],    'כללים 24 שעות (מידע/פורטל)', 'aging_24h');
+    setKpi(el.d8,  buckets['8d'],     'כללים 8 ימים (חלוקת/יחידות)', 'aging_8d');
+    setKpi(el.d30, buckets['30d'],    'כללים 30 ימים (פנים־ארצי/שליחים/דיפולט)', 'aging_30d');
+    setKpi(el.d60, buckets['60d'],    'כללים 60 ימים (בינלאומי)', 'aging_60d');
+  }
+
+  if (typeof window.updateSuccessUI === 'function'){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){ const r=prev.apply(this,arguments); Promise.resolve(r).finally(compute); };
+  }
+  window.addEventListener('bi:dept-change', compute);
+  if (getDataset().length) compute();
+})();
+        </script>
   </body>
