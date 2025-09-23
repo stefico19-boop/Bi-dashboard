@@ -2976,4 +2976,434 @@
   document.body.appendChild(btn);
 })();
 </script>
+  <!-- === INSIGHTS PRO (ADD-ON): חלון תובנות מסודר ומדויק === -->
+<script>
+(()=>{
+  if (window.__BI_INSIGHTS_PRO) return;
+  window.__BI_INSIGHTS_PRO = true;
+
+  // ─────────── הגדרות כלליות ───────────
+  const DAY = 24*60*60*1000, TZ='Asia/Jerusalem';
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+
+  // עמודות (כולל וריאציות נפוצות)
+  const COL = {
+    unit:  { exact:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'] },
+    city:  { exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'] },
+    subj:  { exact:['סיווג נושא','נושא','סיווג נושא '] },
+    prob:  { exact:['סיווג בעיה','בעיה','סיווג בעיה '] },
+    prod:  { exact:['סיווג מוצר','מוצר','שם מוצר'] },
+    dept:  { exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '] },
+    status:{ exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'] },
+    opened:{ exact:['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'] }
+  };
+
+  const HEB=/[\u0591-\u05C7]/g;
+  const norm=(s)=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+
+  function findCol(row0, spec){
+    if (!row0) return null;
+    const headers = Object.keys(row0);
+    for (const h of headers) {
+      for (const ex of spec.exact) {
+        if (h===ex || norm(h)===norm(ex)) return h;
+      }
+    }
+    return null;
+  }
+  function getTxt(r,spec){ const k=findCol(r, spec); return k? String(r[k]??'').trim() : ''; }
+  function isOpenRow(r){
+    const k=findCol(r,COL.status);
+    if (!k) return true;
+    const v=String(r[k]??'').trim();
+    return !CLOSED.some(c=>v===c || v.includes(c));
+  }
+  function excelToDate(n){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+n*DAY); }
+  function parseDate(val){
+    if (val==null||val==='') return null;
+    if (typeof val==='number') return excelToDate(val);
+    let d=new Date(val); if(!isNaN(d)) return d;
+    const m=String(val).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (m){ let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy; d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`); if(!isNaN(d)) return d; }
+    return null;
+  }
+  function todayKey(){
+    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+    const map=Object.fromEntries(p.map(x=>[x.type,x.value])); return `${map.year}-${map.month}-${map.day}`;
+  }
+  function yesterdayKey(){
+    const t=new Date(); const y=new Date(t.getTime()-DAY);
+    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(y);
+    const map=Object.fromEntries(p.map(x=>[x.type,x.value])); return `${map.year}-${map.month}-${map.day}`;
+  }
+  function normalizeDateOnly(val){
+    const d=parseDate(val); if(!d) return null;
+    const parts=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
+    const m=Object.fromEntries(parts.map(p=>[p.type,p.value])); return `${m.year}-${m.month}-${m.day}`;
+  }
+
+  // SLA לפי הכללים שסיכמנו
+  function pickSLARule(row){
+    const dept=norm(getTxt(row,COL.dept));
+    const subj=norm(getTxt(row,COL.subj));
+    const prob=norm(getTxt(row,COL.prob));
+
+    if (dept.includes('פנים') && dept.includes('ארצי') && (subj.includes('חלוקתדואר') || subj.includes('יחידותדואר'))) return 8*DAY;
+    if ((prob.includes('תקל') && prob.includes('פורטל'))) return 1*DAY;
+    if ((prob.includes('איסוף') || prob.includes('הזמנה')) && dept.includes('שליח')) return 1*DAY;
+    if ((dept.includes('פנים')&&dept.includes('ארצי')) || dept.includes('שליח')) return 30*DAY;
+    if (dept.includes('בינלאומי')) return 60*DAY;
+    return null;
+  }
+  function isSLABreach(r){
+    if(!isOpenRow(r)) return false;
+    const k=findCol(r,COL.opened); if(!k) return false;
+    const opened=parseDate(r[k]); if(!opened) return false;
+    const rule=pickSLARule(r); if(!rule) return false;
+    return Date.now() > (opened.getTime()+rule);
+  }
+
+  // ─────────── מודאל + כפתור ───────────
+  function ensureModal(){
+    if (document.getElementById('biInsightsPro')) return;
+    const html=`
+    <div id="biInsightsPro" class="fixed inset-0 z-[2100] hidden">
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+        <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b border-white/10">
+          <div class="text-xl font-bold">🧠 תובנות PRO</div>
+          <div class="ms-auto flex flex-wrap items-center gap-2 text-sm">
+            <label class="inline-flex items-center gap-2"><input id="ipOpenOnly" type="checkbox" class="accent-violet-500" checked> רק פתוחות</label>
+            <label class="inline-flex items-center gap-1">יחידה:
+              <select id="ipUnit" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[12rem]">
+                <option value="">(כל היחידות)</option>
+              </select>
+            </label>
+            <label class="inline-flex items-center gap-1">עיר:
+              <select id="ipCity" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[12rem]">
+                <option value="">(כל הערים)</option>
+              </select>
+            </label>
+            <button id="ipReset" class="px-2 py-1 rounded-full bg-white/10 border border-white/20 text-xs">איפוס</button>
+            <button id="ipClose" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+          </div>
+        </div>
+
+        <div class="p-5 space-y-6 overflow-auto" style="max-height:72vh">
+          <!-- KPIs -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="ipKPIs">
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">סה״כ פתוחות</div>
+              <div id="ipKpiOpen" class="text-2xl font-bold">—</div>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">נפתחו היום</div>
+              <div id="ipKpiToday" class="text-2xl font-bold">—</div>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">נפתחו אתמול</div>
+              <div id="ipKpiYesterday" class="text-2xl font-bold">—</div>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">חריגי SLA</div>
+              <div id="ipKpiSLA" class="text-2xl font-bold">—</div>
+            </div>
+          </div>
+
+          <!-- פירוקים -->
+          <div class="grid md:grid-cols-3 gap-4">
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-bold">Top נושאים בעיר נבחרת</h3>
+                <span id="ipCityBadge" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
+              </div>
+              <div id="ipTopSubject" class="space-y-1 text-sm"></div>
+              <div class="mt-3">
+                <button id="ipCityRows" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">פתח טבלה</button>
+                <button id="ipCityExport" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">ייצוא XLSX</button>
+              </div>
+            </section>
+
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <h3 class="font-bold mb-2">גורמי “תקלות”</h3>
+              <div class="text-xs text-ink-200/70 mb-1">סיווג מוצר — שיעור תקלות</div>
+              <div id="ipProdFaults" class="space-y-1 text-sm mb-3"></div>
+              <div class="text-xs text-ink-200/70 mb-1">סיווג נושא — שיעור תקלות</div>
+              <div id="ipSubjFaults" class="space-y-1 text-sm"></div>
+              <div class="mt-3">
+                <button id="ipFaultRows" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">פתח טבלה</button>
+                <button id="ipFaultExport" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">ייצוא XLSX</button>
+              </div>
+            </section>
+
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <h3 class="font-bold mb-2">חורגי SLA (Top)</h3>
+              <div class="text-xs text-ink-200/70 mb-1">לפי סיווג מוצר</div>
+              <div id="ipSLAProd" class="space-y-1 text-sm mb-2"></div>
+              <div class="text-xs text-ink-200/70 mb-1">לפי סיווג נושא</div>
+              <div id="ipSLASubj" class="space-y-1 text-sm mb-2"></div>
+              <div class="text-xs text-ink-200/70 mb-1">לפי סיווג בעיה</div>
+              <div id="ipSLAProb" class="space-y-1 text-sm"></div>
+              <div class="mt-3">
+                <button id="ipSLARows" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">פתח טבלה</button>
+                <button id="ipSLAExport" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">ייצוא XLSX</button>
+              </div>
+            </section>
+          </div>
+
+          <!-- השערות והמלצות -->
+          <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <h3 class="font-bold mb-2">בעיה → סיבה אפשרית → פתרון מוצע</h3>
+            <div id="ipHypo" class="text-sm"></div>
+          </section>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    // events
+    document.getElementById('ipClose').onclick = ()=> document.getElementById('biInsightsPro').classList.add('hidden');
+    document.getElementById('ipReset').onclick = ()=>{
+      document.getElementById('ipOpenOnly').checked = true;
+      document.getElementById('ipUnit').value = '';
+      document.getElementById('ipCity').value = '';
+      renderInsightsPro();
+    };
+    ['ipOpenOnly','ipUnit','ipCity'].forEach(id=>{
+      const el=document.getElementById(id);
+      el.onchange = ()=> renderInsightsPro();
+    });
+  }
+
+  // כפתור צף
+  if (!document.getElementById('ipBtn')) {
+    const btn=document.createElement('button');
+    btn.id='ipBtn';
+    btn.className='fixed bottom-16 left-4 z-[2150] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow';
+    btn.textContent='🧠 תובנות PRO';
+    btn.onclick=()=>{ ensureModal(); fillFilters(); renderInsightsPro(); document.getElementById('biInsightsPro').classList.remove('hidden'); };
+    document.body.appendChild(btn);
+  }
+
+  // מילוי פילטרים (יחידה/עיר) לפי הדאטה והטאב הפעיל
+  function activeDept(){
+    const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
+    const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
+    return (btn?.textContent||'כללי').trim();
+  }
+  function scopedRows(){
+    const rows = Array.isArray(window.__dataset)? window.__dataset : [];
+    const dept = activeDept();
+    if (dept==='כללי') return rows;
+    const k=findCol(rows[0], COL.dept); if(!k) return rows;
+    return rows.filter(r=> String(r[k]??'').trim() === dept);
+  }
+  function fillFilters(){
+    ensureModal();
+    const rows = scopedRows();
+    const unitSel=document.getElementById('ipUnit');
+    const citySel=document.getElementById('ipCity');
+    const unitCol=findCol(rows[0],COL.unit);
+    const cityCol=findCol(rows[0],COL.city);
+
+    // יחידות
+    const unitSet=new Map();
+    if (unitCol) rows.forEach(r=>{ const u=(r[unitCol]??'').toString().trim(); if(u) unitSet.set(u,(unitSet.get(u)||0)+1); });
+    unitSel.innerHTML = '<option value="">(כל היחידות)</option>' +
+      [...unitSet.entries()].sort((a,b)=>b[1]-a[1]).map(([u,c])=>`<option value="${escapeHtml(u)}">${escapeHtml(u)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+
+    // ערים
+    const citySet=new Map();
+    if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(c) citySet.set(c,(citySet.get(c)||0)+1); });
+    citySel.innerHTML = '<option value="">(כל הערים)</option>' +
+      [...citySet.entries()].sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<option value="${escapeHtml(c)}">${escapeHtml(c)} — ${n.toLocaleString('he-IL')}</option>`).join('');
+  }
+
+  // חישוב תובנות + רנדר
+  function renderInsightsPro(){
+    const rows0 = scopedRows();
+    const onlyOpen = document.getElementById('ipOpenOnly').checked;
+    const unitSel  = document.getElementById('ipUnit').value;
+    const citySel  = document.getElementById('ipCity').value;
+
+    let rows = rows0;
+    if (onlyOpen) rows = rows.filter(isOpenRow);
+
+    const unitCol=findCol(rows[0],COL.unit);
+    const cityCol=findCol(rows[0],COL.city);
+    const subjCol=findCol(rows[0],COL.subj);
+    const probCol=findCol(rows[0],COL.prob);
+    const prodCol=findCol(rows[0],COL.prod);
+    const openCol=findCol(rows[0],COL.opened);
+
+    if (unitSel && unitCol) rows = rows.filter(r=> String(r[unitCol]??'').trim()===unitSel);
+    const rowsUnit = rows; // אחרי יחידה
+    if (citySel && cityCol) rows = rows.filter(r=> String(r[cityCol]??'').trim()===citySel);
+
+    // KPIs
+    const tKey=todayKey(), yKey=yesterdayKey();
+    const dateKey = (r)=> openCol? normalizeDateOnly(r[openCol]) : null;
+    const openRows = rowsUnit; // KPIs על “יחידה/פתוחות”, והעיר נבחרת מוצגת בבאדג'
+    const kOpen   = openRows.length;
+    const kToday  = openRows.filter(r=> dateKey(r)===tKey ).length;
+    const kYest   = openRows.filter(r=> dateKey(r)===yKey ).length;
+    const kSLA    = openRows.filter(isSLABreach).length;
+    $('ipKpiOpen').textContent      = kOpen.toLocaleString('he-IL');
+    $('ipKpiToday').textContent     = kToday.toLocaleString('he-IL');
+    $('ipKpiYesterday').textContent = kYest.toLocaleString('he-IL');
+    $('ipKpiSLA').textContent       = kSLA.toLocaleString('he-IL');
+
+    // עיר נבחרת — Top נושאים
+    const chosenCity = citySel || '';
+    $('ipCityBadge').textContent = chosenCity ? chosenCity : 'ללא בחירת עיר';
+    const cityRows = (chosenCity && cityCol) ? rowsUnit.filter(r=> String(r[cityCol]??'').trim()===chosenCity) : [];
+    renderTopList('ipTopSubject', cityRows, subjCol);
+
+    // Fault rates
+    const faultRows = rowsUnit.filter(r=>{
+      const txt=(String(r[probCol]||'')+' '+String(r[subjCol]||'')).toLowerCase();
+      return /(תקלה|שגיאה|כשל|קריסה|פורטל)/.test(txt);
+    });
+    renderRates('ipProdFaults', rateByKey(rowsUnit, prodCol, r=>faultRows.includes(r)), false);
+    renderRates('ipSubjFaults', rateByKey(rowsUnit, subjCol, r=>faultRows.includes(r)), false);
+
+    // SLA breaches
+    const slaRows = rowsUnit.filter(isSLABreach);
+    renderRates('ipSLAProd', rateByKey(rowsUnit, prodCol, isSLABreach), true);
+    renderRates('ipSLASubj', rateByKey(rowsUnit, subjCol, isSLABreach), true);
+    renderRates('ipSLAProb', rateByKey(rowsUnit, probCol, isSLABreach), true);
+
+    // Hypothesis / Recommendations
+    $('ipHypo').innerHTML = buildHypothesis(cityRows, subjCol, probCol, slaRows);
+
+    // פעולות כפתורים (טבלאות + ייצוא — משתמש בפונקציית exportXLSX אם קיימת)
+    $('#ipCityRows').onclick   = ()=> openRowsModal(cityRows, chosenCity? `שורות — עיר: ${chosenCity}` : 'שורות — עיר (ללא בחירה)');
+    $('#ipCityExport').onclick = ()=> exportAny(cityRows, chosenCity? `city_${sanitize(chosenCity)}.xlsx` : 'city_all.xlsx');
+
+    $('#ipFaultRows').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
+    $('#ipFaultExport').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
+
+    $('#ipSLARows').onclick   = ()=> openRowsModal(slaRows, 'שורות — חרגי SLA');
+    $('#ipSLAExport').onclick = ()=> exportAny(slaRows, 'sla_breach_rows.xlsx');
+  }
+
+  // ─────────── עזרי רנדר וחישוב ───────────
+  function $(id){ return document.getElementById(id); }
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
+
+  function renderTopList(containerId, rows, col){
+    const el=$(containerId); el.innerHTML='';
+    if (!col || !rows.length){ el.textContent='—'; return; }
+    const map=new Map();
+    rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const total=rows.length||1;
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5);
+    items.forEach(([name,count])=>{
+      const p=Math.round(count*100/total);
+      const row=document.createElement('div');
+      row.innerHTML=`<div class="flex items-center gap-2">
+        <span>${escapeHtml(name)}</span>
+        <span class="ms-auto text-xs px-2 py-0.5 rounded-full bg-white/10 border border-white/10">${count.toLocaleString('he-IL')} • ${p}%</span>
+      </div>
+      <div class="h-1.5 bg-white/10 rounded mt-1 overflow-hidden"><div class="bg-brand-500" style="width:${p}%"></div></div>`;
+      el.appendChild(row);
+    });
+    if (!items.length) el.textContent='—';
+  }
+
+  function rateByKey(allRows, col, predicateFn, minN=15){
+    if (!col || !allRows.length) return {list:[],top:null};
+    const buckets=new Map();
+    allRows.forEach(r=>{
+      const key=(r[col]??'').toString().trim() || '(לא צוין)';
+      const b=buckets.get(key)||{n:0,yes:0};
+      b.n++; if (predicateFn(r)) b.yes++;
+      buckets.set(key,b);
+    });
+    const list=[...buckets.entries()].map(([name,{n,yes}])=>({name,n,yes,rate:n?yes/n:0}));
+    const filtered=list.filter(x=>x.n>=minN).sort((a,b)=>b.rate-a.rate||b.n-a.n).slice(0,5);
+    return {list:filtered, top:filtered[0]||null};
+  }
+  function renderRates(containerId, data, emphasizeHigh){
+    const el=$(containerId); el.innerHTML='';
+    if (!data.list.length){ el.textContent='—'; return; }
+    data.list.forEach(({name,n,yes,rate})=>{
+      const p=Math.round(rate*100);
+      const bar=document.createElement('div');
+      bar.className='text-xs';
+      bar.innerHTML=`
+        <div class="flex items-center gap-2">
+          <span class="text-ink-50/90">${escapeHtml(name)}</span>
+          <span class="ms-auto">${yes.toLocaleString('he-IL')}/${n.toLocaleString('he-IL')} • ${p}%</span>
+        </div>
+        <div class="h-1.5 bg-white/10 rounded mt-1 overflow-hidden">
+          <div class="${emphasizeHigh?'bg-red-500':'bg-brand-500'}" style="width:${p}%"></div>
+        </div>`;
+      el.appendChild(bar);
+    });
+  }
+
+  function buildHypothesis(cityRows, subjCol, probCol, slaRows){
+    const topSubj = topKey(cityRows, subjCol);
+    const topProb = topKey(cityRows, probCol);
+    const hints=[];
+    if ((topSubj.name||'').includes('חלוקת') || (topProb.name||'').includes('חלוקת') || (topSubj.name||'').includes('יחידות דואר')){
+      hints.push({ issue:'עומס בחלוקת/יחידות', cause:'קיבולת סניפים ושליחים', fix:'תיעדוף SLA 8 ימים, איזון עומסים ותגבור נקודתי' });
+    }
+    if ((topProb.name||'').match(/פורטל|תקלה|שגיאה|כשל|קריסה/)){
+      hints.push({ issue:'תקלות מערכת/פורטל', cause:'רגרסיות/זמינות', fix:'ניטור שגיאות, בדיקות רגרסיה, תיעדוף 24 שעות' });
+    }
+    if (slaRows.length>0){
+      hints.push({ issue:'חריגות SLA נקודתיות', cause:'צווארי בקבוק בתהליך', fix:'מיפוי שלבים, אוטומציה, חיזוק תורים עמוסים' });
+    }
+    if (!hints.length) hints.push({ issue:'ריכוזיות קטגוריה מובילה', cause:'תהליך שירות לא אופטימלי', fix:'שיפור UX ותהליכים, הדרכת צוות' });
+
+    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
+      <ul class="list-disc ms-5">
+        ${hints.map(h=>`<li><b>בעיה:</b> ${escapeHtml(h.issue)} → <b>סיבה אפשרית:</b> ${escapeHtml(h.cause)} → <b>פתרון מוצע:</b> ${escapeHtml(h.fix)}</li>`).join('')}
+      </ul>
+    </div>`;
+  }
+  function topKey(rows, col){
+    if (!col) return {name:'',count:0,pct:0};
+    const m=new Map(); rows.forEach(r=>{const k=(r[col]??'').toString().trim(); if(!k) return; m.set(k,(m.get(k)||0)+1);});
+    const items=[...m.entries()].sort((a,b)=>b[1]-a[1]);
+    if (!items.length) return {name:'',count:0,pct:0};
+    const total=rows.length||1;
+    return {name:items[0][0], count:items[0][1], pct:Math.round(items[0][1]*100/total)};
+  }
+
+  // טבלת שורות + ייצוא (מנצל את המודאל הכללי אם קיים)
+  function openRowsModal(rows, title){
+    if (document.getElementById('biModal') && typeof window.exportXLSX==='function'){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      const tHead=$('biThead'), tBody=$('biTbody');
+      $('biModalTitle').textContent=title||'נתונים';
+      $('biModalTitle').dataset.filename=sanitize(title||'export')+'.xlsx';
+      if (rows.length){
+        tHead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+        tBody.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+      } else {
+        tHead.innerHTML=''; tBody.innerHTML='<tr><td class="px-3 py-2 text-ink-200/70">אין נתונים</td></tr>';
+      }
+      $('biModal').classList.remove('hidden'); return;
+    }
+    alert('מודאל טבלה/ייצוא לא זמין בדף.'); // לגיבוי
+  }
+  function exportAny(rows, filename){
+    if (typeof window.exportXLSX==='function') window.exportXLSX(rows, filename||'export.xlsx');
+    else alert('פונקציית ייצוא לא זמינה (ודאי שהודבק בלוק תיקון XLSX).');
+  }
+
+  // עזר קצר
+  function $(id){ return document.getElementById(id); }
+
+  // רנדר אוטומטי אם הנתונים נטענו בזמן שהמודאל פתוח
+  document.addEventListener('bi:data-loaded', ()=>{
+    const m=$('biInsightsPro');
+    if (m && !m.classList.contains('hidden')) renderInsightsPro();
+  });
+})();
+</script>
 </body>
