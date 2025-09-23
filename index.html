@@ -941,459 +941,174 @@
   // אם הנתונים הוטענו אחרי שהסקריפט נטען – אין צורך בפעולה מיוחדת; המאזינים כבר יושבים.
 })();
 </script> 
-  <!-- === STEP 4: איתור כפילויות (מספר מעקב / שם לקוח / אימייל) + טבלה וייצוא === -->
+  <!-- === STEP 4: כפילויות (גרסה קצרה) === -->
 <section id="biDupHost" class="max-w-6xl mx-auto px-4 mt-6">
   <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
     <div class="flex items-center gap-3 mb-6">
-      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 4</span>
-      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">איתור כפילויות</span>
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 4 (כפילויות, תצוגה קצרה)</span>
+      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">טופ-20 לכל קטגוריה</span>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <!-- מספר מעקב -->
       <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-sm font-semibold text-ink-200/85 mb-3">מספר מעקב כפול</div>
-        <div id="dupListTracking" class="divide-y divide-white/10"></div>
-        <div id="dupMsgTracking" class="mt-3 text-xs text-ink-200/60"></div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="text-sm font-semibold text-ink-200/85">מספר מעקב כפול</div>
+          <div id="sumTracking" class="ms-auto text-xs text-ink-200/60"></div>
+        </div>
+        <div id="listTracking" class="divide-y divide-white/10"></div>
+        <button id="moreTracking" class="mt-3 w-full text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/15 hidden">הצג עוד</button>
       </div>
       <!-- שם לקוח -->
       <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-sm font-semibold text-ink-200/85 mb-3">שם לקוח כפול</div>
-        <div id="dupListName" class="divide-y divide-white/10"></div>
-        <div id="dupMsgName" class="mt-3 text-xs text-ink-200/60"></div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="text-sm font-semibold text-ink-200/85">שם לקוח כפול</div>
+          <div id="sumName" class="ms-auto text-xs text-ink-200/60"></div>
+        </div>
+        <div id="listName" class="divide-y divide-white/10"></div>
+        <button id="moreName" class="mt-3 w-full text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/15 hidden">הצג עוד</button>
       </div>
-      <!-- אימייל לקוח -->
+      <!-- אימייל -->
       <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-        <div class="text-sm font-semibold text-ink-200/85 mb-3">דואר אלקטרוני לקוח כפול</div>
-        <div id="dupListEmail" class="divide-y divide-white/10"></div>
-        <div id="dupMsgEmail" class="mt-3 text-xs text-ink-200/60"></div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="text-sm font-semibold text-ink-200/85">דוא״ל לקוח כפול</div>
+          <div id="sumEmail" class="ms-auto text-xs text-ink-200/60"></div>
+        </div>
+        <div id="listEmail" class="divide-y divide-white/10"></div>
+        <button id="moreEmail" class="mt-3 w-full text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/15 hidden">הצג עוד</button>
       </div>
     </div>
   </div>
 </section>
 
-<!-- מודאל לטבלה + יצוא -->
+<!-- מודאל לטבלה + יצוא (קומפקטי) -->
 <section id="biModalHost"></section>
 
 <script>
 (() => {
-  // ====== זיהוי עמודות (עם גמישות בעברית) ======
-  const HEB_DIACRITICS = /[\u0591-\u05C7]/g;
-  const normHeader = s => String(s)
-    .replace(HEB_DIACRITICS,'')
-    .replace(/[·•:;|/_\-()\[\]{}]/g,'')
-    .replace(/\s+/g,'')
-    .toLowerCase();
+  // ===== קבועים קצרים =====
+  const $ = id => document.getElementById(id);
+  const DIAC = /[\u0591-\u05C7]/g, SEP=/[·•:;|/_\-()\[\]{}]/g;
+  const normHeader = s => String(s).replace(DIAC,'').replace(SEP,'').replace(/\s+/g,'').toLowerCase();
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
+  // עמודות אפשריות (קצר)
   const COLS = {
-    tracking: {
-      exact: ['מספר מעקב','מספר משלוח','מספר פריט','Tracking','tracking','מספר שבל״י','מספר שבלי'],
-      keywords: [ ['מספר','מעקב'], ['מספר','משלוח'], ['מספר','פריט'] ]
-    },
-    name: {
-      exact: ['שם לקוח','שם הלקוח','שם שולח','שם המקבל'],
-      keywords: [ ['שם','לקוח'], ['שם','שולח'], ['שם','מקבל'] ]
-    },
-    email: {
-      exact: ['דואר אלקטרוני','אימייל','מייל','Email','email','כתובת דוא״ל','כתובת דואל','כתובת אימייל'],
-      keywords: [ ['דואר','אלקטרוני'], ['כתובת','דואל'], ['email'] ]
-    }
+    tracking:{ exact:['מספר מעקב','מספר משלוח','מספר פריט','Tracking','tracking','מספר שבלי','מספר שבל״י'], kw:[['מספר','מעקב'],['מספר','משלוח'],['מספר','פריט']] },
+    name:    { exact:['שם לקוח','שם הלקוח','שם שולח','שם המקבל'],                           kw:[['שם','לקוח'],['שם','שולח'],['שם','מקבל']] },
+    email:   { exact:['דואר אלקטרוני','אימייל','מייל','Email','email','כתובת דוא״ל','כתובת דואל'], kw:[['דואר','אלקטרוני'],['email']] }
   };
 
-  function findColumnFlexible(row0, {exact, keywords}) {
+  // ===== דאטה (ממחזר מהאתר) =====
+  async function ensureDataset(){
+    if (Array.isArray(window.__dataset) && window.__dataset.length) return window.__dataset;
+    if (!window.__lastFile || !window.XLSX) return [];
+    const buf=await window.__lastFile.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'}); const sh=wb.Sheets[wb.SheetNames[0]];
+    return (window.__dataset = XLSX.utils.sheet_to_json(sh,{defval:null}));
+  }
+  const getData = () => Array.isArray(window.__dataset) ? window.__dataset : [];
+
+  // ===== איתור עמודה גמיש =====
+  function findCol(row0, spec){
     if (!row0) return null;
-    const headers = Object.keys(row0);
-    // מדויק (כולל השוואה אחרי נירמול)
-    for (const h of headers) {
-      if (exact.includes(h)) return h;
-      const hN = normHeader(h);
-      for (const ex of exact) if (hN === normHeader(ex)) return h;
-    }
-    // לפי מילות מפתח: כל המילים בסט קיימות בשם העמודה
-    for (const h of headers) {
-      const n = normHeader(h);
-      if (keywords.some(set => set.every(w => n.includes(normHeader(w))))) return h;
-    }
+    const keys=Object.keys(row0);
+    for (const h of keys){ if (spec.exact.includes(h)) return h; if (normHeader(h)===normHeader(h)){} }
+    // התאמה מדויקת אחרי נירמול
+    for (const h of keys) for (const ex of spec.exact) if (normHeader(h)===normHeader(ex)) return h;
+    // מילות מפתח
+    for (const h of keys){ const n=normHeader(h); if (spec.kw.some(set=>set.every(w=>n.includes(normHeader(w))))) return h; }
     return null;
   }
 
-  // ====== טעינת דאטה אם צריך ======
-  async function ensureDatasetLoaded() {
-    if (Array.isArray(window.__dataset) && window.__dataset.length) return;
-    if (!window.__lastFile || !window.XLSX) return;
-    try {
-      const buf = await window.__lastFile.arrayBuffer();
-      const wb  = XLSX.read(buf, { type:'array' });
-      const sh  = wb.Sheets[wb.SheetNames[0]];
-      window.__dataset = XLSX.utils.sheet_to_json(sh, { defval:null });
-    } catch (e) { console.warn('ensureDatasetLoaded failed', e); }
-  }
-  const getDataset = () => (Array.isArray(window.__dataset) ? window.__dataset : []);
-
-  // ====== בניית אינדקס כפילויות ======
-  function buildDuplicates(rows, colName, normalizeFn = (v => String(v).trim())) {
-    if (!colName) return { col:null, entries:[] };
-    const map = new Map();   // key -> {count, rows}
-    for (const r of rows) {
-      const raw = r[colName];
-      if (raw == null || raw === '') continue;
-      const key = normalizeFn(raw);
-      if (!key) continue;
-      const bucket = map.get(key) || { count:0, rows:[] };
-      bucket.count++;
-      bucket.rows.push(r);
-      map.set(key, bucket);
+  // ===== בניית כפילויות כללית =====
+  function dupIndex(rows, col, normVal=(v=>String(v).trim())){
+    if (!col) return { col:null, items:[] };
+    const m=new Map();
+    for (const r of rows){ const v=r[col]; if (v==null||v==='') continue; const k=normVal(v); if(!k) continue;
+      const b=m.get(k)||{count:0, rows:[]}; b.count++; b.rows.push(r); m.set(k,b);
     }
-    const entries = Array.from(map.entries())
-      .filter(([,b]) => b.count >= 2)         // רק כפולים
-      .sort((a,b) => b[1].count - a[1].count) // מהגדול לקטן
-      .map(([value, b]) => ({ value, count:b.count, rows:b.rows }));
-    return { col: colName, entries };
+    const items=Array.from(m.entries()).filter(([,b])=>b.count>=2).map(([value,b])=>({value,count:b.count,rows:b.rows}))
+                   .sort((a,b)=>b.count-a.count);
+    return { col, items };
   }
 
-  // נירמולים לפי סוג
-  const normTrack = v => String(v).replace(/\s+/g,'').trim();             // בלי רווחים
-  const normName  = v => String(v).replace(/\s+/g,' ').trim();            // רווח יחיד, לא רגיש לאותיות סופיות
-  const normMail  = v => String(v).trim().toLowerCase();                  // אימייל ב־lowercase
-
-  // ====== רנדר רשימות + פתיחת מודאל ======
-  function escapeHTML(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-
-  function renderDupList(containerId, entries, titlePrefix, filePrefix) {
-    const box = document.getElementById(containerId);
-    if (!box) return;
-    box.innerHTML = '';
-    if (!entries.length) return;
-
-    entries.forEach(({value, count, rows}) => {
-      const row = document.createElement('div');
-      row.className = 'py-2 flex items-center gap-3 cursor-pointer hover:bg-white/5 rounded';
-      row.innerHTML = `
-        <span class="text-ink-50/90 truncate max-w-[65%]" title="${escapeHTML(value)}">${escapeHTML(value)}</span>
-        <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10 font-semibold">${count.toLocaleString('he-IL')} הופעות</span>
-      `;
-      row.addEventListener('click', () => {
-        openModal(rows, `${titlePrefix} — ${value}`, `${filePrefix}_${value}`.replace(/[\\/:*?"<>|]+/g,'_').slice(0,64));
-      });
-      box.appendChild(row);
-    });
-  }
-
-  // ====== מודאל טבלה + יצוא ======
-  function ensureModal() {
-    if (document.getElementById('biModal')) return;
-    const html = `
+  // ===== מודאל קצר + יצוא =====
+  function ensureModal(){
+    if ($('biModal')) return;
+    $('biModalHost').insertAdjacentHTML('beforeend', `
       <div id="biModal" class="fixed inset-0 z-[1000] hidden">
         <div class="absolute inset-0 bg-black/60"></div>
-        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
           <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-            <div class="text-lg font-bold" id="biModalTitle">נתונים</div>
-            <button id="biExportBtn" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא ל-XLSX</button>
-            <button id="biCloseBtn" class="ms-2 px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+            <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
+            <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="biClose" class="ms-2 text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
           </div>
           <div class="p-4 overflow-auto" style="max-height:70vh">
-            <table id="biTable" class="w-full text-sm border-separate border-spacing-0">
+            <table class="w-full text-sm border-separate border-spacing-0">
               <thead id="biThead"></thead><tbody id="biTbody"></tbody>
             </table>
-            <div id="biEmpty" class="text-ink-200/70 text-sm p-4 hidden">אין נתונים להצגה.</div>
+            <div id="biEmpty" class="hidden text-ink-200/70 text-sm p-4">אין נתונים.</div>
           </div>
         </div>
-      </div>`;
-    document.getElementById('biModalHost').insertAdjacentHTML('beforeend', html);
-    document.getElementById('biCloseBtn').addEventListener('click', () => document.getElementById('biModal').classList.add('hidden'));
-    document.getElementById('biModal').addEventListener('click', (e) => { if (e.target.id === 'biModal') e.currentTarget.classList.add('hidden'); });
-    document.getElementById('biExportBtn').addEventListener('click', () => exportXLSX(document.getElementById('biModalTitle').dataset.filename || 'export.xlsx'));
+      </div>`);
+    $('biClose').onclick=()=>$('biModal').classList.add('hidden');
+    $('biModal').onclick=e=>{ if(e.target.id==='biModal') $('biModal').classList.add('hidden'); };
+    $('biExport').onclick=()=>exportXLSX(($('biModalTitle').dataset.filename||'export')+'.xlsx');
+  }
+  let __ROWS__=[];
+  function renderTable(rows){
+    __ROWS__=rows||[]; const H=$('biThead'), B=$('biTbody'), E=$('biEmpty');
+    if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
+    E.classList.add('hidden');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+    H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${esc(h)}</th>`).join('')+'</tr>';
+    B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h]??'')}</td>`).join('')+'</tr>').join('');
+  }
+  function exportXLSX(fn){ if(!window.XLSX) return alert('XLSX לא נטענה'); const ws=XLSX.utils.json_to_sheet(__ROWS__); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb,fn); }
+  function openModal(rows,title,fileBase){ ensureModal(); renderTable(rows); $('biModalTitle').textContent=title; $('biModalTitle').dataset.filename=fileBase; $('biModal').classList.remove('hidden'); }
+
+  // ===== רנדר רשימה קצרה עם "הצג עוד" =====
+  function renderListShort(listEl, moreBtn, sumEl, items, titlePrefix, filePrefix){
+    const STEP=20; let shown=0;
+    function draw(){
+      const slice=items.slice(0, shown+=STEP);
+      listEl.innerHTML = slice.map(it => `
+        <div class="py-2 flex items-center gap-3 cursor-pointer hover:bg-white/5 rounded">
+          <span class="truncate max-w-[65%]" title="${esc(it.value)}">${esc(it.value)}</span>
+          <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10">${it.count.toLocaleString('he-IL')} הופעות</span>
+        </div>`).join('');
+      listEl.querySelectorAll('div').forEach((row,i)=>{
+        row.onclick=()=>openModal(items[i].rows, `${titlePrefix} — ${items[i].value}`, `${filePrefix}_${items[i].value}`.replace(/[\\/:*?"<>|]+/g,'_').slice(0,64));
+      });
+      moreBtn.classList.toggle('hidden', shown>=items.length);
+      sumEl.textContent = items.length ? `${items.length.toLocaleString('he-IL')} ערכים כפולים` : 'אין כפילויות';
+    }
+    shown=0; draw(); moreBtn.onclick=draw;
   }
 
-  let __CURRENT_ROWS__ = [];
-  function renderTable(rows) {
-    __CURRENT_ROWS__ = rows || [];
-    const thead = document.getElementById('biThead');
-    const tbody = document.getElementById('biTbody');
-    const empty = document.getElementById('biEmpty');
-    if (!rows.length){ thead.innerHTML=''; tbody.innerHTML=''; empty.classList.remove('hidden'); return; }
-    empty.classList.add('hidden');
-    const headers = [...new Set(rows.flatMap(r => Object.keys(r)))];
-    thead.innerHTML = '<tr>' + headers.map(h => `<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHTML(h)}</th>`).join('') + '</tr>';
-    tbody.innerHTML = rows.map(r => '<tr>' + headers.map(h => `<td class="px-3 py-2 border-b border-white/5">${escapeHTML(r[h] ?? '')}</td>`).join('') + '</tr>').join('');
-  }
-  function exportXLSX(filename='export.xlsx'){
-    if (!window.XLSX) return alert('ספריית XLSX לא נטענה.');
-    const ws = XLSX.utils.json_to_sheet(__CURRENT_ROWS__);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Duplicates');
-    XLSX.writeFile(wb, filename);
-  }
-  async function openModal(rows, title, fileBase){
-    await ensureDatasetLoaded();
-    ensureModal();
-    renderTable(rows);
-    const t = document.getElementById('biModalTitle');
-    t.textContent = title;
-    t.dataset.filename = `${fileBase}.xlsx`;
-    document.getElementById('biModal').classList.remove('hidden');
+  // ===== הפעלה =====
+  async function runStep4(){
+    await ensureDataset();
+    const data=getData(); const first=data[0];
+    const colT=findCol(first, COLS.tracking), colN=findCol(first, COLS.name), colE=findCol(first, COLS.email);
+    const dT=dupIndex(data, colT, v=>String(v).replace(/\s+/g,'').trim());
+    const dN=dupIndex(data, colN, v=>String(v).replace(/\s+/g,' ').trim());
+    const dE=dupIndex(data, colE, v=>String(v).trim().toLowerCase());
+
+    renderListShort($('listTracking'), $('moreTracking'), $('sumTracking'), dT.items, 'מספר מעקב', 'dup_tracking');
+    renderListShort($('listName'),     $('moreName'),     $('sumName'),     dN.items, 'שם לקוח',  'dup_name');
+    renderListShort($('listEmail'),    $('moreEmail'),    $('sumEmail'),    dE.items, 'דוא״ל לקוח','dup_email');
   }
 
-  // ====== רינדור שלב 4 ======
-  async function renderStep4Duplicates() {
-    await ensureDatasetLoaded();
-    const data = getDataset();
-    const first = data[0];
-
-    // איתור שם העמודה בפועל
-    const trackCol = first ? findColumnFlexible(first, COLS.tracking) : null;
-    const nameCol  = first ? findColumnFlexible(first, COLS.name)     : null;
-    const mailCol  = first ? findColumnFlexible(first, COLS.email)    : null;
-
-    const resTrack = buildDuplicates(data, trackCol, normTrack);
-    const resName  = buildDuplicates(data, nameCol,  normName);
-    const resMail  = buildDuplicates(data, mailCol,  normMail);
-
-    // רנדר
-    renderDupList('dupListTracking', resTrack.entries, 'מספר מעקב', 'dup_tracking');
-    renderDupList('dupListName',     resName.entries,  'שם לקוח',    'dup_name');
-    renderDupList('dupListEmail',    resMail.entries,  'דוא״ל לקוח',  'dup_email');
-
-    // הודעות ריקות / הסבר
-    document.getElementById('dupMsgTracking').textContent =
-      trackCol ? (resTrack.entries.length ? '' : 'לא נמצאו כפילויות (2+) במספרי המעקב.') :
-      'לא נמצאה עמודה מתאימה למספר מעקב. ניסינו וריאציות כמו: "מספר מעקב", "מספר משלוח", "Tracking".';
-
-    document.getElementById('dupMsgName').textContent =
-      nameCol ? (resName.entries.length ? '' : 'לא נמצאו כפילויות (2+) בשמות הלקוחות.') :
-      'לא נמצאה עמודה מתאימה לשם לקוח.';
-
-    document.getElementById('dupMsgEmail').textContent =
-      mailCol ? (resMail.entries.length ? '' : 'לא נמצאו כפילויות (2+) באימייל לקוח.') :
-      'לא נמצאה עמודה מתאימה לדוא״ל לקוח.';
+  // להתחבר לזרימה אחרי קליטת קובץ
+  if (typeof window.updateSuccessUI==='function'){
+    const prev=window.updateSuccessUI;
+    window.updateSuccessUI=function(){ prev.apply(this,arguments); setTimeout(runStep4,0); };
   }
-
-  // חיבור לפלואו טעינת הקובץ
-  if (typeof window.updateSuccessUI === 'function') {
-    const prev = window.updateSuccessUI;
-    window.updateSuccessUI = function() {
-      prev.apply(this, arguments);
-      setTimeout(renderStep4Duplicates, 0);
-    };
-  }
-  // אם כבר נטען בעבר
-  if (Array.isArray(window.__dataset) && window.__dataset.length) {
-    renderStep4Duplicates();
-  }
+  // אם כבר נטען דוח בעבר
+  if (Array.isArray(window.__dataset) && window.__dataset.length) runStep4();
 })();
 </script>
-  <!-- === STEP 5: השוואה בין דוחות === -->
-<section id="biStep5Compare" class="max-w-6xl mx-auto px-4 mt-6">
-  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
-    <div class="flex items-center gap-3 mb-6">
-      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 5 (השוואה בין דוחות)</span>
-    </div>
-    <div id="compareSummary" class="mb-4 text-sm text-ink-200/70">טרם הועלו שני דוחות להשוואה.</div>
-    <table class="w-full text-sm border-separate border-spacing-0">
-      <thead>
-        <tr class="text-ink-200/80 border-b border-white/10">
-          <th class="px-3 py-2 text-right">מחלקה</th>
-          <th class="px-3 py-2 text-right">דוח קודם</th>
-          <th class="px-3 py-2 text-right">דוח חדש</th>
-          <th class="px-3 py-2 text-right">שינוי %</th>
-          <th class="px-3 py-2 text-right">מגמה</th>
-        </tr>
-      </thead>
-      <tbody id="compareTable"></tbody>
-    </table>
-  </div>
-</section>
-  <script>
-    <!-- === STEP 5: השוואה בין דוחות (עצמאי, עם 2 קלטים) === -->
-<section id="biStep5Compare" class="max-w-6xl mx-auto px-4 mt-6">
-  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
-    <div class="flex flex-wrap items-center gap-3 mb-4">
-      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 5 (השוואה בין דוחות)</span>
-
-      <label class="text-xs ms-auto">
-        דוח קודם:
-        <input id="cmpPrevFile" type="file" accept=".xlsx,.xlsm,.xlsb,.xls"
-               class="text-xs px-2 py-1 rounded border border-white/15 bg-white/10"/>
-      </label>
-
-      <button id="cmpUseCurrentAsPrev" class="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/15">
-        קח/י מהדוח שמוצג כעת ← קודם
-      </button>
-
-      <label class="text-xs">
-        דוח חדש:
-        <input id="cmpCurrFile" type="file" accept=".xlsx,.xlsm,.xlsb,.xls"
-               class="text-xs px-2 py-1 rounded border border-white/15 bg-white/10"/>
-      </label>
-
-      <button id="cmpUseCurrentAsCurr" class="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/15">
-        קח/י מהדוח שמוצג כעת ← חדש
-      </button>
-
-      <button id="cmpRun" class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-gold-500">
-        השווה
-      </button>
-    </div>
-
-    <div id="compareSummary" class="mb-4 text-sm text-ink-200/70">
-      העלי שני דוחות (קודם וחדש) או השתמשי בכפתורים לקחת מהדוח שמוצג כעת.
-    </div>
-
-    <table class="w-full text-sm border-separate border-spacing-0">
-      <thead>
-        <tr class="text-ink-200/80 border-b border-white/10">
-          <th class="px-3 py-2 text-right">מחלקה</th>
-          <th class="px-3 py-2 text-right">דוח קודם</th>
-          <th class="px-3 py-2 text-right">דוח חדש</th>
-          <th class="px-3 py-2 text-right">שינוי %</th>
-          <th class="px-3 py-2 text-right">מגמה</th>
-        </tr>
-      </thead>
-      <tbody id="compareTable"></tbody>
-    </table>
-  </div>
-</section>
-
-<script>
-(() => {
-  const TZ='Asia/Jerusalem';
-  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
-  const STATUS_KEYS=['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
-  const DEPT_KEYS=['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
-
-  const $=id=>document.getElementById(id);
-  const prevInput=$('cmpPrevFile'), currInput=$('cmpCurrFile');
-  const btnPrev=$('cmpUseCurrentAsPrev'), btnCurr=$('cmpUseCurrentAsCurr'), btnRun=$('cmpRun');
-  const summary=$('compareSummary'), tbody=$('compareTable');
-
-  let prevData=null, currData=null;   // כאן נשמור את שני הדוחות (JSON rows)
-
-  // ---------- עזרי XLSX ----------
-  async function parseXLSXFile(file){
-    const buf=await file.arrayBuffer();
-    const wb=XLSX.read(buf,{type:'array'});
-    const sh=wb.Sheets[wb.SheetNames[0]];
-    return XLSX.utils.sheet_to_json(sh,{defval:null});
-  }
-
-  // ---------- עזרי עמודות/סינון ----------
-  function findCol(row, keys){
-    if (!row) return null;
-    for (const k of keys) if (k in row) return k;
-    const norm=s=>String(s).replace(/\s+/g,'').toLowerCase();
-    const targets=keys.map(norm);
-    for (const k in row) if (targets.includes(norm(k))) return k;
-    return null;
-  }
-  function isOpenRow(r){
-    const k=findCol(r, STATUS_KEYS);
-    if (!k) return true;
-    const v=String(r[k]??'').trim();
-    return !CLOSED.some(c=>v===c||v.includes(c));
-  }
-  function deptOf(r){
-    const k=findCol(r, DEPT_KEYS);
-    return k? String(r[k]??'לא מוגדר').trim() : 'לא מוגדר';
-  }
-  function aggregateOpenByDept(rows){
-    const m=new Map();
-    if (!Array.isArray(rows)) return m;
-    for (const r of rows){ if (!isOpenRow(r)) continue; const d=deptOf(r); m.set(d,(m.get(d)||0)+1); }
-    return m;
-  }
-
-  // ---------- חישוב והצגה ----------
-  const fmtNum = n => Number(n).toLocaleString('he-IL');
-  const fmtPct = p => (p>0?'+':'') + p.toFixed(1) + '%';
-  function pct(prev,curr){
-    if (prev===0 && curr===0) return 0;
-    if (prev===0 && curr>0) return 100;
-    return ((curr-prev)/prev)*100;
-  }
-  function total(map){ let s=0; map.forEach(v=>s+=v); return s; }
-
-  function renderCompare(){
-    if (!Array.isArray(currData) || !currData.length){
-      summary.textContent='אין דוח חדש. העלי דוח חדש או לחצי „קח/י מהדוח שמוצג כעת ← חדש”.';
-      tbody.innerHTML=''; return;
-    }
-    if (!Array.isArray(prevData) || !prevData.length){
-      summary.textContent='אין דוח קודם. העלי דוח קודם או לחצי „קח/י מהדוח שמוצג כעת ← קודם”.';
-      tbody.innerHTML=''; return;
-    }
-
-    const prevMap=aggregateOpenByDept(prevData);
-    const currMap=aggregateOpenByDept(currData);
-
-    const all=new Set([...prevMap.keys(), ...currMap.keys()]);
-    const rows=[];
-    all.forEach(d=>{
-      const a=prevMap.get(d)||0, b=currMap.get(d)||0;
-      rows.push({dept:d, prev:a, curr:b, pc:pct(a,b)});
-    });
-    rows.sort((x,y)=>y.curr-x.curr);
-
-    const A=total(prevMap), B=total(currMap), P=pct(A,B);
-    summary.innerHTML=`
-      <div class="flex flex-wrap items-center gap-3">
-        <span>סה״כ כל המחלקות:</span>
-        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">קודם: ${fmtNum(A)}</span>
-        <span class="px-2 py-1 rounded bg-white/10 border border-white/10">חדש: ${fmtNum(B)}</span>
-        <span class="px-2 py-1 rounded ${P<0?'bg-emerald-600/20 border-emerald-400/30':'bg-rose-600/20 border-rose-400/30'} border">
-          שינוי: ${fmtPct(P)} ${P<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
-        </span>
-      </div>`;
-
-    tbody.innerHTML = rows.map(r => `
-      <tr class="border-b border-white/10">
-        <td class="px-3 py-2">${r.dept}</td>
-        <td class="px-3 py-2">${fmtNum(r.prev)}</td>
-        <td class="px-3 py-2">${fmtNum(r.curr)}</td>
-        <td class="px-3 py-2">${fmtPct(r.pc)}</td>
-        <td class="px-3 py-2 ${r.pc<0?'text-emerald-400':'text-rose-400'}">
-          ${r.pc<0?'⬇️ ירידה (טוב)':'⬆️ עליה'}
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  // ---------- אירועים ----------
-  prevInput.addEventListener('change', async (e)=>{
-    const f=e.target.files?.[0]; if(!f) return;
-    try{ prevData = await parseXLSXFile(f); renderCompare(); }catch(err){ console.warn(err); }
-  });
-  currInput.addEventListener('change', async (e)=>{
-    const f=e.target.files?.[0]; if(!f) return;
-    try{ currData = await parseXLSXFile(f); renderCompare(); }catch(err){ console.warn(err); }
-  });
-
-  // כפתורים לקחת מהמצב הנוכחי של האתר (אם כבר נטען קובץ בשלב 1)
-  btnPrev.addEventListener('click', ()=>{
-    if (Array.isArray(window.__dataset) && window.__dataset.length){
-      prevData = JSON.parse(JSON.stringify(window.__dataset));
-      renderCompare();
-    } else {
-      alert('לא נטען דוח במערכת. העלי דוח קודם בקלט השמאלי.');
-    }
-  });
-  btnCurr.addEventListener('click', ()=>{
-    if (Array.isArray(window.__dataset) && window.__dataset.length){
-      currData = JSON.parse(JSON.stringify(window.__dataset));
-      renderCompare();
-    } else {
-      alert('לא נטען דוח במערכת. העלי דוח חדש בקלט הימני.');
-    }
-  });
-
-  btnRun.addEventListener('click', renderCompare);
-
-  // מילוי אוטומטי אם כבר קיימים בזיכרון ממה שעבדת קודם
-  if (Array.isArray(window.__prevDataset) && window.__prevDataset.length) prevData = window.__prevDataset;
-  if (Array.isArray(window.__dataset)     && window.__dataset.length)     currData = window.__dataset;
-  renderCompare();
-})();
-</script>
-        </body>
+    </body>
