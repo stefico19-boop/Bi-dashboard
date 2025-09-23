@@ -1450,4 +1450,201 @@
   }
 })();
   </script>
+  <!-- === STEP 7: פיזור לפי "בעלי מקרה" + פתיחת טבלה בקליק === -->
+<section id="biOwnersHost" class="max-w-6xl mx-auto px-4 mt-6">
+  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 7 (לפי בעלי מקרה)</span>
+      <span id="ownersSubtitle" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מחלקה: כללי</span>
+    </div>
+    <div id="ownersMsg" class="text-xs text-ink-200/60 mb-3">טרם נטען קובץ או שלא נמצאה עמודת „בעלי מקרה”.</div>
+    <div class="overflow-auto rounded-2xl border border-white/10">
+      <table class="w-full text-sm border-separate border-spacing-0">
+        <thead>
+          <tr class="text-ink-200/80 border-b border-white/10 bg-white/5">
+            <th class="px-3 py-2 text-right">בעלי מקרה</th>
+            <th class="px-3 py-2 text-right">כמות פניות פתוחות</th>
+          </tr>
+        </thead>
+        <tbody id="ownersTable"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- משתמש במודאל הכללי אם קיים; אם לא — ייצור אחד -->
+<script>
+(() => {
+  // ------- Utilities -------
+  const $ = (id) => document.getElementById(id);
+  const HEB = /[\u0591-\u05C7]/g, SEP=/[·•:;|/_\-()\[\]{}]/g;
+  const normHeader = s => String(s).replace(HEB,'').replace(SEP,'').replace(/\s+/g,'').toLowerCase();
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  const COLS = {
+    dept:   ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    status: ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    owner:  { // וריאציות ל"בעלי מקרה"
+      exact: ['בעלי מקרה','בעל מקרה','מטפל','מטפל/ת','אחראי','Assigned To','AssignedTo','Owner','owner','Agent','agent','Case Owner'],
+      kw:    [ ['בעלי','מקרה'], ['בעל','מקרה'], ['assigned'], ['owner'], ['agent'], ['מטפל'] ]
+    }
+  };
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+  function activeDept(){ return window.__biActiveDept || 'כללי'; }
+
+  function findCol(row, keysOrSpec){
+    if (!row) return null;
+    const headers = Object.keys(row);
+    if (keysOrSpec && keysOrSpec.exact){
+      for (const h of headers){ if (keysOrSpec.exact.includes(h)) return h;
+        const hn=normHeader(h); for (const ex of keysOrSpec.exact) if (hn===normHeader(ex)) return h; }
+      for (const h of headers){ const n=normHeader(h);
+        if (keysOrSpec.kw.some(set=>set.every(w=>n.includes(normHeader(w))))) return h; }
+      return null;
+    }
+    for (const k of keysOrSpec) if (k in row) return k;
+    const targets = keysOrSpec.map(k=>normHeader(k));
+    for (const h of headers) if (targets.includes(normHeader(h))) return h;
+    return null;
+  }
+
+  function isOpenRow(row){
+    const k = findCol(row, COLS.status);
+    if (!k) return true;
+    const v = String(row[k] ?? '').trim();
+    return !CLOSED.some(c => v === c || v.includes(c));
+  }
+
+  function filterRowsByDept(rows){
+    const d = activeDept();
+    if (d === 'כללי') return rows;
+    const col = rows.length ? findCol(rows[0], COLS.dept) : null;
+    return col ? rows.filter(r => String(r[col] ?? '').trim() === d) : rows;
+  }
+
+  // ------- Modal reuse / create -------
+  function ensureModal(){
+    if (document.getElementById('biModal')) return;
+    const html = `
+      <div id="biModal" class="fixed inset-0 z-[1000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
+            <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="biClose" class="ms-2 text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+          </div>
+          <div class="p-4 overflow-auto" style="max-height:70vh">
+            <table class="w-full text-sm border-separate border-spacing-0">
+              <thead id="biThead"></thead><tbody id="biTbody"></tbody>
+            </table>
+            <div id="biEmpty" class="hidden text-ink-200/70 text-sm p-4">אין נתונים.</div>
+          </div>
+        </div>
+      </div>`;
+    (document.getElementById('biModalHost')||document.body).insertAdjacentHTML('beforeend', html);
+    document.getElementById('biClose').onclick=()=>document.getElementById('biModal').classList.add('hidden');
+    document.getElementById('biModal').onclick=e=>{ if(e.target.id==='biModal') e.currentTarget.classList.add('hidden'); };
+    document.getElementById('biExport').onclick=()=>exportXLSX((document.getElementById('biModalTitle').dataset.filename||'export')+'.xlsx');
+  }
+  let __ROWS__=[];
+  function renderTable(rows){
+    __ROWS__=rows||[];
+    const H=document.getElementById('biThead'), B=document.getElementById('biTbody'), E=document.getElementById('biEmpty');
+    if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
+    E.classList.add('hidden');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+    H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${esc(h)}</th>`).join('')+'</tr>';
+    B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h]??'')}</td>`).join('')+'</tr>').join('');
+  }
+  function exportXLSX(fn){
+    if (!window.XLSX) return alert('XLSX לא נטענה');
+    const ws=XLSX.utils.json_to_sheet(__ROWS__); const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb,fn);
+  }
+  function openModal(rows,title,fileBase){
+    ensureModal(); renderTable(rows);
+    const t=document.getElementById('biModalTitle'); t.textContent=title; t.dataset.filename=fileBase;
+    document.getElementById('biModal').classList.remove('hidden');
+  }
+
+  // ------- Aggregation & render -------
+  function aggregateOwners(rows){
+    if (!rows.length) return { col:null, items:[] };
+    const col = findCol(rows[0], COLS.owner);
+    if (!col) return { col:null, items:[] };
+    const m = new Map(); // owner -> {count, rows}
+    rows.forEach(r=>{
+      if (!isOpenRow(r)) return;
+      const key = String(r[col] ?? '').trim();
+      if (!key) return;
+      const b = m.get(key) || {count:0, rows:[]};
+      b.count++; b.rows.push(r);
+      m.set(key,b);
+    });
+    const items = Array.from(m.entries())
+      .sort((a,b)=>b[1].count - a[1].count)
+      .map(([owner,b])=>({ owner, count:b.count, rows:b.rows }));
+    return { col, items };
+  }
+
+  function renderOwners(){
+    const rowsAll = getDataset();
+    const rows    = filterRowsByDept(rowsAll);
+    const { col, items } = aggregateOwners(rows);
+
+    $('ownersSubtitle').textContent = `מחלקה: ${activeDept()}`;
+    const msg  = $('ownersMsg');
+    const body = $('ownersTable');
+
+    if (!rowsAll.length){
+      msg.textContent = 'טרם נטען קובץ.';
+      body.innerHTML = '';
+      return;
+    }
+    if (!col){
+      msg.textContent = 'לא נמצאה עמודת „בעלי מקרה”/Owner/Assigned.';
+      body.innerHTML = '';
+      return;
+    }
+    msg.textContent = items.length ? `נמצאו ${items.length.toLocaleString('he-IL')} בעלי מקרה (פתוחות בלבד).` : 'אין פניות פתוחות לבעלי מקרה במחלקה זו.';
+
+    body.innerHTML = items.map(it => `
+      <tr class="border-b border-white/10">
+        <td class="px-3 py-2">${esc(it.owner)}</td>
+        <td class="px-3 py-2">
+          <button class="px-2 py-1 text-xs rounded-full bg-white/10 border border-white/15 hover:bg-white/15 open-owner" data-owner="${esc(it.owner)}">
+            ${it.count.toLocaleString('he-IL')}
+          </button>
+        </td>
+      </tr>`).join('');
+
+    // האזנה לפתיחת טבלה בלחיצה על המספר
+    body.querySelectorAll('.open-owner').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const name = btn.dataset.owner;
+        // מסנן מחדש כדי להיות בטוחים
+        const ownerCol = findCol(rows[0], COLS.owner);
+        const ownerRows = rows.filter(r => String(r[ownerCol] ?? '').trim() === name);
+        openModal(ownerRows, `פניות פתוחות — ${name} (${activeDept()})`, `owners_${name}`.replace(/[\\/:*?"<>|]+/g,'_').slice(0,64));
+      });
+    });
+  }
+
+  // ------- Wire-up: אחרי טעינת קובץ + שינוי מחלקה -------
+  if (typeof window.updateSuccessUI === 'function'){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){
+      const ret = prev.apply(this, arguments);
+      Promise.resolve(ret).finally(renderOwners);
+    };
+  }
+  window.addEventListener('bi:dept-change', renderOwners);
+
+  // ריצה ראשונה אם כבר יש דאטה
+  if (getDataset().length) renderOwners();
+})();
+    </script>
     </body>
