@@ -2041,11 +2041,11 @@
   if(getDataset().length)compute();
 })();
 </script>
-  <!-- === STEP 9 (MINI + אחוזים): עומד / חריג לפי "תאריך שינוי אחרון" (48 שעות) — כללי + לפי מחלקה === -->
+<!-- === STEP 9 (MINI + אחוזים): עומד / חריג לפי "תאריך שינוי אחרון" (72 שעות) — כללי + לפי מחלקה === -->
 <section id="biStaleMini" class="max-w-6xl mx-auto px-4 mt-6">
   <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
     <div class="flex flex-wrap items-center gap-3 mb-4">
-      <span class="text-sm font-semibold text-ink-200/80">מעקב שינוי אחרון — 48 שעות</span>
+      <span class="text-sm font-semibold text-ink-200/80">מעקב שינוי אחרון — 72 שעות</span>
       <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">TZ: Asia/Jerusalem</span>
     </div>
 
@@ -2054,12 +2054,12 @@
       <div class="text-xs text-ink-200/70 mb-1">כל המחלקות</div>
       <div class="grid grid-cols-2 gap-4">
         <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">עומד בזמנים — כללי (≤ 48ש')</div>
+          <div class="text-xs text-ink-200/70">עומד בזמנים — כללי (≤ 72ש')</div>
           <div id="kpiStaleAllOk" class="text-3xl font-bold mt-1">—</div>
           <div id="kpiStaleAllOkPct" class="text-xs text-ink-200/70 mt-1"></div>
         </div>
         <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">חריג — כללי (> 48ש')</div>
+          <div class="text-xs text-ink-200/70">חריג — כללי (> 72ש')</div>
           <div id="kpiStaleAllOver" class="text-3xl font-bold mt-1">—</div>
           <div id="kpiStaleAllOverPct" class="text-xs text-ink-200/70 mt-1"></div>
         </div>
@@ -2071,12 +2071,12 @@
       <div id="deptTitleStale" class="text-xs text-ink-200/70 mb-1">מחלקה: כללי</div>
       <div class="grid grid-cols-2 gap-4">
         <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">עומד בזמנים — מחלקה (≤ 48ש')</div>
+          <div class="text-xs text-ink-200/70">עומד בזמנים — מחלקה (≤ 72ש')</div>
           <div id="kpiStaleDeptOk" class="text-3xl font-bold mt-1">—</div>
           <div id="kpiStaleDeptOkPct" class="text-xs text-ink-200/70 mt-1"></div>
         </div>
         <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">חריג — מחלקה (> 48ש')</div>
+          <div class="text-xs text-ink-200/70">חריג — מחלקה (> 72ש')</div>
           <div id="kpiStaleDeptOver" class="text-3xl font-bold mt-1">—</div>
           <div id="kpiStaleDeptOverPct" class="text-xs text-ink-200/70 mt-1"></div>
         </div>
@@ -2084,7 +2084,7 @@
     </div>
 
     <div class="mt-6 text-[11px] text-ink-200/60">
-      מבוסס על עמודה <b>„תאריך שינוי אחרון”</b> (כולל וריאציות; ראי בקוד). נחשב חריג אם עברו יותר מ-48 שעות מאז השינוי האחרון.<br/>
+      מבוסס על עמודה <b>„תאריך שינוי אחרון”</b>. נחשב חריג אם עברו יותר מ-72 שעות מאז השינוי האחרון.<br/>
       לחיצה על המספר תציג את הרשימה ותאפשר יצוא ל-XLSX. מסונן לפי המחלקה שנבחרה בטאבים.
     </div>
   </div>
@@ -2097,18 +2097,14 @@
   const HOUR = 60 * 60 * 1000;
   const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
 
-  // התאמות עמודות
   const COLS = {
-    lastChange: [
-      'תאריך שינוי אחרון','שעת/תאריך שינוי אחרון','עדכון אחרון','תאריך עדכון אחרון',
-      'שינוי אחרון','עודכן בתאריך','תאריך שינוי','שעת/תאריך עדכון אחרון',
-      'Last Update','Last Updated','Updated At','updated_at','last_update','modified_at'
-    ],
+    lastChange: ['תאריך שינוי אחרון','שעת/תאריך שינוי אחרון','עדכון אחרון','תאריך עדכון אחרון',
+                 'שינוי אחרון','עודכן בתאריך','תאריך שינוי','שעת/תאריך עדכון אחרון',
+                 'Last Update','Last Updated','Updated At','updated_at','last_update','modified_at'],
     dept:   ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
     status: ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status']
   };
 
-  // ===== עזרי חיפוש עמודה =====
   function findCol(row, keys){
     if (!row) return null;
     for (const k of keys) if (k in row) return k;
@@ -2117,85 +2113,27 @@
     for (const k in row) if (targets.includes(norm(k))) return k;
     return null;
   }
-
   function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
   function activeDept(){ return window.__biActiveDept || 'כללי'; }
-  const normHe = s => String(s||'').replace(/[\u0591-\u05C7]/g,'').toLowerCase();
 
-  // ===== פתיחת מודאל / יצוא =====
-  function ensureModal(){
-    if (document.getElementById('biModal')) return;
-    const html = `
-      <div id="biModal" class="fixed inset-0 z-[1000] hidden">
-        <div class="absolute inset-0 bg-black/60"></div>
-        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
-          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-            <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
-            <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
-            <button id="biClose"  class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
-          </div>
-          <div class="p-4 overflow-auto" style="max-height:70vh">
-            <table class="w-full text-sm border-separate border-spacing-0">
-              <thead id="biThead"></thead><tbody id="biTbody"></tbody>
-            </table>
-            <div id="biEmpty" class="hidden text-ink-200/70 text-sm p-4">אין נתונים.</div>
-          </div>
-        </div>
-      </div>`;
-    document.body.insertAdjacentHTML('beforeend', html);
-    document.getElementById('biClose').onclick=()=>document.getElementById('biModal').classList.add('hidden');
-    document.getElementById('biModal').onclick=e=>{ if(e.target.id==='biModal') e.currentTarget.classList.add('hidden'); };
-    document.getElementById('biExport').onclick=()=>{
-      if (!window.XLSX) return alert('XLSX לא נטענה');
-      const ws=XLSX.utils.json_to_sheet(window.__BI_MODAL_ROWS__||[]);
-      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data');
-      const fn=(document.getElementById('biModalTitle').dataset.filename||'export')+'.xlsx';
-      XLSX.writeFile(wb,fn);
-    };
-  }
-  function renderTable(rows){
-    const H=document.getElementById('biThead'), B=document.getElementById('biTbody'), E=document.getElementById('biEmpty');
-    window.__BI_MODAL_ROWS__ = rows;
-    if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
-    E.classList.add('hidden');
-    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))].filter(k=>!k.startsWith('__'));
-    const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${esc(h)}</th>`).join('')+'</tr>';
-    B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h])}</td>`).join('')+'</tr>').join('');
-  }
-  function openModal(rows, title, file){
-    ensureModal(); renderTable(rows);
-    const t=document.getElementById('biModalTitle'); t.textContent=title; t.dataset.filename=file;
-    document.getElementById('biModal').classList.remove('hidden');
-  }
-
-  // ===== פרסור "תאריך שינוי אחרון" לשעת אמת =====
-  // תומך: serial של אקסל (כולל חלק שעה), "dd/mm/yyyy hh:mm[:ss]" וגם ISO/מחרוזות נפוצות.
   function dtFromCell(cellVal){
     if (cellVal == null || cellVal === '') return null;
-
-    if (typeof cellVal === 'number'){ // Excel serial: גם חלק השעה בתוך השבר
+    if (typeof cellVal === 'number'){ 
       const epoch = new Date(Date.UTC(1899,11,30));
       const ms = Math.round(cellVal * 24 * 60 * 60 * 1000);
-      return new Date(epoch.getTime() + ms); // UTC
+      return new Date(epoch.getTime() + ms);
     }
-
     const s = String(cellVal).trim();
-
-    // dd/mm/yyyy [hh:mm[:ss]]
     const m = s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
     if (m){
       let [_, dd, mm, yy, HH='00', MM='00', SS='00'] = m;
       if (yy.length === 2) yy = '20' + yy;
-      // נפרש כזמן מקומי בדפדפן (מקובל). להצגה נשתמש ב־TZ: Asia/Jerusalem
       return new Date(+yy, (+mm)-1, +dd, +HH, +MM, +SS);
     }
-
     const d = new Date(s);
     return isNaN(d) ? null : d;
   }
 
-  // תצוגה לפי Asia/Jerusalem
   function fmtDateTimeTZ(date){
     try {
       const p = new Intl.DateTimeFormat('he-IL',{ timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).formatToParts(date);
@@ -2211,25 +2149,23 @@
     return !CLOSED.some(c => v === c || v.includes(c));
   }
 
-  // אנוטציה: חישוב שעות מאז שינוי אחרון + סטטוס 48ש'
   function annotateRow(row){
     const k = findCol(row, COLS.lastChange);
     const dt = k ? dtFromCell(row[k]) : null;
     if (!dt) return { ...row, __status:'unknown' };
 
-    const now = new Date(); // ההפרש בשעות אינו תלוי TZ (מתבסס על UTC-ms)
+    const now = new Date();
     const hours = Math.floor((now.getTime() - dt.getTime()) / HOUR);
-    const status = hours > 48 ? 'over' : 'ok';
+    const status = hours > 72 ? 'over' : 'ok';
 
     return {
       ...row,
-      'שינוי אחרון (מוצג ל-IZ)': fmtDateTimeTZ(dt),
+      'שינוי אחרון (IZ)': fmtDateTimeTZ(dt),
       'שעות מאז שינוי': hours,
       __status: status
     };
   }
 
-  // סינון לפי מחלקה
   function filterDeptRows(rows){
     const d = activeDept();
     if (d === 'כללי') return rows;
@@ -2237,11 +2173,9 @@
     return dk ? rows.filter(r => String(r[dk] ?? '').trim() === d) : rows;
   }
 
-  // ===== חישוב והצגה =====
   function computeStale(){
     const base = getDataset().filter(isOpenRow);
     const ann  = base.map(annotateRow).filter(r => r.__status !== 'unknown');
-
     const dept = activeDept();
     $('deptTitleStale').textContent = `מחלקה: ${dept}`;
     const deptAnn = filterDeptRows(ann);
@@ -2261,13 +2195,12 @@
       node.onclick = () => openModal(rows, title, file);
     };
 
-    bind($('kpiStaleAllOk'),   $('kpiStaleAllOkPct'),   allOk,   'עומד בזמנים (≤48ש) — כל המחלקות', 'stale_all_ok', ann.length);
-    bind($('kpiStaleAllOver'), $('kpiStaleAllOverPct'), allOver, 'חריג (>48ש) — כל המחלקות',        'stale_all_over', ann.length);
-    bind($('kpiStaleDeptOk'),  $('kpiStaleDeptOkPct'),  dOk,     `עומד בזמנים (≤48ש) — ${dept}`,     'stale_dept_ok', deptAnn.length);
-    bind($('kpiStaleDeptOver'),$('kpiStaleDeptOverPct'),dOver,   `חריג (>48ש) — ${dept}`,             'stale_dept_over', deptAnn.length);
+    bind($('kpiStaleAllOk'),   $('kpiStaleAllOkPct'),   allOk,   'עומד בזמנים (≤72ש) — כל המחלקות', 'stale_all_ok', ann.length);
+    bind($('kpiStaleAllOver'), $('kpiStaleAllOverPct'), allOver, 'חריג (>72ש) — כל המחלקות',        'stale_all_over', ann.length);
+    bind($('kpiStaleDeptOk'),  $('kpiStaleDeptOkPct'),  dOk,     `עומד בזמנים (≤72ש) — ${dept}`,     'stale_dept_ok', deptAnn.length);
+    bind($('kpiStaleDeptOver'),$('kpiStaleDeptOverPct'),dOver,   `חריג (>72ש) — ${dept}`,             'stale_dept_over', deptAnn.length);
   }
 
-  // טריגרים
   if (typeof window.updateSuccessUI === 'function'){
     const prev = window.updateSuccessUI;
     window.updateSuccessUI = function(){ const r = prev.apply(this, arguments); Promise.resolve(r).finally(computeStale); };
