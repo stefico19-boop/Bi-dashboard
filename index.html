@@ -2673,4 +2673,107 @@
 
 })();
   </script>
+  <!-- === THEME TOGGLE (Light/Dark) + Font switch === -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Heebo (Light), Rubik (Dark) -->
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;600;800&family=Rubik:wght@400;600;800&display=swap" rel="stylesheet">
+
+<style>
+  /* ברירת מחדל: כהה + Rubik */
+  :root { --bi-font: 'Rubik', system-ui, -apple-system, Segoe UI, Arial; }
+  html, body { font-family: var(--bi-font); }
+
+  /* מצב בהיר: Heebo + התאמות רקע/טקסט כלליות */
+  html[data-theme="light"] { --bi-font: 'Heebo', system-ui, -apple-system, Segoe UI, Arial; }
+  html[data-theme="light"] body {
+    background: linear-gradient(to bottom, #f8fafc, #f1f5f9, #eef2f7) !important;
+    color: #0b1220 !important;
+  }
+
+  /* תיקוני נראות נפוצים כשעוברים לאור (Tailwind utilities קיימות בדף) */
+  html[data-theme="light"] .text-white { color: #0b1220 !important; }
+  html[data-theme="light"] .text-ink-200, 
+  html[data-theme="light"] .text-ink-200\/60, 
+  html[data-theme="light"] .text-ink-200\/70, 
+  html[data-theme="light"] .text-ink-200\/80 { color: #475569 !important; }
+
+  /* רקעים שקופים קלים במקום כהים */
+  html[data-theme="light"] .bg-white\/5 { background-color: rgba(0,0,0,.04) !important; }
+  html[data-theme="light"] .bg-ink-900\/60 { background-color: rgba(0,0,0,.06) !important; }
+  html[data-theme="light"] .border-white\/10 { border-color: rgba(0,0,0,.10) !important; }
+  html[data-theme="light"] .border-white\/20 { border-color: rgba(0,0,0,.18) !important; }
+
+  /* מודאלים כהים – לרכך כשאור */
+  html[data-theme="light"] #biModal .bg-\[\#0b1220\],
+  html[data-theme="light"] #biDashModal .bg-\[\#0b1220\],
+  html[data-theme="light"] #biDashPro .bg-\[\#0b1220\] {
+    background-color: #ffffff !important;
+  }
+  html[data-theme="light"] #biModal .text-ink-200\/80,
+  html[data-theme="light"] #biDashModal .text-ink-200\/80,
+  html[data-theme="light"] #biDashPro .text-ink-200\/80 {
+    color: #334155 !important;
+  }
+
+  /* כפתור החלפת מצב */
+  #biThemeToggle {
+    position: fixed; inset-inline-end: 1rem; inset-block-start: 1rem;
+    z-index: 2100;
+    padding: .5rem .75rem; border-radius: 9999px;
+    background: linear-gradient(90deg, #7c3aed, #f59e0b);
+    color: #fff; font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  }
+  #biThemeToggle:hover { opacity: .95; }
+  #biThemeToggle .ico { margin-inline-start: .4rem; }
+</style>
+
+<script>
+(() => {
+  const html = document.documentElement;
+
+  // החלת מצב שמור אם יש
+  const saved = localStorage.getItem('biTheme');   // 'light' | 'dark'
+  if (saved) {
+    if (saved === 'light') {
+      html.setAttribute('data-theme', 'light');
+      html.classList.remove('dark');
+    } else {
+      html.setAttribute('data-theme', 'dark');
+      html.classList.add('dark');
+    }
+  } else {
+    // אם כבר מוגדר "dark" ב-HTML – נניח כהה כברירת מחדל
+    html.setAttribute('data-theme', html.classList.contains('dark') ? 'dark' : 'light');
+  }
+
+  // יצירת כפתור אם לא קיים
+  if (!document.getElementById('biThemeToggle')) {
+    const btn = document.createElement('button');
+    btn.id = 'biThemeToggle';
+    btn.type = 'button';
+    btn.innerHTML = `<span class="lbl">מצב ${html.getAttribute('data-theme')==='light'?'כהה':'בהיר'}</span>
+                     <span class="ico">${html.getAttribute('data-theme')==='light'?'🌙':'☀️'}</span>`;
+    btn.addEventListener('click', () => {
+      const isLight = html.getAttribute('data-theme') === 'light';
+      if (isLight) {
+        html.setAttribute('data-theme', 'dark');
+        html.classList.add('dark');
+        localStorage.setItem('biTheme','dark');
+      } else {
+        html.setAttribute('data-theme', 'light');
+        html.classList.remove('dark');
+        localStorage.setItem('biTheme','light');
+      }
+      // עדכון טקסט ואייקון
+      const nowLight = html.getAttribute('data-theme') === 'light';
+      btn.querySelector('.lbl').textContent = `מצב ${nowLight ? 'כהה' : 'בהיר'}`;
+      btn.querySelector('.ico').textContent = nowLight ? '🌙' : '☀️';
+      // טריגר רענון לגרפים (Chart.js) אם קיימים
+      window.dispatchEvent(new Event('resize'));
+    });
+    document.body.appendChild(btn);
+  }
+})();
+</script>
 </body>
