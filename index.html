@@ -2209,4 +2209,195 @@
   if (getDataset().length) computeStale();
 })();
         </script>
+  <!-- === STEP 10: Aging Buckets — >3M & >6M (by "שעת/תאריך פתיחה") === -->
+<section id="biAgingBuckets" class="max-w-6xl mx-auto px-4 mt-6">
+  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <span class="text-sm font-semibold text-ink-200/80">זמן פתיחה עד היום — פניות פתוחות</span>
+      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מבוסס תאריך בלבד מ-„שעת/תאריך פתיחה”</span>
+    </div>
+
+    <!-- כל המחלקות -->
+    <div class="mb-4">
+      <div class="text-xs text-ink-200/70 mb-1">כל המחלקות</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">מעל 3 חודשים — כללי</div>
+          <div id="kpiAllOver3m" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">מעל חצי שנה — כללי</div>
+          <div id="kpiAllOver6m" class="text-3xl font-bold mt-1">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- לפי המחלקה הנוכחית -->
+    <div>
+      <div id="deptTitleAging" class="text-xs text-ink-200/70 mb-1">מחלקה: כללי</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">מעל 3 חודשים — מחלקה</div>
+          <div id="kpiDeptOver3m" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">מעל חצי שנה — מחלקה</div>
+          <div id="kpiDeptOver6m" class="text-3xl font-bold mt-1">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 text-[11px] text-ink-200/60">
+      חישוב לפי „שעת/תאריך פתיחה” — מתעלם מהשעה ולוקח תאריך בלבד (Asia/Jerusalem). לחיצה על מספר פותחת טבלה עם אפשרות יצוא ל-XLSX.
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const TZ = 'Asia/Jerusalem';
+  const DAY = 24*60*60*1000;
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+
+  const COLS = {
+    openedAt: ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'],
+    dept:     ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    status:   ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status']
+  };
+
+  function findCol(row, keys){
+    if (!row) return null;
+    for (const k of keys) if (k in row) return k;
+    const norm = s => String(s).replace(/\s+/g,'').toLowerCase();
+    const targets = keys.map(norm);
+    for (const k in row) if (targets.includes(norm(k))) return k;
+    return null;
+  }
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+  function activeDept(){ return window.__biActiveDept || 'כללי'; }
+  function isOpenRow(row){
+    const k = findCol(row, COLS.status); if (!k) return true;
+    const v = String(row[k] ?? '').trim();
+    return !CLOSED.some(c => v === c || v.includes(c));
+  }
+
+  // תאריך־בלבד לפי ישראל
+  function ymdFromDateTZ(date){
+    const parts = new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+    const m = Object.fromEntries(parts.map(p=>[p.type,p.value]));
+    return { y:+m.year, m:+m.month, d:+m.day };
+  }
+  function ymdFromCell(cellVal){
+    if (cellVal==null || cellVal==='') return null;
+    if (typeof cellVal==='number'){ const epoch=new Date(Date.UTC(1899,11,30)); const d=new Date(epoch.getTime()+Math.floor(cellVal)*DAY); return ymdFromDateTZ(d); }
+    const s=String(cellVal).trim();
+    const m=s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+    if (m){ let [_,dd,mm,yy]=m; if(yy.length===2) yy='20'+yy; return { y:+yy, m:+mm, d:+dd }; }
+    const d=new Date(s); if (!isNaN(d)) return ymdFromDateTZ(d);
+    return null;
+  }
+  function dateUTC(ymd){ return new Date(Date.UTC(ymd.y, ymd.m-1, ymd.d)); }
+  function diffDays(a,b){ return Math.floor((dateUTC(a) - dateUTC(b))/DAY); } // a - b בימים
+  function fmtYMD(ymd){ return `${String(ymd.d).padStart(2,'0')}/${String(ymd.m).padStart(2,'0')}/${ymd.y}`; }
+
+  // ספים: 3 חודשים ≈ 90 ימים | חצי שנה ≈ 183 ימים
+  const THRESH_3M = 90, THRESH_6M = 183;
+
+  // מודאל כללי (ממחזר את זה שיש אם כבר הוגדר במקום אחר)
+  function ensureModal(){
+    if (document.getElementById('biModal')) return;
+    const html = `<div id="biModal" class="fixed inset-0 z-[1000] hidden">
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+        <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+          <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
+          <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
+          <button id="biClose"  class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+        </div>
+        <div class="p-4 overflow-auto" style="max-height:70vh">
+          <table class="w-full text-sm border-separate border-spacing-0">
+            <thead id="biThead"></thead><tbody id="biTbody"></tbody>
+          </table>
+          <div id="biEmpty" class="hidden text-ink-200/70 text-sm p-4">אין נתונים.</div>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('biClose').onclick=()=>document.getElementById('biModal').classList.add('hidden');
+    document.getElementById('biModal').onclick=e=>{ if(e.target.id==='biModal') e.currentTarget.classList.add('hidden'); };
+    document.getElementById('biExport').onclick=()=>{
+      if(!window.XLSX) return alert('XLSX לא נטענה');
+      const ws=XLSX.utils.json_to_sheet(window.__BI_MODAL_ROWS__||[]);
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data');
+      const fn=(document.getElementById('biModalTitle').dataset.filename||'export')+'.xlsx';
+      XLSX.writeFile(wb,fn);
+    };
+  }
+  function renderTable(rows){
+    const H=document.getElementById('biThead'), B=document.getElementById('biTbody'), E=document.getElementById('biEmpty');
+    window.__BI_MODAL_ROWS__ = rows;
+    if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
+    E.classList.add('hidden');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))].filter(k=>!k.startsWith('__'));
+    const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${esc(h)}</th>`).join('')+'</tr>';
+    B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h])}</td>`).join('')+'</tr>').join('');
+  }
+  function openModal(rows, title, file){
+    ensureModal(); renderTable(rows);
+    const t=document.getElementById('biModalTitle'); t.textContent=title; t.dataset.filename=file;
+    document.getElementById('biModal').classList.remove('hidden');
+  }
+
+  // חישוב קבוצות
+  function annotate(row){
+    const k = findCol(row, COLS.openedAt);
+    const openYMD = k ? ymdFromCell(row[k]) : null;
+    if (!openYMD) return { ...row, __ageDays: null };
+    const today = ymdFromDateTZ(new Date());
+    const age = diffDays(today, openYMD);
+    return { ...row, 'תאריך פתיחה (תאריך בלבד)': fmtYMD(openYMD), 'גיל (ימים)': age, __ageDays: age };
+  }
+
+  function compute(){
+    const base = getDataset().filter(isOpenRow).map(annotate).filter(r => r.__ageDays != null);
+
+    // כללי
+    const allOver3 = base.filter(r => r.__ageDays > THRESH_3M);
+    const allOver6 = base.filter(r => r.__ageDays > THRESH_6M);
+
+    // לפי מחלקה
+    const dept = activeDept();
+    $('deptTitleAging').textContent = `מחלקה: ${dept}`;
+    let deptRows = base;
+    if (dept !== 'כללי'){
+      const dk = findCol(base[0]||{}, COLS.dept);
+      deptRows = dk ? base.filter(r => String(r[dk] ?? '').trim() === dept) : [];
+    }
+    const dOver3 = deptRows.filter(r => r.__ageDays > THRESH_3M);
+    const dOver6 = deptRows.filter(r => r.__ageDays > THRESH_6M);
+
+    const fmt = n => n.toLocaleString('he-IL');
+    const bind = (id, rows, title, file) => {
+      const el = $(id); if (!el) return;
+      el.textContent = fmt(rows.length);
+      el.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
+      el.onclick = () => openModal(rows, title, file);
+    };
+
+    bind('kpiAllOver3m', allOver3, 'פתוחות מעל 3 חודשים — כללי', 'over_3m_all');
+    bind('kpiAllOver6m', allOver6, 'פתוחות מעל חצי שנה — כללי', 'over_6m_all');
+    bind('kpiDeptOver3m', dOver3,  `פתוחות מעל 3 חודשים — ${dept}`, 'over_3m_dept');
+    bind('kpiDeptOver6m', dOver6,  `פתוחות מעל חצי שנה — ${dept}`,  'over_6m_dept');
+  }
+
+  if (typeof window.updateSuccessUI === 'function'){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){ const r = prev.apply(this, arguments); Promise.resolve(r).finally(compute); };
+  }
+  window.addEventListener('bi:dept-change', compute);
+  if (getDataset().length) compute();
+})();
+</script>
   </body>
