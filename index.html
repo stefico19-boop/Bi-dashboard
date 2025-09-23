@@ -2415,347 +2415,301 @@
   }
 })();
 </script>
-<!-- === STEP 11: Dashboard (Enhanced) === -->
-<button id="biOpenDashboardBtn"
-  class="fixed bottom-5 left-5 z-[900] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 shadow-luxe text-sm font-semibold">
-  דשבורד
-</button>
-
-<div id="biDashboard" class="fixed inset-0 z-[1000] hidden">
-  <div class="absolute inset-0 bg-black/60"></div>
-  <div class="relative mx-auto my-6 max-w-7xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
-    <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b border-white/10">
-      <div class="text-lg font-bold">דשבורד — סקירה חזותית</div>
-      <div class="ms-auto flex items-center gap-3">
-        <label class="text-xs text-ink-200/70">מחלקה:</label>
-        <select id="biDashDept"
-          class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5">
-          <option value="__ACTIVE__">מהטאב הפעיל</option>
-          <option value="כללי">כללי</option>
-        </select>
-        <input type="date" id="biDashDate"
-          class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5 text-white"/>
-        <button id="biDashExportImg"
-          class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-gold-500">הורד תמונה</button>
-        <button id="biDashClose"
-          class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
-      </div>
-    </div>
-    <div id="biDashboardContent" class="p-5 space-y-5 overflow-y-auto" style="max-height:78vh">
-      <!-- כאן נטען הדשבורד -->
-    </div>
-  </div>
-</div>
-
+<!-- === STEP 11 (NEW, INLINE TOP): Dashboard – counts, sources, export single image === -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2canvas"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 (() => {
-  const BTN=document.getElementById('biOpenDashboardBtn');
-  const MOD=document.getElementById('biDashboard');
-  const CLOSE=document.getElementById('biDashClose');
-  const SEL=document.getElementById('biDashDept');
-  const DATE=document.getElementById('biDashDate');
-  const EXPORT=document.getElementById('biDashExportImg');
-  const CONTENT=document.getElementById('biDashboardContent');
+  // ---------- Helpers ----------
+  const TZ='Asia/Jerusalem', DAY=24*60*60*1000;
+  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const HEB_D=/[\u0591-\u05C7]/g;
+  const norm = s => String(s||'').replace(HEB_D,'').replace(/\s+/g,'').toLowerCase();
 
+  const COLS = {
+    openedAt: ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened'],
+    source:   ['מקור פניה','מקור הפניה','מקור הפנייה','Source','Referral'],
+    status:   ['סטאטוס פניה','סטטוס פניה','סטאטוס','Status'],
+    dept:     ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+  };
+
+  function findCol(row, keys){
+    if (!row) return null;
+    for (const k of keys) if (k in row) return k;
+    const t = keys.map(norm);
+    for (const k in row) if (t.includes(norm(k))) return k;
+    return null;
+  }
   function getData(){ return Array.isArray(window.__dataset)?window.__dataset:[]; }
-
-  function filterByDept(rows){
-    let dept = SEL.value==='__ACTIVE__' ? (window.__biActiveDept||'כללי') : SEL.value;
-    if (dept==='כללי') return rows;
-    const dk = rows.length? Object.keys(rows[0]).find(k=>/מחלקה/.test(k)) : null;
-    if (!dk) return rows;
-    return rows.filter(r=>String(r[dk]||'').trim()===dept);
+  function activeDept(){
+    // אם יש בחירה מקומית נשתמש בה; אחרת הטאב הפעיל; אחרת כללי
+    return window.__biDashDeptScope || window.__biActiveDept || 'כללי';
+  }
+  function isOpenRow(r){
+    const k=findCol(r, COLS.status); if(!k) return true;
+    const v=String(r[k]??'').trim();
+    return !CLOSED.some(c=>v===c || v.includes(c));
+  }
+  function toPartsYMD(date){
+    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+    const m=Object.fromEntries(p.map(x=>[x.type,x.value])); return {y:+m.year,m:+m.month,d:+m.day};
+  }
+  function ymdKey(ymd){ return `${ymd.y}-${String(ymd.m).padStart(2,'0')}-${String(ymd.d).padStart(2,'0')}`; }
+  function todayKey(){ return ymdKey(toPartsYMD(new Date())); }
+  function yesterdayKey(){ const t=toPartsYMD(new Date()); const d=new Date(Date.UTC(t.y,t.m-1,t.d)-DAY); return ymdKey(toPartsYMD(d)); }
+  function normalizeDateOnly(cell){
+    if (cell==null||cell==='') return null;
+    if (typeof cell==='number'){ const epoch=new Date(Date.UTC(1899,11,30)); const d=new Date(epoch.getTime()+Math.floor(cell)*DAY); return ymdKey(toPartsYMD(d)); }
+    const s=String(cell);
+    const m=s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+    if (m){ let[_,dd,mm,yy]=m; if(yy.length===2) yy='20'+yy; const d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T00:00:00`); return ymdKey(toPartsYMD(d)); }
+    const d=new Date(s); if(!isNaN(d)) return ymdKey(toPartsYMD(d)); return null;
   }
 
-  function filterByDate(rows, keyWords, selectedDate){
-    const k = rows.length? Object.keys(rows[0]).find(c=>keyWords.includes(c)) : null;
-    if (!k) return [];
-    function normalize(val){
-      if (!val) return null;
-      const d = new Date(val);
-      if (!isNaN(d)) return d.toISOString().slice(0,10);
-      return null;
-    }
-    return rows.filter(r=>{
-      const v = normalize(r[k]);
-      return v===selectedDate;
-    });
-  }
-
-  let charts=[];
-  function destroyCharts(){ charts.forEach(c=>c.destroy()); charts=[]; }
-
-  function render(){
-    destroyCharts();
-    const all=getData(); if(!all.length) return;
-    const scoped=filterByDept(all);
-
-    CONTENT.innerHTML=`
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">סה״כ פתוחות</div>
-          <div id="dbOpen" class="text-3xl font-bold mt-1">—</div>
-        </div>
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">היום</div>
-          <div id="dbToday" class="text-3xl font-bold mt-1">—</div>
-        </div>
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">אתמול</div>
-          <div id="dbYest" class="text-3xl font-bold mt-1">—</div>
-        </div>
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">מקור הפניה (כלל)</div>
-          <div id="dbSourceAll" class="text-3xl font-bold mt-1">—</div>
-        </div>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
-        <div><canvas id="chSourceAll"></canvas></div>
-        <div><canvas id="chSourceDate"></canvas></div>
-      </div>
-    `;
-
-    const today=new Date().toISOString().slice(0,10);
-    const yest=new Date(Date.now()-86400000).toISOString().slice(0,10);
-    const dateCol=Object.keys(all[0]||{}).find(k=>/תאריך/.test(k) && /פתיחה/.test(k));
-
-    function normDate(v){
-      if (!v) return null;
-      const d=new Date(v);
-      return !isNaN(d)?d.toISOString().slice(0,10):null;
-    }
-
-    const openRows=scoped;
-    const todayRows=openRows.filter(r=>normDate(r[dateCol])===today);
-    const yestRows=openRows.filter(r=>normDate(r[dateCol])===yest);
-    document.getElementById('dbOpen').textContent=openRows.length;
-    document.getElementById('dbToday').textContent=todayRows.length;
-    document.getElementById('dbYest').textContent=yestRows.length;
-
-    // מקור הפניה
-    const srcCol=Object.keys(all[0]||{}).find(k=>/מקור/.test(k)||/source/i.test(k));
-    if (srcCol){
-      function agg(rows){
-        const m={}; rows.forEach(r=>{
-          const v=String(r[srcCol]||'לא ידוע').trim();
-          m[v]=(m[v]||0)+1;
-        }); return m;
-      }
-      const allAgg=agg(openRows);
-      const dateSel=DATE.value||today;
-      const dateAgg=agg(filterByDate(openRows,[dateCol],dateSel));
-
-      document.getElementById('dbSourceAll').textContent=Object.values(allAgg).reduce((a,b)=>a+b,0);
-
-      const ch1=new Chart(document.getElementById('chSourceAll'),{
-        type:'pie',
-        data:{ labels:Object.keys(allAgg), datasets:[{data:Object.values(allAgg)}] },
-        options:{ plugins:{legend:{labels:{color:'#cbd5e1'}}}}
-      });
-      const ch2=new Chart(document.getElementById('chSourceDate'),{
-        type:'pie',
-        data:{ labels:Object.keys(dateAgg), datasets:[{data:Object.values(dateAgg)}] },
-        options:{ plugins:{legend:{labels:{color:'#cbd5e1'}},title:{display:true,text:`מקור בתאריך ${dateSel}`,color:'#fff'}}}
-      });
-      charts.push(ch1,ch2);
-    }
-  }
-
-  BTN.addEventListener('click',()=>{MOD.classList.remove('hidden');render();});
-  CLOSE.addEventListener('click',()=>MOD.classList.add('hidden'));
-  MOD.addEventListener('click',(e)=>{if(e.target===MOD)MOD.classList.add('hidden');});
-  SEL.addEventListener('change',render);
-  DATE.addEventListener('change',render);
-
-  EXPORT.addEventListener('click',()=>{
-    html2canvas(CONTENT).then(canvas=>{
-      const link=document.createElement('a');
-      link.download='dashboard.png';
-      link.href=canvas.toDataURL('image/png');
-      link.click();
-    });
-  });
-})();
-</script>
-  <script>
-/* ==== DASHBOARD RESCUE PATCH (safe to paste before </body>) ==== */
-(function(){
-  const log=(...a)=>console.log('%c[BI-Dashboard]', 'color:#8b5cf6', ...a);
-
-  // 1) Ensure button
-  let btn = document.getElementById('biOpenDashboardBtn');
-  if (!btn) {
-    btn = document.createElement('button');
-    btn.id='biOpenDashboardBtn';
-    btn.className='fixed bottom-5 left-5 z-[900] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 shadow-luxe text-sm font-semibold';
-    btn.textContent='דשבורד';
-    document.body.appendChild(btn);
-    log('Injected missing #biOpenDashboardBtn');
-  }
-
-  // 2) Ensure modal shell (if your project already has it, this won't duplicate)
-  let mod = document.getElementById('biDashboard');
-  if (!mod) {
+  // ---------- Inject UI at top ----------
+  function injectTop(){
+    if (document.getElementById('biDashTop')) return;
+    const host = document.querySelector('main') || document.body;
     const html = `
-    <div id="biDashboard" class="fixed inset-0 z-[1000] hidden">
-      <div class="absolute inset-0 bg-black/60"></div>
-      <div class="relative mx-auto my-6 max-w-7xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
-        <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b border-white/10">
-          <div class="text-lg font-bold">דשבורד — סקירה חזותית</div>
-          <div class="ms-auto flex items-center gap-3">
-            <label class="text-xs text-ink-200/70">מחלקה:</label>
-            <select id="biDashDept" class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5">
-              <option value="__ACTIVE__">מהטאב הפעיל</option>
-              <option value="כללי">כללי</option>
-            </select>
-            <input type="date" id="biDashDate" class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5 text-white"/>
-            <button id="biDashExportImg" class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-gold-500">הורד תמונה</button>
-            <button id="biDashClose" class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+      <section id="biDashTop" class="max-w-6xl mx-auto px-4 mt-4">
+        <div class="rounded-3xl bg-white/5 border border-white/10 backdrop-blur-lg shadow-luxe p-6 md:p-8">
+          <div class="flex flex-wrap items-center gap-3 mb-4">
+            <div class="text-xl font-bold">דשבורד — סקירה מהירה</div>
+            <div class="ms-auto flex items-center gap-2">
+              <label class="text-xs text-ink-200/70">מחלקה:</label>
+              <select id="dashDept" class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5">
+                <option value="__ACTIVE__">מהטאב הפעיל</option>
+                <option value="כללי">כללי</option>
+              </select>
+              <label class="text-xs text-ink-200/70 ms-2">תאריך לבחירה:</label>
+              <input type="date" id="dashDate" class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5 text-white"/>
+              <button id="dashExportImg" class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-gold-500">הורד תמונה</button>
+            </div>
+          </div>
+
+          <!-- KPIs -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">סה״כ פניות פתוחות (בסְקופ)</div>
+              <div id="dKpiOpen" class="text-3xl font-bold mt-1">—</div>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">נפתחו היום</div>
+              <div id="dKpiToday" class="text-3xl font-bold mt-1">—</div>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">נפתחו אתמול</div>
+              <div id="dKpiYest" class="text-3xl font-bold mt-1">—</div>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="text-xs text-ink-200/70">נפתחו בתאריך שנבחר</div>
+              <div id="dKpiChosen" class="text-3xl font-bold mt-1">—</div>
+            </div>
+          </div>
+
+          <!-- Sources -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="flex items-center justify-between mb-2">
+                <div class="text-sm text-ink-200/80">מקור פניה — כל הפתוחות</div>
+                <small id="srcAllPct" class="text-ink-200/60"></small>
+              </div>
+              <canvas id="chSrcAll" height="180"></canvas>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="flex items-center justify-between mb-2">
+                <div class="text-sm text-ink-200/80">מקור פניה — היום</div>
+                <small id="srcTodayPct" class="text-ink-200/60"></small>
+              </div>
+              <canvas id="chSrcToday" height="180"></canvas>
+            </div>
+            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+              <div class="flex items-center justify-between mb-2">
+                <div class="text-sm text-ink-200/80">מקור פניה — אתמול/תאריך</div>
+                <small id="srcDatePct" class="text-ink-200/60"></small>
+              </div>
+              <canvas id="chSrcDate" height="180"></canvas>
+            </div>
           </div>
         </div>
-        <div id="biDashboardContent" class="p-5 space-y-5 overflow-y-auto" style="max-height:78vh"></div>
-      </div>
-    </div>`;
-    document.body.insertAdjacentHTML('beforeend', html);
-    mod = document.getElementById('biDashboard');
-    log('Injected missing #biDashboard shell');
-  }
-  const content = document.getElementById('biDashboardContent');
-  const closeBtn = document.getElementById('biDashClose');
-  const deptSel = document.getElementById('biDashDept');
-  const dateInp = document.getElementById('biDashDate');
-  const exportBtn = document.getElementById('biDashExportImg');
-
-  // 3) Ensure libs
-  async function ensureScript(src){
-    return new Promise((res,rej)=>{
-      const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s);
-    });
-  }
-  async function ensureDeps(){
-    if (!window.Chart) await ensureScript('https://cdn.jsdelivr.net/npm/chart.js');
-    if (!window.html2canvas) await ensureScript('https://cdn.jsdelivr.net/npm/html2canvas');
-  }
-
-  // 4) Minimal renderer (uses existing dataset & helpers if יש; אחרת מציג הודעה)
-  function normDateOnly(v){
-    if (!v) return null;
-    const d=new Date(v);
-    return isNaN(d)?null:d.toISOString().slice(0,10);
-  }
-  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
-  function activeDept(){ return (deptSel?.value==='__ACTIVE__' ? (window.__biActiveDept||'כללי') : (deptSel?.value||'כללי')); }
-  function findDateCol(row){
-    if (!row) return null;
-    const names = ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened'];
-    return Object.keys(row).find(k=>names.map(s=>s.replace(/\s+/g,'').toLowerCase()).includes(k.replace(/\s+/g,'').toLowerCase()));
-  }
-  function findSourceCol(row){
-    if (!row) return null;
-    const names = ['מקור פניה','מקור הפניה','מקור הפנייה','Source','Referral'];
-    return Object.keys(row).find(k=>names.map(s=>s.replace(/\s+/g,'').toLowerCase()).includes(k.replace(/\s+/g,'').toLowerCase()));
-  }
-  function findDeptCol(row){
-    if (!row) return null;
-    const names = ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
-    return Object.keys(row).find(k=>names.map(s=>s.replace(/\s+/g,'').toLowerCase()).includes(k.replace(/\s+/g,'').toLowerCase()));
-  }
-
-  let charts=[];
-  function destroyCharts(){ charts.forEach(c=>{try{c.destroy()}catch{}}); charts=[]; }
-
-  function renderDashboard(){
-    const all=getDataset();
-    if (!all.length){
-      content.innerHTML = `<div class="text-sm text-ink-200/70 p-4">לא נטענו נתונים (XLSX). טעני קובץ ואז פתחי שוב.</div>`;
-      return;
-    }
-    const dateCol = findDateCol(all[0]);
-    const srcCol  = findSourceCol(all[0]);
-    const dpCol   = findDeptCol(all[0]);
-    if (!dateCol){
-      content.innerHTML = `<div class="text-sm text-rose-300 p-4">לא נמצאה עמודת תאריך פתיחה. בדקי שהשם הוא "שעת/תאריך פתיחה".</div>`;
-      return;
-    }
-
-    // scope by dept
-    let rows = all.slice();
-    const dept = activeDept();
-    if (dept!=='כללי' && dpCol){
-      rows = rows.filter(r => String(r[dpCol]??'').trim()===dept);
-    }
-
-    const today = new Date().toISOString().slice(0,10);
-    const yest  = new Date(Date.now()-86400000).toISOString().slice(0,10);
-    const chosen = dateInp?.value || today;
-
-    const todayRows = rows.filter(r => normDateOnly(r[dateCol])===today);
-    const yestRows  = rows.filter(r => normDateOnly(r[dateCol])===yest);
-
-    // UI
-    destroyCharts();
-    content.innerHTML = `
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">סה״כ (סְקופ)</div>
-          <div class="text-3xl font-bold mt-1">${rows.length.toLocaleString('he-IL')}</div>
-        </div>
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">נפתחו היום</div>
-          <div class="text-3xl font-bold mt-1">${todayRows.length.toLocaleString('he-IL')}</div>
-        </div>
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">נפתחו אתמול</div>
-          <div class="text-3xl font-bold mt-1">${yestRows.length.toLocaleString('he-IL')}</div>
-        </div>
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-xs text-ink-200/70">תאריך נבחר</div>
-          <div class="text-3xl font-bold mt-1">${(rows.filter(r=>normDateOnly(r[dateCol])===chosen).length).toLocaleString('he-IL')}</div>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-sm text-ink-200/80 mb-2">מקור הפניה — כל הפתוחות בסְקופ</div>
-          <canvas id="chSrcAll" height="200"></canvas>
-        </div>
-        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-          <div class="text-sm text-ink-200/80 mb-2">מקור הפניה — לפי תאריך נבחר (${chosen})</div>
-          <canvas id="chSrcDate" height="200"></canvas>
-        </div>
-      </div>
+      </section>
     `;
+    // למעלה: אחרי ה-header (בתוך main) — על ההתחלה
+    if (host.firstElementChild?.id==='biDashTop') return;
+    if (host.firstElementChild) host.insertAdjacentHTML('afterbegin', html);
+    else host.innerHTML = html + host.innerHTML;
+  }
 
-    function aggBy(col, set){
-      const map=new Map();
-      set.forEach(r=>{
-        const v = String(r[col]??'(ללא)').trim();
-        map.set(v, (map.get(v)||0)+1);
-      });
-      return [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,12);
+  // ---------- Data -> Charts ----------
+  let charts=[]; function destroy(){ charts.forEach(c=>{try{c.destroy()}catch{}}); charts=[]; }
+
+  function scopeByDept(rows, dept){
+    if (dept==='__ACTIVE__') dept = window.__biActiveDept || 'כללי';
+    if (dept==='כללי') return rows;
+    const dk=findCol(rows[0]||{}, COLS.dept); if(!dk) return rows;
+    return rows.filter(r => String(r[dk]??'').trim()===dept);
+  }
+
+  function aggregateMap(rows, col){
+    const m=new Map();
+    rows.forEach(r=>{
+      const v = String(r[col]??'(ללא)').trim() || '(ללא)';
+      m.set(v, (m.get(v)||0)+1);
+    });
+    return [...m.entries()].sort((a,b)=>b[1]-a[1]);
+  }
+
+  function pctLabel(total, mapArr){
+    if (!total) return '';
+    const top = mapArr[0]?.[1]||0;
+    const p = Math.round(top*100/total);
+    return `סה״כ: ${total.toLocaleString('he-IL')} • טופ: ${p}%`;
+  }
+
+  function render(){
+    const wrap = document.getElementById('biDashTop');
+    if (!wrap) return;
+    const data = getData();
+    if (!data.length) return;
+
+    // fill dept select once
+    const deptSel = document.getElementById('dashDept');
+    if (deptSel && !deptSel.dataset.filled && data[0]){
+      const dk=findCol(data[0], COLS.dept);
+      if (dk){
+        const set=new Set(['כללי']);
+        data.forEach(r=>{ const v=String(r[dk]??'').trim(); if(v) set.add(v); });
+        [...set].forEach(name=>{
+          if (![...deptSel.options].some(o=>o.value===name)){
+            const o=document.createElement('option'); o.value=name; o.textContent=name; deptSel.appendChild(o);
+          }
+        });
+      }
+      deptSel.dataset.filled='1';
     }
 
-    if (srcCol){
-      const allAgg  = aggBy(srcCol, rows);
-      const dateAgg = aggBy(srcCol, rows.filter(r=>normDateOnly(r[dateCol])===chosen));
-      const c1 = new Chart(document.getElementById('chSrcAll'), {
-        type:'bar',
-        data:{ labels: allAgg.map(x=>x[0]), datasets:[{label:'כמות', data: allAgg.map(x=>x[1])}] },
-        options:{ plugins:{legend:{display:false, labels:{color:'#cbd5e1'}}}, scales:{x:{ticks:{color:'#cbd5e1'}}, y:{ticks:{color:'#cbd5e1'}}} }
+    // active scope
+    const scopeVal = deptSel?.value || '__ACTIVE__';
+    window.__biDashDeptScope = scopeVal;
+    let rows = scopeByDept(data.filter(isOpenRow), scopeVal);
+
+    const openedCol = rows.length ? findCol(rows[0], COLS.openedAt) : null;
+    const sourceCol = rows.length ? findCol(rows[0], COLS.source)   : null;
+    if (!openedCol){
+      // אין תאריך — מציג הודעה קטנה במקום מספרים
+      wrap.querySelector('#dKpiOpen').textContent = '—';
+      wrap.querySelector('#dKpiToday').textContent = '—';
+      wrap.querySelector('#dKpiYest').textContent = '—';
+      wrap.querySelector('#dKpiChosen').textContent = '—';
+      return;
+    }
+
+    const tKey = todayKey(), yKey = yesterdayKey();
+    const dateKeyOf = r => normalizeDateOnly(r[openedCol]);
+
+    // KPIs
+    const openCount   = rows.length;
+    const todayRows   = rows.filter(r => dateKeyOf(r)===tKey);
+    const yestRows    = rows.filter(r => dateKeyOf(r)===yKey);
+    const chosenInp   = document.getElementById('dashDate');
+    const chosenDate  = chosenInp?.value || tKey.replace(/-/g,'-'); // yyyy-mm-dd; נחשב דרך normalizeDateOnly בהמשך
+    const chosenRows  = chosenInp?.value
+      ? rows.filter(r => dateKeyOf(r)===chosenDate)
+      : todayRows;
+
+    document.getElementById('dKpiOpen').textContent   = openCount.toLocaleString('he-IL');
+    document.getElementById('dKpiToday').textContent  = todayRows.length.toLocaleString('he-IL');
+    document.getElementById('dKpiYest').textContent   = yestRows.length.toLocaleString('he-IL');
+    document.getElementById('dKpiChosen').textContent = chosenRows.length.toLocaleString('he-IL');
+
+    // Sources charts
+    destroy();
+    const ctxAll   = document.getElementById('chSrcAll');
+    const ctxToday = document.getElementById('chSrcToday');
+    const ctxDate  = document.getElementById('chSrcDate');
+
+    if (sourceCol){
+      const allAgg   = aggregateMap(rows, sourceCol);
+      const todayAgg = aggregateMap(todayRows, sourceCol);
+      const dateAgg  = aggregateMap(chosenRows, sourceCol);
+
+      const mk = (ctx, labels, data, pctEl, total) => {
+        const c = new Chart(ctx, {
+          type: 'pie',
+          data: { labels, datasets: [{ data }] },
+          options: { plugins: { legend: { labels: { color:'#cbd5e1' } } } }
+        });
+        charts.push(c);
+        if (pctEl) pctEl.textContent = pctLabel(total, labels.map((l,i)=>[l,data[i]]));
+      };
+
+      mk(ctxAll,
+         allAgg.map(x=>x[0]), allAgg.map(x=>x[1]),
+         document.getElementById('srcAllPct'), rows.length);
+
+      mk(ctxToday,
+         todayAgg.map(x=>x[0]), todayAgg.map(x=>x[1]),
+         document.getElementById('srcTodayPct'), todayRows.length);
+
+      // לוח “אתמול/תאריך”: אם נבחר תאריך – מציג עבורו, אחרת עבור אתמול
+      const dateTotal = (chosenInp && chosenInp.value) ? chosenRows.length : yestRows.length;
+      const labelsD   = (chosenInp && chosenInp.value) ? dateAgg.map(x=>x[0]) : aggregateMap(yestRows, sourceCol).map(x=>x[0]);
+      const dataD     = (chosenInp && chosenInp.value) ? dateAgg.map(x=>x[1]) : aggregateMap(yestRows, sourceCol).map(x=>x[1]);
+      new Chart(ctxDate, {
+        type:'pie',
+        data:{ labels: labelsD, datasets:[{ data: dataD }] },
+        options:{ plugins:{ legend:{ labels:{ color:'#cbd5e1' } } } }
       });
-      const c2 = new Chart(document.getElementById('chSrcDate'), {
-        type:'bar',
-        data:{ labels: dateAgg.map(x=>x[0]), datasets:[{label:'כמות', data: dateAgg.map(x=>x[1])}] },
-        options:{ plugins:{legend:{display:false, labels:{color:'#cbd5e1'}}}, scales:{x:{ticks:{color:'#cbd5e1'}}, y:{ticks:{color:'#cbd5e1'}}} }
-      });
-      charts.push(c1,c2);
+      charts.push(ctxDate);
+      document.getElementById('srcDatePct').textContent = pctLabel(dateTotal, labelsD.map((l,i)=>[l,dataD[i]]));
     } else {
-      const box1 = document.getElementById('chSrcAll')?.parentElement;
-      const box2 = document.getElementById('chSrcDate')?.parentElement;
-      if (box1) box1.innerHTML = '<div class="text-xs text-ink-200/70">לא נמצאה עמודת "מקור פניה".</div>';
-      if (box2) box2.innerHTML = '<div class="text-xs text-ink-200/70">לא נמצאה עמודת "מקור פניה".</div>';
+      // אין עמודת מקור
+      ctxAll?.getContext && (ctxAll.parentElement.innerHTML = '<div class="text-xs text-ink-200/70">לא נמצאה עמודת "מקור פניה".</div>');
+      ctxToday?.getContext && (ctxToday.parentElement.innerHTML = '<div class="text-xs text-ink-200/70">לא נמצאה עמודת "מקור פניה".</div>');
+      ctxDate?.getContext && (ctxDate.parentElement.innerHTML = '<div class="text-xs text-ink-200/70">לא נמצאה עמודת "מקור פניה".</div>');
     }
   }
+
+  // ---------- Wire UI ----------
+  function bind(){
+    const deptSel = document.getElementById('dashDept');
+    const dateInp = document.getElementById('dashDate');
+    const expBtn  = document.getElementById('dashExportImg');
+
+    if (deptSel && !deptSel.dataset.bound){
+      deptSel.dataset.bound='1';
+      deptSel.addEventListener('change', ()=>{ window.__biDashDeptScope = deptSel.value; render(); });
+    }
+    if (dateInp && !dateInp.dataset.bound){
+      dateInp.dataset.bound='1';
+      dateInp.addEventListener('change', render);
+    }
+    if (expBtn && !expBtn.dataset.bound){
+      expBtn.dataset.bound='1';
+      expBtn.addEventListener('click', async ()=>{
+        const box = document.getElementById('biDashTop');
+        const canvas = await html2canvas(box, {backgroundColor:'#0b1220', scale:2});
+        const a=document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'dashboard_full.png';
+        document.body.appendChild(a); a.click(); a.remove();
+      });
+    }
+  }
+
+  // ---------- Init & reactive ----------
+  injectTop(); render(); bind();
+
+  // נתונים נטענו אחרי בחירת קובץ
+  if (typeof window.updateSuccessUI === 'function'){
+    const prev=window.updateSuccessUI;
+    window.updateSuccessUI = function(){ const r=prev.apply(this, arguments); Promise.resolve(r).then(()=>{ injectTop(); render(); bind(); }); };
+  }
+  // שינוי טאב מחלקה (אם יש לך אירוע כזה בקוד)
+  window.addEventListener('bi:dept-change', ()=>{ render(); });
+
+  // אם כבר יש דאטה טעונה
+  if (getData().length) { render(); }
+})();
+    </script>
   </body>
