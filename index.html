@@ -3101,4 +3101,182 @@
 
 })();
 </script>
+  <script>
+/* ==== STEP 11: DASHBOARD OPEN PATCH (add-only, safe) ==== */
+(function(){
+  const log=(...a)=>console.log('%c[BI-DashPatch]', 'color:#8b5cf6', ...a);
+
+  // 1) Ensure button exists & visible
+  let btn = document.getElementById('biDashOpenBtn');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id='biDashOpenBtn';
+    btn.type='button';
+    btn.className='fixed bottom-5 left-5 z-[900] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 shadow-luxe text-sm font-semibold';
+    btn.textContent='דשבורד';
+    document.body.appendChild(btn);
+    log('Injected #biDashOpenBtn');
+  }
+  btn.style.pointerEvents = 'auto';
+  btn.style.opacity = '1';
+
+  // 2) Ensure modal shell (reuse if exists)
+  let mod = document.getElementById('biDashModal');
+  if (!mod) {
+    const html = `
+    <div id="biDashModal" class="fixed inset-0 z-[1000] hidden">
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="relative mx-auto my-6 max-w-7xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+        <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+          <div class="text-lg font-bold">דשבורד — לוח מחוונים</div>
+          <div class="ms-auto flex items-center gap-2">
+            <label class="text-xs text-ink-200/70">מחלקה:</label>
+            <select id="biDashDept" class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5">
+              <option value="__ACTIVE__">מהטאב הפעיל</option>
+              <option value="כללי">כללי</option>
+            </select>
+            <label class="text-xs text-ink-200/70 ms-2">תאריך:</label>
+            <input type="date" id="biDashDate" class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5 text-white"/>
+            <button id="biDashExportImg" class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-gold-500">הורד תמונה</button>
+            <button id="biDashClose" class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+          </div>
+        </div>
+        <div id="biDashBody" class="p-5 space-y-5 overflow-y-auto" style="max-height:78vh">
+          <!-- fallback content if no renderer -->
+          <div id="__dashFallback" class="rounded-2xl bg-ink-900/60 border border-white/10 p-4 text-sm text-ink-200/80">
+            טוען דשבורד...
+          </div>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    mod = document.getElementById('biDashModal');
+    log('Injected #biDashModal');
+  }
+
+  const BODY = document.getElementById('biDashBody');
+  const CLOSE= document.getElementById('biDashClose');
+  const DEPT = document.getElementById('biDashDept');
+  const DATE = document.getElementById('biDashDate');
+  const EXP  = document.getElementById('biDashExportImg');
+
+  // 3) Ensure libs
+  async function ensureScript(src){
+    return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+  }
+  async function ensureDeps(){
+    if (!window.Chart) await ensureScript('https://cdn.jsdelivr.net/npm/chart.js');
+    if (!window.ChartDataLabels) await ensureScript('https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2');
+    if (!window.html2canvas) await ensureScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+  }
+
+  // 4) Open/Close wiring
+  btn.addEventListener('click', async ()=>{
+    try{
+      await ensureDeps();
+      mod.classList.remove('hidden');
+      // אם יש רנדרר קיים (מהקוד שלך) – נקרא אליו:
+      if (typeof window.__BI_RENDER_DASHBOARD === 'function') {
+        window.__BI_RENDER_DASHBOARD();
+      } else {
+        // רנדר מינימלי כדי להוכיח שהכפתור עובד
+        renderFallback();
+      }
+    } catch(e){
+      console.error('[BI-DashPatch] deps error', e);
+      alert('שגיאה בטעינת התוספים לדשבורד.');
+    }
+  });
+  CLOSE?.addEventListener('click', ()=> mod.classList.add('hidden'));
+  mod.addEventListener('click', (e)=>{ if(e.target===mod) mod.classList.add('hidden'); });
+
+  // 5) Export image (כל הדשבורד ב־PNG)
+  EXP?.addEventListener('click', async ()=>{
+    try{
+      const box = BODY.parentElement; // המסגרת הפנימית
+      const canvas = await html2canvas(box, {backgroundColor:'#0b1220', scale:2});
+      const a=document.createElement('a');
+      a.href=canvas.toDataURL('image/png'); a.download='dashboard_full.png';
+      document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){ console.error(e); alert('נכשל ייצוא תמונה'); }
+  });
+
+  // 6) Hook re-render if your code fires these events
+  window.addEventListener('bi:dept-change', ()=>{ if(!mod.classList.contains('hidden')) callRender(); });
+  document.addEventListener('bi:data-loaded', ()=>{ if(!mod.classList.contains('hidden')) callRender(); });
+  DEPT?.addEventListener('change', callRender);
+  DATE?.addEventListener('change', callRender);
+
+  function callRender(){
+    if (typeof window.__BI_RENDER_DASHBOARD === 'function') {
+      window.__BI_RENDER_DASHBOARD();
+    } else {
+      renderFallback();
+    }
+  }
+
+  // 7) Minimal fallback renderer (KPI בלבד) – אם אין רנדרר שלך
+  function renderFallback(){
+    const data = Array.isArray(window.__dataset) ? window.__dataset : [];
+    const HEB_D=/[\u0591-\u05C7]/g;
+    const norm = s => String(s||'').replace(HEB_D,'').replace(/\s+/g,'').toLowerCase();
+    const OPENED_KEYS=['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened'];
+
+    function findCol(row, keys){
+      if (!row) return null;
+      for (const k of keys) if (k in row) return k;
+      const t=keys.map(norm);
+      for (const k in row) if (t.includes(norm(k))) return k;
+      return null;
+    }
+    function toPartsYMD(date){
+      const p=new Intl.DateTimeFormat('he-IL',{timeZone:'Asia/Jerusalem',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+      const m=Object.fromEntries(p.map(x=>[x.type,x.value])); return {y:+m.year,m:+m.month,d:+m.day};
+    }
+    const DAY=24*60*60*1000;
+    function ymd(d){return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;}
+    function today(){return ymd(toPartsYMD(new Date()));}
+    function yesterday(){ const t=toPartsYMD(new Date()); return ymd(toPartsYMD(new Date(Date.UTC(t.y,t.m-1,t.d)-DAY))); }
+    function normalizeDateOnly(cell){
+      if (cell==null||cell==='') return null;
+      if (typeof cell==='number'){ const epoch=new Date(Date.UTC(1899,11,30)); const d=new Date(epoch.getTime()+Math.floor(cell)*DAY); const p=toPartsYMD(d); return ymd(p); }
+      const s=String(cell);
+      const m=s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+      if (m){ let[_,dd,mm,yy]=m; if(yy.length===2) yy='20'+yy; const d=new Date(`${yy}-${mm}-${dd}T00:00:00`); const p=toPartsYMD(d); return ymd(p); }
+      const d=new Date(s); if(!isNaN(d)) { const p=toPartsYMD(d); return ymd(p); }
+      return null;
+    }
+
+    const opened = data.length ? findCol(data[0], OPENED_KEYS) : null;
+    const t = today(), y = yesterday();
+    const todayRows  = opened ? data.filter(r=>normalizeDateOnly(r[opened])===t) : [];
+    const yestRows   = opened ? data.filter(r=>normalizeDateOnly(r[opened])===y) : [];
+
+    const html = `
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">סה״כ רשומות</div>
+          <div class="text-3xl font-bold mt-1">${data.length.toLocaleString('he-IL')}</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">נפתחו היום</div>
+          <div class="text-3xl font-bold mt-1">${todayRows.length.toLocaleString('he-IL')}</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">נפתחו אתמול</div>
+          <div class="text-3xl font-bold mt-1">${yestRows.length.toLocaleString('he-IL')}</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">הערה</div>
+          <div class="text-sm mt-1 text-ink-200/80">מוצג רנדר מינימלי כי לא נמצאה פונקציית דשבורד ייעודית.</div>
+        </div>
+      </div>
+    `;
+    const box = document.getElementById('__dashFallback');
+    if (box) box.innerHTML = html;
+  }
+
+  log('Patch ready. Click the “דשבורד” button to open.');
+})();
+      </script>
   </body>
