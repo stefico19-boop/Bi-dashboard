@@ -2776,4 +2776,146 @@
   }
 })();
 </script>
+  <!-- ==== PERSISTENCE: שמירת נתונים לאחר טעינת קובץ והחזרה אחרי רענון ==== -->
+<script>
+(function(){
+  const DB_NAME = 'biStore';
+  const STORE   = 'datasets';
+  const KEY     = 'latest';
+
+  // -------- IndexedDB helpers --------
+  function idbOpen(){
+    return new Promise((res, rej)=>{
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      };
+      req.onsuccess = () => res(req.result);
+      req.onerror   = () => rej(req.error);
+    });
+  }
+  function idbGet(key){
+    return idbOpen().then(db => new Promise((res, rej)=>{
+      const tx = db.transaction(STORE, 'readonly');
+      const st = tx.objectStore(STORE);
+      const rq = st.get(key);
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror   = () => rej(rq.error);
+    }));
+  }
+  function idbSet(key, val){
+    return idbOpen().then(db => new Promise((res, rej)=>{
+      const tx = db.transaction(STORE, 'readwrite');
+      const st = tx.objectStore(STORE);
+      const rq = st.put(val, key);
+      rq.onsuccess = () => res(true);
+      rq.onerror   = () => rej(rq.error);
+    }));
+  }
+
+  // -------- Save / Load --------
+  async function saveDatasetToIDB(dataset, meta={}){
+    if (!Array.isArray(dataset) || !dataset.length) return;
+    const payload = {
+      ts: Date.now(),
+      filename: meta.filename || window.__lastFilename || '',
+      rows: dataset
+    };
+    try { await idbSet(KEY, payload); }
+    catch(e){ console.warn('[BI persist] save failed:', e); }
+  }
+
+  async function loadDatasetFromIDB(){
+    try {
+      const data = await idbGet(KEY);
+      if (!data || !Array.isArray(data.rows) || !data.rows.length) return null;
+      return data;
+    } catch(e){
+      console.warn('[BI persist] load failed:', e);
+      return null;
+    }
+  }
+
+  // -------- Hook points (no code changes elsewhere) --------
+  // 1) כשקובץ נקלט בהצלחה — נשמור את __dataset
+  if (typeof window.updateSuccessUI === 'function' && !window.__BI_PERSIST_WRAPPED){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = async function(filename, rowsCount){
+      const r = prev.apply(this, arguments);
+      try {
+        // אם כבר נוצר __dataset בשלבים 2/3 – נשמור
+        if (Array.isArray(window.__dataset) && window.__dataset.length){
+          window.__lastFilename = filename || window.__lastFilename || '';
+          await saveDatasetToIDB(window.__dataset, { filename });
+        } else if (window.__lastFile && window.XLSX) {
+          // אם טרם נוצר __dataset – נוציא אותו מהקובץ ונשמור
+          const buf = await window.__lastFile.arrayBuffer();
+          const wb  = XLSX.read(buf, { type: 'array' });
+          const sh  = wb.Sheets[wb.SheetNames[0]];
+          window.__dataset = XLSX.utils.sheet_to_json(sh, { defval: null });
+          window.__lastFilename = filename || window.__lastFilename || window.__lastFile.name || '';
+          await saveDatasetToIDB(window.__dataset, { filename: window.__lastFilename });
+        }
+        // נודיע לשאר המודולים שהנתונים מעודכנים
+        setTimeout(()=>document.dispatchEvent(new Event('bi:data-loaded')), 0);
+      } catch(e){
+        console.warn('[BI persist] wrap updateSuccessUI error:', e);
+      }
+      return r;
+    };
+    window.__BI_PERSIST_WRAPPED = true;
+  }
+
+  // 2) בשלב טעינת העמוד — ננסה לשחזר נתונים
+  document.addEventListener('DOMContentLoaded', async ()=>{
+    // אם כבר יש __dataset בחיים – לא נדרוס
+    if (Array.isArray(window.__dataset) && window.__dataset.length) return;
+    const restored = await loadDatasetFromIDB();
+    if (restored && Array.isArray(restored.rows) && restored.rows.length){
+      window.__dataset = restored.rows;
+      window.__lastFilename = restored.filename || '';
+      // עידכון UI בסיסי אם יש אלמנטים מהשלב הראשון
+      const stTitle = document.getElementById('statusTitle');
+      const stSub   = document.getElementById('statusSub');
+      const chip    = document.getElementById('chipRows');
+      const resLine = document.getElementById('resultLine');
+      const resTitle= document.getElementById('resultTitle');
+      const resSub  = document.getElementById('resultSub');
+      const rowsPill= document.getElementById('rowsPill');
+
+      try {
+        const n = restored.rows.length;
+        if (stTitle) stTitle.textContent = 'קובץ שוחזר מהדפדפן';
+        if (stSub)   stSub.textContent   = `${restored.filename||'ללא שם'} • ${n.toLocaleString('he-IL')} שורות`;
+        if (chip)    { chip.textContent = `${n.toLocaleString('he-IL')} שורות`; chip.classList.remove('hidden'); }
+        if (resTitle) resTitle.textContent = 'נתונים שוחזרו';
+        if (resSub)   resSub.textContent   = `${restored.filename||'ללא שם'} • ${n.toLocaleString('he-IL')} שורות • שחזור אוטומטי`;
+        if (rowsPill) { rowsPill.textContent = `${n.toLocaleString('he-IL')} שורות`; rowsPill.classList.remove('hidden'); }
+        if (resLine) resLine.classList.remove('hidden');
+      } catch(_) {}
+
+      // שדרוג: לפעיל/טאבים/דשבורדים ששומעים לאירוע
+      document.dispatchEvent(new Event('bi:data-loaded'));
+    }
+  });
+
+  // 3) API קטן לשימוש פנימי אם תרצי לשמור ידנית
+  window.__BI_SAVE_NOW = async function(){
+    if (Array.isArray(window.__dataset) && window.__dataset.length){
+      await saveDatasetToIDB(window.__dataset, { filename: window.__lastFilename || '' });
+      alert('הנתונים נשמרו בדפדפן בהצלחה.');
+    } else {
+      alert('אין נתונים לשמירה.');
+    }
+  };
+
+  // 4) שמירה אוטומטית כשיש שינוי גלובלי בנתונים (אם מודולים אחרים יעדכנו)
+  document.addEventListener('bi:data-changed', ()=>{
+    if (Array.isArray(window.__dataset) && window.__dataset.length){
+      saveDatasetToIDB(window.__dataset, { filename: window.__lastFilename || '' });
+    }
+  });
+})();
+</script>
 </body>
