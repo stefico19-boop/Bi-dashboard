@@ -2400,4 +2400,318 @@
   if (getDataset().length) compute();
 })();
 </script>
+  <!-- === STEP 11: Dashboard Modal (Charts for all steps) + Export Image === -->
+<button id="biOpenDashboardBtn"
+  class="fixed bottom-5 left-5 z-[900] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 shadow-luxe text-sm font-semibold">
+  דשבורד
+</button>
+
+<div id="biDashboard" class="fixed inset-0 z-[1000] hidden">
+  <div class="absolute inset-0 bg-black/60"></div>
+  <div class="relative mx-auto my-6 max-w-7xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+    <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b border-white/10">
+      <div class="text-lg font-bold">דשבורד — סקירה חזותית</div>
+      <div class="ms-auto flex items-center gap-3">
+        <label class="text-xs text-ink-200/70">מחלקה:</label>
+        <select id="biDashDept"
+          class="text-sm bg-white/10 border border-white/20 rounded-full px-3 py-1.5 focus:outline-none">
+          <option value="__ACTIVE__">מהטאב הפעיל</option>
+          <option value="כללי">כללי</option>
+        </select>
+        <button id="biDashClose" class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+      </div>
+    </div>
+
+    <div class="p-5 space-y-5 overflow-y-auto" style="max-height:78vh">
+      <!-- KPIs -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">סה״כ פתוחות</div>
+          <div id="dbKpiOpen" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">נפתחו היום</div>
+          <div id="dbKpiToday" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">נפתחו אתמול</div>
+          <div id="dbKpiYest" class="text-3xl font-bold mt-1">—</div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">כפילויות (סה״כ)</div>
+          <div id="dbKpiDup" class="text-3xl font-bold mt-1">—</div>
+        </div>
+      </div>
+
+      <!-- שורה 1: עוגות (SLA / שינוי אחרון) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm text-ink-200/80">SLA — עומד / חריג</div>
+            <button id="btnImgSLA" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/20">הורד תמונה</button>
+          </div>
+          <canvas id="chSLA" height="200"></canvas>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm text-ink-200/80">שינוי אחרון — ≤ / ＞ 72 שעות</div>
+            <button id="btnImgStale" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/20">הורד תמונה</button>
+          </div>
+          <canvas id="chStale" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- שורה 2: עמודות (ערים / יחידות) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm text-ink-200/80">Top ערים (פתוחות)</div>
+            <div class="flex items-center gap-2">
+              <small id="lblCityFound" class="text-ink-200/60"></small>
+              <button id="btnImgCity" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/20">הורד תמונה</button>
+            </div>
+          </div>
+          <canvas id="chCity" height="200"></canvas>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm text-ink-200/80">Top יחידות (פתוחות)</div>
+            <div class="flex items-center gap-2">
+              <small id="lblUnitFound" class="text-ink-200/60"></small>
+              <button id="btnImgUnit" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/20">הורד תמונה</button>
+            </div>
+          </div>
+          <canvas id="chUnit" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- שורה 3: עמודות (כפילויות לפי שדה) -->
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-sm text-ink-200/80">כפילויות — לפי שדה</div>
+          <button id="btnImgDup" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/20">הורד תמונה</button>
+        </div>
+        <canvas id="chDup" height="180"></canvas>
+        <div class="text-[11px] text-ink-200/60 mt-2">מספר מעקב / שם לקוח / דוא״ל — נספרים רק ערכים שמופיעים 2+ פעמים.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const BTN = document.getElementById('biOpenDashboardBtn');
+  const MOD = document.getElementById('biDashboard');
+  const CLOSE = document.getElementById('biDashClose');
+  const SEL = document.getElementById('biDashDept');
+
+  async function ensureChartJS(){
+    if (window.Chart) return;
+    await new Promise((res, rej)=>{
+      const s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/chart.js';
+      s.onload=res; s.onerror=rej; document.head.appendChild(s);
+    });
+  }
+
+  // ===== נתונים ועזרי חישוב (כמו בגרסה הקודמת) =====
+  const TZ='Asia/Jerusalem', DAY=24*60*60*1000, HOUR=60*60*1000;
+  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const COLS={
+    status:   ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    dept:     ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    openedAt: ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','פתיחה','date_opened','opened_at'],
+    subject:  ['סיווג נושא','נושא'],
+    problem:  ['סיווג בעיה','בעיה'],
+    product:  ['סיווג מוצר','קו מוצר','Category'],
+    lastChange: ['תאריך שינוי אחרון','שעת/תאריך שינוי אחרון','עדכון אחרון','Last Updated','Updated At','updated_at','last_update','modified_at'],
+    cityFlexExact: ['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'],
+    unitFlexExact: ['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'],
+    tracking: ['מספר מעקב','מספר פריט','מס׳ מעקב','Tracking','tracking_number'],
+    custName: ['שם לקוח','שם הלקוח','לקוח','Customer Name','שם'],
+    custMail: ['דואר אלקטרוני','אימייל','מייל','Email','email']
+  };
+  const HEB_DIACRITICS=/[\u0591-\u05C7]/g;
+  const normHeader = s => String(s).replace(HEB_DIACRITICS,'').replace(/\s+/g,'').toLowerCase();
+  function findCol(row, keys){
+    if(!row) return null;
+    for (const k of keys) if (k in row) return k;
+    const targets=keys.map(normHeader);
+    for (const k in row) if (targets.includes(normHeader(k))) return k;
+    return null;
+  }
+  function getData(){ return Array.isArray(window.__dataset)?window.__dataset:[]; }
+  function activeDept(){ return (SEL?.value==='__ACTIVE__' ? (window.__biActiveDept||'כללי') : (SEL?.value||'כללי')); }
+
+  function toPartsYMDInTZ(date){
+    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+    const m=Object.fromEntries(p.map(x=>[x.type,x.value])); return {y:+m.year,m:+m.month,d:+m.day};
+  }
+  function ymdKey(ymd){ return `${ymd.y}-${String(ymd.m).padStart(2,'0')}-${String(ymd.d).padStart(2,'0')}`; }
+  function todayKey(){ return ymdKey(toPartsYMDInTZ(new Date())); }
+  function yesterdayKey(){ const t=toPartsYMDInTZ(new Date()); const d=new Date(Date.UTC(t.y,t.m-1,t.d)-DAY); return ymdKey(toPartsYMDInTZ(d)); }
+  function normalizeDateOnly(cell){
+    if (cell==null||cell==='') return null;
+    if (typeof cell==='number'){ const epoch=new Date(Date.UTC(1899,11,30)); const d=new Date(epoch.getTime()+Math.floor(cell)*DAY); return ymdKey(toPartsYMDInTZ(d)); }
+    const s=String(cell); const m=s.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+    if (m){ let[_,dd,mm,yy]=m; if(yy.length===2) yy='20'+yy; const d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T00:00:00`); return ymdKey(toPartsYMDInTZ(d)); }
+    const d=new Date(s); if(!isNaN(d)) return ymdKey(toPartsYMDInTZ(d)); return null;
+  }
+  function isOpenRow(r){ const k=findCol(r,COLS.status); if(!k) return true; const v=String(r[k]??'').trim(); return !CLOSED.some(c=>v===c||v.includes(c)); }
+  function pickTargetDays(row){
+    const pk=findCol(row,COLS.product); const prod=String(pk?row[pk]:'').replace(HEB_DIACRITICS,'').toLowerCase();
+    if (prod.includes('מידע')||prod.includes('תקלה')||prod.includes('portal')) return 1;
+    if (prod.includes('חלוקת')||prod.includes('יחיד')) return 8;
+    const dk=findCol(row,COLS.dept); const dept=String(dk?row[dk]:'').replace(HEB_DIACRITICS,'').toLowerCase();
+    if (dept.includes('בינלאומי')) return 60;
+    if (dept.includes('שליח')) return 30;
+    if (dept.includes('פנים') && dept.includes('ארצי')) return 30;
+    return 30;
+  }
+  function slaStatus(row){
+    const k=findCol(row,COLS.openedAt); if(!k) return 'unknown';
+    const key=normalizeDateOnly(row[k]); if(!key) return 'unknown';
+    const [y,m,d]=key.split('-').map(n=>+n);
+    const open=new Date(Date.UTC(y,m-1,d));
+    const due=new Date(open.getTime()+pickTargetDays(row)*DAY);
+    return (due.getTime() - Date.now()) >= 0 ? 'ok' : 'over';
+  }
+  function dtFromCell(cell){
+    if(cell==null||cell==='') return null;
+    if(typeof cell==='number'){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+Math.round(cell*DAY)); }
+    const s=String(cell).trim();
+    const m=s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if(m){ let[_,dd,mm,yy,HH='00',MM='00',SS='00']=m; if(yy.length===2) yy='20'+yy; return new Date(+yy,(+mm)-1,+dd,+HH,+MM,+SS); }
+    const d=new Date(s); return isNaN(d)?null:d;
+  }
+  function stale72(row){
+    const k=findCol(row,COLS.lastChange); if(!k) return 'unknown';
+    const dt=dtFromCell(row[k]); if(!dt) return 'unknown';
+    const hours=(Date.now()-dt.getTime())/HOUR;
+    return hours>72? 'over':'ok';
+  }
+  function aggregateTop(rows, colNames, topN=7){
+    if(!rows.length) return {labels:[], data:[], found:false};
+    const col=findCol(rows[0], colNames); if(!col) return {labels:[], data:[], found:false};
+    const map=new Map();
+    for(const r of rows){ if(!isOpenRow(r)) continue; const v=String(r[col]??'').trim(); if(!v) continue; map.set(v,(map.get(v)||0)+1); }
+    const arr=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,topN);
+    return {labels: arr.map(x=>x[0]), data: arr.map(x=>x[1]), found:true};
+  }
+  function countDuplicates(rows, colNames){
+    if(!rows.length) return 0;
+    const col=findCol(rows[0], colNames); if(!col) return 0;
+    const map=new Map();
+    for(const r of rows){ const v=(r[col]==null?'':String(r[col]).trim()); if(!v) continue; map.set(v,(map.get(v)||0)+1); }
+    let dup=0; for(const c of map.values()) if (c>=2) dup++; return dup;
+  }
+  function scopeByDept(rows, deptVal){
+    if(deptVal==='כללי') return rows;
+    if(deptVal==='__ACTIVE__') deptVal = window.__biActiveDept || 'כללי';
+    if(deptVal==='כללי') return rows;
+    const dk=findCol(rows[0]||{},COLS.dept); if(!dk) return rows;
+    return rows.filter(r=>String(r[dk]??'').trim()===deptVal);
+  }
+
+  let chSLA, chStale, chCity, chUnit, chDup;
+  function destroyCharts(){ [chSLA,chStale,chCity,chUnit,chDup].forEach(c=>{ try{ c?.destroy(); }catch{} }); }
+
+  function renderDashboard(){
+    const all=getData(); if(!all.length) return;
+
+    // מילוי רשימת מחלקות פעם אחת
+    if (SEL && SEL.dataset.filled!=='1'){
+      const dk=findCol(all[0],COLS.dept);
+      if(dk){
+        const set=new Set(['כללי']);
+        all.forEach(r=>{ const v=String(r[dk]??'').trim(); if(v) set.add(v); });
+        [...set].forEach(name=>{
+          if ([...SEL.options].some(o=>o.value===name)) return;
+          const o=document.createElement('option'); o.value=name; o.textContent=name; SEL.appendChild(o);
+        });
+      }
+      SEL.dataset.filled='1';
+    }
+
+    const dept=activeDept();
+    const rows=scopeByDept(all, dept);
+
+    // KPI-ים
+    const dateCol = rows.length ? findCol(rows[0], COLS.openedAt) : null;
+    const openRows = rows.filter(isOpenRow);
+    const tKey=todayKey(), yKey=yesterdayKey();
+    const dateKeyOf = r => dateCol ? normalizeDateOnly(r[dateCol]) : null;
+    const openedToday     = openRows.filter(r=>dateKeyOf(r)===tKey);
+    const openedYesterday = openRows.filter(r=>dateKeyOf(r)===yKey);
+
+    document.getElementById('dbKpiOpen').textContent  = openRows.length.toLocaleString('he-IL');
+    document.getElementById('dbKpiToday').textContent = openedToday.length.toLocaleString('he-IL');
+    document.getElementById('dbKpiYest').textContent  = openedYesterday.length.toLocaleString('he-IL');
+
+    const dupTracking = countDuplicates(rows, COLS.tracking);
+    const dupName     = countDuplicates(rows, COLS.custName);
+    const dupMail     = countDuplicates(rows, COLS.custMail);
+    const dupTotal    = dupTracking + dupName + dupMail;
+    document.getElementById('dbKpiDup').textContent   = dupTotal.toLocaleString('he-IL');
+
+    // נתונים לתרשימים
+    const slaOk   = rows.filter(r=>isOpenRow(r) && slaStatus(r)==='ok').length;
+    const slaOver = rows.filter(r=>isOpenRow(r) && slaStatus(r)==='over').length;
+    const stOk    = rows.filter(r=>isOpenRow(r) && stale72(r)==='ok').length;
+    const stOver  = rows.filter(r=>isOpenRow(r) && stale72(r)==='over').length;
+
+    const cityAgg = aggregateTop(rows, COLS.cityFlexExact, 7);
+    const unitAgg = aggregateTop(rows, COLS.unitFlexExact, 7);
+    document.getElementById('lblCityFound').textContent = cityAgg.found ? '' : 'לא נמצאה עמודת עיר/יישוב';
+    document.getElementById('lblUnitFound').textContent = unitAgg.found ? '' : 'לא נמצאה עמודת יחידה';
+
+    destroyCharts();
+    const ctxSLA   = document.getElementById('chSLA');
+    const ctxStale = document.getElementById('chStale');
+    const ctxCity  = document.getElementById('chCity');
+    const ctxUnit  = document.getElementById('chUnit');
+    const ctxDup   = document.getElementById('chDup');
+
+    chSLA = new Chart(ctxSLA,   { type:'doughnut', data:{ labels:['עומד','חריג'], datasets:[{ data:[slaOk, slaOver] }] },
+                                   options:{ plugins:{ legend:{ labels:{ color:'#cbd5e1' } } } }});
+    chStale = new Chart(ctxStale,{ type:'doughnut', data:{ labels:['≤ 72ש','> 72ש'], datasets:[{ data:[stOk, stOver] }] },
+                                   options:{ plugins:{ legend:{ labels:{ color:'#cbd5e1' } } } }});
+    chCity = new Chart(ctxCity,  { type:'bar', data:{ labels:cityAgg.labels, datasets:[{ label:'פניות', data:cityAgg.data }] },
+                                   options:{ scales:{ x:{ ticks:{ color:'#cbd5e1' } }, y:{ ticks:{ color:'#cbd5e1' } } }, plugins:{ legend:{ display:false } } }});
+    chUnit = new Chart(ctxUnit,  { type:'bar', data:{ labels:unitAgg.labels, datasets:[{ label:'פניות', data:unitAgg.data }] },
+                                   options:{ scales:{ x:{ ticks:{ color:'#cbd5e1' } }, y:{ ticks:{ color:'#cbd5e1' } } }, plugins:{ legend:{ display:false } } }});
+    chDup  = new Chart(ctxDup,   { type:'bar', data:{ labels:['מס׳ מעקב','שם לקוח','דוא״ל'], datasets:[{ label:'ערכים כפולים', data:[dupTracking, dupName, dupMail] }] },
+                                   options:{ scales:{ x:{ ticks:{ color:'#cbd5e1' } }, y:{ ticks:{ color:'#cbd5e1' } } }, plugins:{ legend:{ display:false } } }});
+
+    // --- Export Image buttons ---
+    const dl = (canvasId, filename) => {
+      const c = document.getElementById(canvasId);
+      if (!c) return;
+      const url = c.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url; a.download = filename.endsWith('.png') ? filename : (filename + '.png');
+      document.body.appendChild(a); a.click(); a.remove();
+    };
+    document.getElementById('btnImgSLA').onclick   = () => dl('chSLA',   `dashboard_SLA_${dept}`);
+    document.getElementById('btnImgStale').onclick = () => dl('chStale', `dashboard_Stale72_${dept}`);
+    document.getElementById('btnImgCity').onclick  = () => dl('chCity',  `dashboard_TopCities_${dept}`);
+    document.getElementById('btnImgUnit').onclick  = () => dl('chUnit',  `dashboard_TopUnits_${dept}`);
+    document.getElementById('btnImgDup').onclick   = () => dl('chDup',   `dashboard_Duplicates_${dept}`);
+  }
+
+  // פתיחה/רענון
+  BTN.addEventListener('click', async ()=>{
+    if (!getData().length){ alert('נא לטעון דוח XLSX לפני פתיחת הדשבורד.'); return; }
+    await ensureChartJS();
+    MOD.classList.remove('hidden');
+    renderDashboard();
+  });
+  CLOSE.addEventListener('click', ()=>MOD.classList.add('hidden'));
+  MOD.addEventListener('click', (e)=>{ if(e.target===MOD) MOD.classList.add('hidden'); });
+  SEL.addEventListener('change', renderDashboard);
+
+  window.addEventListener('bi:dept-change', ()=>{ if(!MOD.classList.contains('hidden')) renderDashboard(); });
+  document.addEventListener('bi:data-loaded', ()=>{ if(!MOD.classList.contains('hidden')) renderDashboard(); });
+})();
+</script>
   </body>
