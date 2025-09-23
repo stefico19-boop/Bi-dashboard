@@ -3279,4 +3279,215 @@
   log('Patch ready. Click the “דשבורד” button to open.');
 })();
       </script>
+  <script>
+/* ==== STEP 11 RENDERER (drop-in) ==== */
+(function(){
+  const TZ='Asia/Jerusalem', DAY=24*60*60*1000;
+  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/\s+/g,'').toLowerCase();
+  const $=id=>document.getElementById(id);
+
+  const COLS={
+    openedAt:['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened'],
+    source:['מקור פניה','מקור הפניה','מקור הפנייה','source','referral'],
+    status:['סטאטוס פניה','סטטוס פניה','סטאטוס','status'],
+    dept:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    city:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'],
+    unit:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'],
+    track:['מספר מעקב','מס׳ מעקב','Tracking','Tracking Number','מספר משלוח'],
+    cname:['שם לקוח','לקוח','Customer Name','שם פונה'],
+    email:['דוא"ל לקוח','דואר אלקטרוני לקוח','אימייל','Email','Email Address']
+  };
+
+  function findCol(row, keys){
+    if (!row) return null;
+    for (const k of keys) if (k in row) return k;
+    const t=keys.map(norm); for (const k in row) if (t.includes(norm(k))) return k;
+    return null;
+  }
+  function toPartsYMD(date){
+    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+    const m=Object.fromEntries(p.map(x=>[x.type,x.value])); return {y:+m.year,m:+m.month,d:+m.day};
+  }
+  const ymd=p=>`${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`;
+  const todayKey = ()=>ymd(toPartsYMD(new Date()));
+  const yesterdayKey = ()=>{const t=toPartsYMD(new Date()); const d=new Date(Date.UTC(t.y,t.m-1,t.d)-DAY); return ymd(toPartsYMD(d));};
+  function normalizeDateOnly(cell){
+    if (cell==null||cell==='') return null;
+    if (typeof cell==='number'){ const epoch=new Date(Date.UTC(1899,11,30)); const d=new Date(epoch.getTime()+Math.floor(cell)*DAY); return ymd(toPartsYMD(d)); }
+    const s=String(cell);
+    const m=s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+    if (m){ let[_,dd,mm,yy]=m; if(yy.length===2) yy='20'+yy; const d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T00:00:00`); return ymd(toPartsYMD(d)); }
+    const d=new Date(s); if(!isNaN(d)) return ymd(toPartsYMD(d));
+    return null;
+  }
+  const isOpenRow=r=>{const k=findCol(r,COLS.status); if(!k) return true; const v=String(r[k]??'').trim(); return !CLOSED.some(c=>v===c||v.includes(c));};
+  const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  async function ensureDataset(){
+    if (Array.isArray(window.__dataset) && window.__dataset.length) return window.__dataset;
+    if (!window.__lastFile || !window.XLSX) return [];
+    try{
+      const buf=await window.__lastFile.arrayBuffer();
+      const wb=XLSX.read(buf,{type:'array'});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      window.__dataset=XLSX.utils.sheet_to_json(sheet,{defval:null});
+      return window.__dataset;
+    }catch(e){ console.warn('ensureDataset failed',e); return []; }
+  }
+
+  // טבלת מודאל קיימת מהפאץ׳ הקודם—נשתמש בה אם יש. אחרת ניצור קצר.
+  function ensureModal(){
+    if ($('biModal')) return;
+    const html=`<div id="biModal" class="fixed inset-0 z-[1100] hidden">
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+        <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+          <div class="text-lg font-bold" id="biModalTitle">נתונים</div>
+          <button id="biExportBtn" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא ל-XLSX</button>
+          <button id="biCloseBtn" class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+        </div>
+        <div class="p-4 overflow-auto" style="max-height:70vh">
+          <table class="w-full text-sm border-separate border-spacing-0"><thead id="biThead"></thead><tbody id="biTbody"></tbody></table>
+          <div id="biEmpty" class="text-ink-200/70 text-sm p-4 hidden">אין נתונים.</div>
+        </div></div></div>`;
+    document.body.insertAdjacentHTML('beforeend',html);
+    $('biCloseBtn').onclick=()=>$('biModal').classList.add('hidden');
+    $('biModal').addEventListener('click',e=>{if(e.target.id==='biModal') e.currentTarget.classList.add('hidden')});
+    $('biExportBtn').onclick=()=>{
+      if(!window.XLSX) return alert('XLSX לא נטען');
+      const ws=XLSX.utils.json_to_sheet(window.__BI_MODAL_ROWS__||[]);
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data');
+      const fn=( $('biModalTitle').dataset.filename || 'export')+'.xlsx';
+      XLSX.writeFile(wb,fn);
+    };
+  }
+  function openTable(rows,title,file){
+    ensureModal();
+    const H=$('biThead'),B=$('biTbody'),E=$('biEmpty');
+    window.__BI_MODAL_ROWS__=rows;
+    $('biModalTitle').textContent=title; $('biModalTitle').dataset.filename=file||'export';
+    if(!rows.length){H.innerHTML='';B.innerHTML='';E.classList.remove('hidden');}
+    else{
+      E.classList.add('hidden');
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] text-ink-200/80 font-semibold px-3 py-2 border-b border-white/10 text-right">${esc(h)}</th>`).join('')+'</tr>';
+      B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h]??'')}</td>`).join('')+'</tr>').join('');
+    }
+    $('biModal').classList.remove('hidden');
+  }
+
+  // יצירת גרפים עם datalabels (מס' + אחוז)
+  function mkPie(ctx, labels, data, total){
+    return new Chart(ctx,{type:'pie',plugins:[ChartDataLabels],
+      data:{labels,datasets:[{data}]},
+      options:{plugins:{legend:{labels:{color:'#cbd5e1'}},
+        datalabels:{color:'#fff',formatter:v=>`${v}\n${total?Math.round(v*100/total):0}%`,font:{weight:'600'}}}}});
+  }
+  function mkBar(ctx, labels, data, total){
+    return new Chart(ctx,{type:'bar',plugins:[ChartDataLabels],
+      data:{labels,datasets:[{data}]},
+      options:{plugins:{legend:{display:false},
+        datalabels:{anchor:'end',align:'end',color:'#fff',formatter:v=>`${v} (${total?Math.round(v*100/total):0}%)`}},
+        scales:{x:{ticks:{color:'#cbd5e1'}},y:{ticks:{color:'#cbd5e1'}}}}});
+  }
+
+  // רנדרר הדשבורד שהפאץ' קורא אליו
+  window.__BI_RENDER_DASHBOARD = async function(){
+    const body = $('biDashBody'); if (!body) return;
+    const data = (await ensureDataset()).filter(isOpenRow);
+    if (!data.length){ body.querySelector('#__dashFallback')?.classList.add('hidden'); body.insertAdjacentHTML('afterbegin','<div class="text-sm text-ink-200/70">לא נטענו נתונים. בחרי קובץ XLSX.</div>'); return; }
+
+    // מחלקה
+    const deptSel=$('biDashDept'); if (deptSel && !deptSel.dataset.filled){
+      const dk=findCol(data[0], COLS.dept);
+      if (dk){ const set=new Set(); data.forEach(r=>{const v=String(r[dk]??'').trim(); if(v) set.add(v);});
+        [...set].forEach(name=>{ const o=document.createElement('option'); o.value=name; o.textContent=name; deptSel.appendChild(o); });
+      }
+      deptSel.dataset.filled='1';
+    }
+    let rows=data.slice();
+    let dept = deptSel?.value==='__ACTIVE__' ? (window.__biActiveDept||'כללי') : (deptSel?.value||'כללי');
+    if (dept!=='כללי'){ const dk=findCol(rows[0],COLS.dept); if(dk) rows=rows.filter(r=>String(r[dk]??'').trim()===dept); }
+
+    // עמודות חיוניות
+    const openedCol=findCol(rows[0],COLS.openedAt);
+    const sourceCol=findCol(rows[0],COLS.source);
+    const cityCol=findCol(rows[0],COLS.city);
+    const unitCol=findCol(rows[0],COLS.unit);
+
+    // KPI
+    const tKey=todayKey(), yKey=yesterdayKey();
+    const dateKeyOf=r=>openedCol?normalizeDateOnly(r[openedCol]):null;
+    const todayRows = openedCol? rows.filter(r=>dateKeyOf(r)===tKey):[];
+    const yestRows  = openedCol? rows.filter(r=>dateKeyOf(r)===yKey):[];
+    const chosenKey = $('biDashDate')?.value || tKey;
+    const chosenRows= openedCol? rows.filter(r=>dateKeyOf(r)===chosenKey):[];
+
+    $('dKpiOpen').textContent   = rows.length.toLocaleString('he-IL');
+    $('dKpiToday').textContent  = todayRows.length.toLocaleString('he-IL');
+    $('dKpiYest').textContent   = yestRows.length.toLocaleString('he-IL');
+    $('dKpiChosen').textContent = chosenRows.length.toLocaleString('he-IL');
+
+    // השמדת גרפים קודמים
+    window.__BI_DASH_CHARTS__?.forEach(c=>{try{c.destroy()}catch{}});
+    window.__BI_DASH_CHARTS__=[];
+
+    // מקור פניה
+    if (sourceCol){
+      const agg=(arr)=>{const m=new Map(); arr.forEach(r=>{const v=String(r[sourceCol]??'(ללא)').trim()||'(ללא)'; m.set(v,(m.get(v)||0)+1);}); return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,12);};
+      const allAgg=agg(rows), tAgg=agg(todayRows), dAgg=agg($('biDashDate')?.value?chosenRows:yestRows);
+      const addPie=(id, aggArr, total, pool, title)=>{ const c=mkPie($(id).getContext('2d'), aggArr.map(x=>x[0]), aggArr.map(x=>x[1]), total); window.__BI_DASH_CHARTS__.push(c);
+        c.options.onClick=(e,els)=>{ if(!els.length) return; const i=els[0].index; const label=c.data.labels[i]; openTable(pool.filter(r=>String(r[sourceCol]??'(ללא)').trim()===(label||'(ללא)')), `${title}: ${label||'(ללא)'}`, `source_${label||'NA'}`); }; c.update(); };
+      addPie('chSrcAll',allAgg,rows.length,rows,'מקור פניה');
+      addPie('chSrcToday',tAgg,todayRows.length,todayRows,'מקור פניה (היום)');
+      addPie('chSrcDate',dAgg,($('biDashDate')?.value?chosenRows:yestRows).length, ($('biDashDate')?.value?chosenRows:yestRows), 'מקור פניה (אתמול/תאריך)');
+    } else {
+      ['chSrcAll','chSrcToday','chSrcDate'].forEach(id=>{ const el=$(id); if(el) el.parentElement.innerHTML='<div class="text-xs text-ink-200/70">לא נמצאה עמודת "מקור פניה".</div>'; });
+    }
+
+    // עיר/יחידה (100+)
+    function topBar(col, canvasId, pool){
+      if (!col){ $(canvasId).parentElement.innerHTML='<div class="text-xs text-ink-200/70">לא נמצאה עמודה מתאימה.</div>'; return; }
+      const m=new Map(); pool.forEach(r=>{const v=String(r[col]??'').trim(); if(!v) return; m.set(v,(m.get(v)||0)+1);});
+      const arr=[...m.entries()].filter(([,c])=>c>=100).sort((a,b)=>b[1]-a[1]).slice(0,12);
+      if (!arr.length){ $(canvasId).parentElement.innerHTML='<div class="text-xs text-ink-200/70">אין ערכים מעל 100.</div>'; return; }
+      const total=arr.reduce((s,[,c])=>s+c,0); const c=mkBar($(canvasId).getContext('2d'), arr.map(x=>x[0]), arr.map(x=>x[1]), total);
+      window.__BI_DASH_CHARTS__.push(c);
+      c.options.onClick=(e,els)=>{ if(!els.length) return; const i=els[0].index; const key=arr[i][0]; openTable(rows.filter(r=>String(r[col]??'').trim()===key), `${canvasId==='chCity'?'עיר':'יחידה'}: ${key}`, `${canvasId==='chCity'?'city':'unit'}_${key}`); };
+      c.update();
+    }
+    topBar(cityCol,'chCity',rows);
+    topBar(unitCol,'chUnit',rows);
+
+    // כפילויות
+    function renderDup(containerId, colKeys, titlePrefix, filePrefix){
+      const col=findCol(rows[0],colKeys); const el=$(containerId);
+      if(!el) return;
+      if (!col){ el.innerHTML='<div class="text-xs text-ink-200/70">לא נמצאה עמודה מתאימה.</div>'; return; }
+      const m=new Map(); rows.forEach(r=>{const v=String(r[col]??'').trim(); if(!v) return; const a=m.get(v)||[]; a.push(r); m.set(v,a);});
+      const list=[...m.entries()].filter(([,a])=>a.length>1).sort((a,b)=>b[1].length-a[1].length).slice(0,25);
+      if (!list.length){ el.innerHTML='<div class="text-xs text-ink-200/70">אין כפילויות.</div>'; return; }
+      el.innerHTML='';
+      list.forEach(([key,arr])=>{
+        const row=document.createElement('div'); row.className='py-2 flex items-center gap-3 cursor-pointer hover:bg-white/5 px-2 rounded';
+        row.innerHTML=`<span class="text-ink-50/90 truncate max-w-[60%]">${esc(key)}</span>
+                       <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10 font-semibold">${arr.length}</span>`;
+        row.onclick=()=>openTable(arr, `${titlePrefix}: ${key}`, `${filePrefix}_${(key||'NA').slice(0,40)}`);
+        el.appendChild(row);
+      });
+    }
+    renderDup('dupTrack',COLS.track,'מספר מעקב','dup_track');
+    renderDup('dupName', COLS.cname,'שם לקוח','dup_name');
+    renderDup('dupEmail',COLS.email,'דוא״ל לקוח','dup_email');
+  };
+
+  // רענון אוטומטי אחרי טעינת קובץ
+  if (typeof window.updateSuccessUI==='function'){
+    const prev=window.updateSuccessUI;
+    window.updateSuccessUI=function(){ const r=prev.apply(this,arguments); Promise.resolve(r).then(()=>{ document.dispatchEvent(new Event('bi:data-loaded')); }); };
+  }
+  document.addEventListener('bi:data-loaded', ()=>{ if (!document.getElementById('biDashModal')?.classList.contains('hidden')) window.__BI_RENDER_DASHBOARD(); });
+})();
+        </script>
   </body>
