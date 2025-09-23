@@ -1450,19 +1450,33 @@
   }
 })();
   </script>
-  <!-- === STEP 7: פיזור לפי "בעלי מקרה" + פתיחת טבלה בקליק === -->
+  <!-- === STEP 7: בעלי מקרה — שם בלבד + חיפוש/מיון + מודאל עם חיפוש בכל העמודות === -->
 <section id="biOwnersHost" class="max-w-6xl mx-auto px-4 mt-6">
   <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
-    <div class="flex items-center gap-3 mb-4">
-      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 7 (לפי בעלי מקרה)</span>
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלב 7 (לפי בעלי מקרה: שם)</span>
       <span id="ownersSubtitle" class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מחלקה: כללי</span>
+
+      <div class="ms-auto flex items-center gap-2">
+        <input id="ownersSearch" type="text" placeholder="חיפוש בעלי מקרה…"
+               class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/15 focus:outline-none"
+               style="min-width: 220px;">
+        <select id="ownersSort" class="text-xs px-2 py-1.5 rounded-full bg-white/10 border border-white/15">
+          <option value="count_desc">כמות: רב → מעט</option>
+          <option value="count_asc">כמות: מעט → רב</option>
+          <option value="name_asc">שם: א → ת</option>
+          <option value="name_desc">שם: ת → א</option>
+        </select>
+      </div>
     </div>
-    <div id="ownersMsg" class="text-xs text-ink-200/60 mb-3">טרם נטען קובץ או שלא נמצאה עמודת „בעלי מקרה”.</div>
+
+    <div id="ownersMsg" class="text-xs text-ink-200/60 mb-3">טרם נטען קובץ או שלא נמצאה עמודת „בעלי מקרה: שם”.</div>
+
     <div class="overflow-auto rounded-2xl border border-white/10">
       <table class="w-full text-sm border-separate border-spacing-0">
         <thead>
           <tr class="text-ink-200/80 border-b border-white/10 bg-white/5">
-            <th class="px-3 py-2 text-right">בעלי מקרה</th>
+            <th class="px-3 py-2 text-right">בעלי מקרה: שם</th>
             <th class="px-3 py-2 text-right">כמות פניות פתוחות</th>
           </tr>
         </thead>
@@ -1472,7 +1486,9 @@
   </div>
 </section>
 
-<!-- משתמש במודאל הכללי אם קיים; אם לא — ייצור אחד -->
+<!-- מודאל כללי עם חיפוש לכל העמודות (נוצר אוטומטית אם לא קיים) -->
+<section id="biModalHost"></section>
+
 <script>
 (() => {
   // ------- Utilities -------
@@ -1480,14 +1496,19 @@
   const HEB = /[\u0591-\u05C7]/g, SEP=/[·•:;|/_\-()\[\]{}]/g;
   const normHeader = s => String(s).replace(HEB,'').replace(SEP,'').replace(/\s+/g,'').toLowerCase();
   const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const normText = s => String(s ?? '').replace(HEB,'').toLowerCase().trim().replace(/\s+/g,' ');
 
+  // זיהוי עמודות (שם בעל מקרה — ממוקד בשם, לא תפקיד)
   const COLS = {
     dept:   ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
     status: ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
-    owner:  { // וריאציות ל"בעלי מקרה"
-      exact: ['בעלי מקרה','בעל מקרה','מטפל','מטפל/ת','אחראי','Assigned To','AssignedTo','Owner','owner','Agent','agent','Case Owner'],
-      kw:    [ ['בעלי','מקרה'], ['בעל','מקרה'], ['assigned'], ['owner'], ['agent'], ['מטפל'] ]
-    }
+    owner:  {
+      exact: ['בעלי מקרה: שם','שם בעל מקרה','בעלי מקרה','בעל מקרה','שם מטפל','Owner','Case Owner'],
+      kw:    [ ['שם','בעל','מקרה'], ['בעלי','מקרה'], ['שם','מטפל'] ]
+    },
+    // לזהוי עמודות שימושיות לחיפוש בטבלת המודאל (לא חובה שיהיו):
+    caseNo: { exact:['מספר מקרה','מספר פניה','מספר קריאה','Case Number','Ticket ID','ID'], kw:[['מספר','מקרה'],['מספר','פניה']] },
+    product:{ exact:['סיווג מוצר','מוצר','קטגוריית מוצר','Product','Product Category'], kw:[['סיווג','מוצר'],['קטגור','מוצר']] }
   };
   const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
 
@@ -1524,17 +1545,22 @@
     return col ? rows.filter(r => String(r[col] ?? '').trim() === d) : rows;
   }
 
-  // ------- Modal reuse / create -------
+  // ------- Modal (חיפוש בכל העמודות) -------
+  let __ALL_ROWS__ = [];     // כל השורות הלא מסוננות במודאל
+  let __FILTERED__ = [];     // שורות מסוננות ע"י חיפוש במודאל
   function ensureModal(){
     if (document.getElementById('biModal')) return;
     const html = `
       <div id="biModal" class="fixed inset-0 z-[1000] hidden">
         <div class="absolute inset-0 bg-black/60"></div>
         <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
-          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+          <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b border-white/10">
             <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
-            <button id="biExport" class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
-            <button id="biClose" class="ms-2 text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
+            <input id="biModalSearch" type="text" placeholder="חיפוש בכל העמודות (בעלי מקרה, מספר מקרה, סיווג מוצר, ועוד)…"
+                   class="ms-auto text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20 focus:outline-none"
+                   style="min-width:280px">
+            <button id="biExport" class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="biClose" class="text-xs px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
           </div>
           <div class="p-4 overflow-auto" style="max-height:70vh">
             <table class="w-full text-sm border-separate border-spacing-0">
@@ -1548,29 +1574,40 @@
     document.getElementById('biClose').onclick=()=>document.getElementById('biModal').classList.add('hidden');
     document.getElementById('biModal').onclick=e=>{ if(e.target.id==='biModal') e.currentTarget.classList.add('hidden'); };
     document.getElementById('biExport').onclick=()=>exportXLSX((document.getElementById('biModalTitle').dataset.filename||'export')+'.xlsx');
+    document.getElementById('biModalSearch').addEventListener('input', onModalSearch);
   }
-  let __ROWS__=[];
-  function renderTable(rows){
-    __ROWS__=rows||[];
-    const H=document.getElementById('biThead'), B=document.getElementById('biTbody'), E=document.getElementById('biEmpty');
+  function exportXLSX(fn){
+    if (!window.XLSX) return alert('XLSX לא נטענה');
+    const ws=XLSX.utils.json_to_sheet(__FILTERED__); const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb,fn);
+  }
+  function renderModalTable(rows){
+    const H=$('biThead'), B=$('biTbody'), E=$('biEmpty');
     if(!rows.length){ H.innerHTML=''; B.innerHTML=''; E.classList.remove('hidden'); return; }
     E.classList.add('hidden');
     const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
     H.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${esc(h)}</th>`).join('')+'</tr>';
     B.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h]??'')}</td>`).join('')+'</tr>').join('');
   }
-  function exportXLSX(fn){
-    if (!window.XLSX) return alert('XLSX לא נטענה');
-    const ws=XLSX.utils.json_to_sheet(__ROWS__); const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb,fn);
+  function onModalSearch(){
+    const q = normText($('biModalSearch').value);
+    if (!q){ __FILTERED__ = __ALL_ROWS__.slice(); renderModalTable(__FILTERED__); return; }
+    __FILTERED__ = __ALL_ROWS__.filter(row=>{
+      const joined = normText(Object.values(row).join(' '));
+      return joined.includes(q);
+    });
+    renderModalTable(__FILTERED__);
   }
-  function openModal(rows,title,fileBase){
-    ensureModal(); renderTable(rows);
-    const t=document.getElementById('biModalTitle'); t.textContent=title; t.dataset.filename=fileBase;
-    document.getElementById('biModal').classList.remove('hidden');
+  function openModal(rows, title, fileBase){
+    ensureModal();
+    const t = $('biModalTitle'); t.textContent = title; t.dataset.filename = fileBase;
+    __ALL_ROWS__ = rows || []; __FILTERED__ = __ALL_ROWS__.slice();
+    $('biModalSearch').value = '';
+    renderModalTable(__FILTERED__);
+    $('biModal').classList.remove('hidden');
   }
 
-  // ------- Aggregation & render -------
+  // ------- Build owners (פתוחות בלבד) -------
   function aggregateOwners(rows){
     if (!rows.length) return { col:null, items:[] };
     const col = findCol(rows[0], COLS.owner);
@@ -1584,34 +1621,53 @@
       b.count++; b.rows.push(r);
       m.set(key,b);
     });
-    const items = Array.from(m.entries())
-      .sort((a,b)=>b[1].count - a[1].count)
-      .map(([owner,b])=>({ owner, count:b.count, rows:b.rows }));
+    const items = Array.from(m.entries()).map(([owner,b])=>({ owner, count:b.count, rows:b.rows }));
     return { col, items };
+  }
+
+  // ------- Render with search + sort (רשימת בעלי מקרה) -------
+  const state = { items: [], query: '', sort: 'count_desc' };
+  function applySearchAndSort(items){
+    const q = normText(state.query);
+    let arr = q ? items.filter(it => normText(it.owner).includes(q)) : items.slice();
+
+    switch (state.sort){
+      case 'count_desc': arr.sort((a,b)=>b.count - a.count); break;
+      case 'count_asc':  arr.sort((a,b)=>a.count - b.count); break;
+      case 'name_asc':   arr.sort((a,b)=>normText(a.owner).localeCompare(normText(b.owner),'he')); break;
+      case 'name_desc':  arr.sort((a,b)=>normText(b.owner).localeCompare(normText(a.owner),'he')); break;
+    }
+    return arr;
   }
 
   function renderOwners(){
     const rowsAll = getDataset();
     const rows    = filterRowsByDept(rowsAll);
-    const { col, items } = aggregateOwners(rows);
+    const subtitle = $('ownersSubtitle'), msg  = $('ownersMsg'), body = $('ownersTable');
 
-    $('ownersSubtitle').textContent = `מחלקה: ${activeDept()}`;
-    const msg  = $('ownersMsg');
-    const body = $('ownersTable');
+    subtitle.textContent = `מחלקה: ${activeDept()}`;
 
     if (!rowsAll.length){
       msg.textContent = 'טרם נטען קובץ.';
       body.innerHTML = '';
       return;
     }
+
+    const { col, items } = aggregateOwners(rows);
     if (!col){
-      msg.textContent = 'לא נמצאה עמודת „בעלי מקרה”/Owner/Assigned.';
+      msg.textContent = 'לא נמצאה עמודת „בעלי מקרה: שם”. נסי שמות כמו "בעלי מקרה: שם", "שם בעל מקרה", "Owner".';
       body.innerHTML = '';
       return;
     }
-    msg.textContent = items.length ? `נמצאו ${items.length.toLocaleString('he-IL')} בעלי מקרה (פתוחות בלבד).` : 'אין פניות פתוחות לבעלי מקרה במחלקה זו.';
 
-    body.innerHTML = items.map(it => `
+    state.items = items;
+    const view = applySearchAndSort(items);
+
+    msg.textContent = items.length
+      ? `נמצאו ${items.length.toLocaleString('he-IL')} בעלי מקרה (פתוחות בלבד). מסוננים: ${view.length.toLocaleString('he-IL')}.`
+      : 'אין פניות פתוחות לבעלי מקרה במחלקה זו.';
+
+    body.innerHTML = view.map(it => `
       <tr class="border-b border-white/10">
         <td class="px-3 py-2">${esc(it.owner)}</td>
         <td class="px-3 py-2">
@@ -1621,17 +1677,57 @@
         </td>
       </tr>`).join('');
 
-    // האזנה לפתיחת טבלה בלחיצה על המספר
+    // לחיצה על המספר → לפתוח טבלה עם חיפוש לכל העמודות
     body.querySelectorAll('.open-owner').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const name = btn.dataset.owner;
-        // מסנן מחדש כדי להיות בטוחים
-        const ownerCol = findCol(rows[0], COLS.owner);
-        const ownerRows = rows.filter(r => String(r[ownerCol] ?? '').trim() === name);
+        const k = findCol(rows[0], COLS.owner);
+        const ownerRows = rows.filter(r => String(r[k] ?? '').trim() === name);
         openModal(ownerRows, `פניות פתוחות — ${name} (${activeDept()})`, `owners_${name}`.replace(/[\\/:*?"<>|]+/g,'_').slice(0,64));
       });
     });
   }
+
+  // ------- Search + Sort events (רשימת בעלי מקרה) -------
+  const searchEl = $('ownersSearch');
+  const sortEl   = $('ownersSort');
+  let debounceT = null;
+
+  searchEl.addEventListener('input', () => {
+    state.query = searchEl.value || '';
+    clearTimeout(debounceT);
+    debounceT = setTimeout(() => {
+      const body = $('ownersTable'), msg = $('ownersMsg');
+      const view = applySearchAndSort(state.items);
+      msg.textContent = state.items.length
+        ? `נמצאו ${state.items.length.toLocaleString('he-IL')} בעלי מקרה (פתוחות בלבד). מסוננים: ${view.length.toLocaleString('he-IL')}.`
+        : 'אין פניות פתוחות לבעלי מקרה במחלקה זו.';
+      body.innerHTML = view.map(it => `
+        <tr class="border-b border-white/10">
+          <td class="px-3 py-2">${esc(it.owner)}</td>
+          <td class="px-3 py-2">
+            <button class="px-2 py-1 text-xs rounded-full bg-white/10 border border-white/15 hover:bg-white/15 open-owner" data-owner="${esc(it.owner)}">
+              ${it.count.toLocaleString('he-IL')}
+            </button>
+          </td>
+        </tr>`).join('');
+      body.querySelectorAll('.open-owner').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const name = btn.dataset.owner;
+          const rowsAll = filterRowsByDept(getDataset());
+          const k = rowsAll.length ? findCol(rowsAll[0], COLS.owner) : null;
+          const ownerRows = k ? rowsAll.filter(r => String(r[k] ?? '').trim() === name) : [];
+          openModal(ownerRows, `פניות פתוחות — ${name} (${activeDept()})`, `owners_${name}`.replace(/[\\/:*?"<>|]+/g,'_').slice(0,64));
+        });
+      });
+    }, 200);
+  });
+
+  sortEl.addEventListener('change', () => {
+    state.sort = sortEl.value;
+    renderOwners();
+    $('ownersSearch').value = state.query;
+  });
 
   // ------- Wire-up: אחרי טעינת קובץ + שינוי מחלקה -------
   if (typeof window.updateSuccessUI === 'function'){
@@ -1646,5 +1742,5 @@
   // ריצה ראשונה אם כבר יש דאטה
   if (getDataset().length) renderOwners();
 })();
-    </script>
-    </body>
+      </script>
+  </body>
