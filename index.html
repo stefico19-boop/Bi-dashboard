@@ -2782,10 +2782,10 @@
   console.log('XLSX Export Fix loaded');
 })();
 </script>
-<!-- === Insights Modal — Quality Analysis w/ SLA (fixed: unit selector + dept-aware) === -->
+<!-- === Insights Modal — Unit & City selectable, with Notes (top city/unit) === -->
 <script>
 (function(){
-  // ── כפתור פתיחה קבוע ────────────────────────────────────────────────────
+  // ── כפתור פתיחה ─────────────────────────────────────────────────────────
   if(!document.getElementById('biInsightsBtn')){
     const btn=document.createElement('button');
     btn.id='biInsightsBtn';
@@ -2809,27 +2809,29 @@
               <label class="inline-flex items-center gap-2">
                 <input id="insOpenOnly" type="checkbox" class="accent-violet-500" checked/> רק פניות פתוחות
               </label>
-              <label class="inline-flex items-center gap-2">
-                יחידה:
+              <label class="inline-flex items-center gap-2">יחידה:
                 <select id="insUnitSel" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[14rem]"></select>
               </label>
-              <label class="inline-flex items-center gap-2">
-                עיר:
+              <label class="inline-flex items-center gap-2">עיר:
                 <select id="insCitySel" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[14rem]"></select>
               </label>
               <button id="insRefresh" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">רענון</button>
               <button id="insClose" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
             </div>
           </div>
-          <div class="p-5 space-y-5 overflow-auto" style="max-height:70vh">
+
+          <div class="p-5 space-y-5 overflow-auto" style="max-height:72vh">
             <div class="text-xs text-ink-200/70">
               הניתוח מכבד את הטאב הפעיל של <b>מחלקה מטפלת</b>. עמודות: "יחידת דואר: שם", "עיר/יישוב", "סיווג נושא", "סיווג בעיה", "סיווג מוצר", "שעת/תאריך פתיחה ".
             </div>
 
+            <!-- NOTES: Top City & Unit -->
+            <div id="insNotes" class="rounded-2xl bg-white/5 border border-white/10 p-3 text-sm"></div>
+
             <!-- A) למה עיר X מובילה -->
             <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
               <div class="flex items-center gap-2 mb-2">
-                <h3 class="font-bold">למה העיר <span id="insCityName">—</span> מייצרת הכי הרבה פניות?</h3>
+                <h3 class="font-bold">פירוק לפי עיר: <span id="insCityName">כל הערים</span></h3>
                 <span id="insCityTotal" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
               </div>
               <div class="grid md:grid-cols-2 gap-4">
@@ -2900,22 +2902,20 @@
       </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
 
-    // חוטי אירועים
     document.getElementById('insClose').onclick = () => document.getElementById('biInsightsModal').classList.add('hidden');
-    document.getElementById('biInsightsModal').addEventListener('click', (e)=>{ if(e.target.id==='biInsightsModal') e.currentTarget.classList.add('hidden'); });
-    document.getElementById('insRefresh').onclick = () => renderInsights();
+    document.getElementById('insRefresh').onclick = () => { fillUnitAndCitySelectors(); renderInsights(); };
 
-    // שינויי בקרה (פתוחות/יחידה/עיר)
-    document.getElementById('insOpenOnly').onchange = () => renderInsights();
-    document.getElementById('insUnitSel').onchange  = () => renderInsights();
+    // שינויי בקרה
+    document.getElementById('insOpenOnly').onchange = () => { fillUnitAndCitySelectors(); renderInsights(); };
+    document.getElementById('insUnitSel').onchange  = () => { syncCitiesForUnit(); renderInsights(); };
     document.getElementById('insCitySel').onchange  = () => renderInsights();
 
-    // רענון כאשר מחליפים טאב מחלקה מטפלת
+    // שינוי טאב מחלקה → רענון אם המודאל פתוח
     const tabs=document.getElementById('deptTabs');
     if (tabs && !tabs.dataset.insightsBound){
       tabs.addEventListener('click', ()=>{
         const m=document.getElementById('biInsightsModal');
-        if (m && !m.classList.contains('hidden')) renderInsights();
+        if (m && !m.classList.contains('hidden')) { fillUnitAndCitySelectors(); renderInsights(); }
       });
       tabs.dataset.insightsBound='1';
     }
@@ -2923,9 +2923,8 @@
 
   function openInsights(){
     ensureInsightsModal();
-    // איפוס ברירת מחדל בכל פתיחה
+    // ברירת מחדל
     document.getElementById('insOpenOnly').checked = true;
-    // נבנה מחדש ליסטים של יחידות/ערים לפי הטאב הנוכחי
     fillUnitAndCitySelectors();
     renderInsights();
     document.getElementById('biInsightsModal').classList.remove('hidden');
@@ -2965,12 +2964,7 @@
     return null;
   }
   const CLOSED_WORDS=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
-  function isOpenRow(r){ 
-    const k=findCol(r,COL.status); 
-    if(!k) return true; 
-    const v=String(r[k]??'').trim(); 
-    return !CLOSED_WORDS.some(c=>v===c||v.includes(c)); 
-  }
+  function isOpenRow(r){ const k=findCol(r,COL.status); if(!k) return true; const v=String(r[k]??'').trim(); return !CLOSED_WORDS.some(c=>v===c||v.includes(c)); }
 
   function pickSLARule(row){
     const dept = norm(row[findCol(row, COL.dept)]||'');
@@ -3002,7 +2996,7 @@
     return /(תקלה|שגיאה|כשל|קריסה|פורטל)/.test(txt);
   }
 
-  // כיבוד טאב מחלקה
+  // ── טאב מחלקה פעיל ──────────────────────────────────────────────────────
   function activeDept(){
     const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
     const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('bg-gradient-to-r')||b.className.includes('from-brand-600'));
@@ -3014,7 +3008,7 @@
     return rows.filter(r=>String(r[key]??'').trim()===dept);
   }
 
-  // ── מילוי סלקטים של יחידה/עיר לפי הטאב ─────────────────────────────────
+  // ── סלקטים של יחידה/עיר ────────────────────────────────────────────────
   function fillUnitAndCitySelectors(){
     const rowsAll = Array.isArray(window.__dataset)? window.__dataset : [];
     let rows = scopeByDept(rowsAll);
@@ -3028,26 +3022,72 @@
     const unitSel = document.getElementById('insUnitSel');
     const unitMap = new Map();
     if (unitCol) rows.forEach(r=>{ const u=(r[unitCol]??'').toString().trim(); if(!u) return; unitMap.set(u,(unitMap.get(u)||0)+1); });
-    unitSel.innerHTML = `<option value="">(כל היחידות)</option>` + [...unitMap.entries()].sort((a,b)=>b[1]-a[1]).map(([u,c])=>`<option value="${escapeHtml(u)}">${escapeHtml(u)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+    unitSel.innerHTML = `<option value="">(כל היחידות)</option>` +
+      [...unitMap.entries()].sort((a,b)=>b[1]-a[1]).map(([u,c])=>`<option value="${escapeHtml(u)}">${escapeHtml(u)} — ${c.toLocaleString('he-IL')}</option>`).join('');
     unitSel.value = '';
 
-    // ערים (מתבסס על כל היחידות כברירת מחדל)
+    // ערים
     const citySel = document.getElementById('insCitySel');
     const cityMap = new Map();
     if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(!c) return; cityMap.set(c,(cityMap.get(c)||0)+1); });
     const cities=[...cityMap.entries()].sort((a,b)=>b[1]-a[1]);
-    citySel.innerHTML = `<option value="">(בחרי עיר)</option>` + cities.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
-    citySel.value = cities[0]?.[0] || '';
+    citySel.innerHTML = `<option value="">(כל הערים)</option>` +
+      cities.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+    citySel.value = ''; // ברירת מחדל: כל הערים
+  }
+  function syncCitiesForUnit(){
+    // בונה מחדש את רשימת הערים בהתאם ליחידה שנבחרה
+    const rowsAll = Array.isArray(window.__dataset)? window.__dataset : [];
+    let rows = scopeByDept(rowsAll);
+    if (document.getElementById('insOpenOnly')?.checked) rows = rows.filter(isOpenRow);
+
+    const r0 = rows[0] || {};
+    const unitCol = findCol(r0, COL.unit);
+    const cityCol = findCol(r0, COL.city);
+
+    const unitVal = document.getElementById('insUnitSel').value || '';
+    if (unitVal && unitCol) rows = rows.filter(r => String(r[unitCol]??'').trim() === unitVal);
+
+    const citySel = document.getElementById('insCitySel');
+    const cityMap = new Map();
+    if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(!c) return; cityMap.set(c,(cityMap.get(c)||0)+1); });
+    const cities=[...cityMap.entries()].sort((a,b)=>b[1]-a[1]);
+    const current = citySel.value;
+    citySel.innerHTML = `<option value="">(כל הערים)</option>` +
+      cities.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+    citySel.value = cities.some(([n])=>n===current) ? current : ''; // שמור בחירה אם אפשר, אחרת כל הערים
   }
 
   // ── רנדר תובנות ─────────────────────────────────────────────────────────
   function renderInsights(){
-    ensureInsightsModal();
+    const notesEl = document.getElementById('insNotes');
+
     const openOnly = document.getElementById('insOpenOnly').checked;
     const rowsAll  = Array.isArray(window.__dataset)? window.__dataset : [];
-    if (!rowsAll.length) return;
+    if (!rowsAll.length){ notesEl.innerHTML='אין נתונים.'; return; }
 
-    // סינון לפי מחלקה מטפלת
+    // א) חישוב הערות (טופ עיר/יחידה) לפי הטאב וה־openOnly — ללא סינון יחידה/עיר
+    let rowsForNotes = scopeByDept(rowsAll);
+    if (openOnly) rowsForNotes = rowsForNotes.filter(isOpenRow);
+    const rN = rowsForNotes[0] || {};
+    const unitColN = findCol(rN, COL.unit);
+    const cityColN = findCol(rN, COL.city);
+
+    const topUnit = topKeyBasic(rowsForNotes, unitColN);
+    const topCity = topKeyBasic(rowsForNotes, cityColN);
+
+    notesEl.innerHTML = `
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-ink-200/80">הערות:</span>
+        <span class="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">
+          יחידה מובילה: <b>${escapeHtml(topUnit.name||'—')}</b> (${topUnit.count.toLocaleString('he-IL')} פניות)
+        </span>
+        <span class="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">
+          עיר מובילה: <b>${escapeHtml(topCity.name||'—')}</b> (${topCity.count.toLocaleString('he-IL')} פניות)
+        </span>
+      </div>`;
+
+    // ב) המשך ניתוח עם סינונים נוכחיים (יחידה/עיר)
     let rows = scopeByDept(rowsAll);
     if (openOnly) rows = rows.filter(isOpenRow);
 
@@ -3057,40 +3097,36 @@
     const subjCol = findCol(r0, COL.subj);
     const probCol = findCol(r0, COL.prob);
     const prodCol = findCol(r0, COL.prod);
+    const openCol = findCol(r0, COL.opened);
 
-    // סינון לפי יחידה (אם נבחרה)
+    // סינון לפי יחידה
     const unitVal = document.getElementById('insUnitSel').value || '';
     if (unitVal && unitCol) rows = rows.filter(r => String(r[unitCol]??'').trim() === unitVal);
 
-    // בניית רשימת ערים דינמית לפי הסינון הנוכחי (כולל יחידה)
-    const citySel = document.getElementById('insCitySel');
-    if (!citySel.dataset.boundForUnit || citySel.dataset.boundForUnit !== unitVal){
-      // מלאי מחדש ערים
-      const m = new Map();
-      if (cityCol) rows.forEach(r=>{const c=(r[cityCol]??'').toString().trim(); if(!c) return; m.set(c,(m.get(c)||0)+1);});
-      const arr=[...m.entries()].sort((a,b)=>b[1]-a[1]);
-      const current = citySel.value;
-      citySel.innerHTML = `<option value="">(בחרי עיר)</option>` + arr.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
-      // שמרי בחירה אם עדיין קיימת, אחרת ברירת מחדל לראשונה
-      citySel.value = arr.some(([n])=>n===current) ? current : (arr[0]?.[0] || '');
-      citySel.dataset.boundForUnit = unitVal;
-    }
+    // עיר: "(כל הערים)" = ערך ריק => נשתמש בכל השורות לאחר סינון יחידה
+    const chosenCity = document.getElementById('insCitySel').value || '';
 
-    // A) עיר נבחרת
-    const chosenCity = citySel.value || '';
-    document.getElementById('insCityName').textContent = chosenCity || '—';
-    const cityRows = (chosenCity && cityCol) ? rows.filter(r => String(r[cityCol]||'').trim()===chosenCity) : [];
-    document.getElementById('insCityTotal').textContent = chosenCity? `${cityRows.length.toLocaleString('he-IL')} פניות` : '';
+    // שורות לפי עיר שנבחרה (או כל הערים)
+    const cityRows = (chosenCity && cityCol) ? rows.filter(r => String(r[cityCol]||'').trim()===chosenCity) : rows.slice();
 
+    // UI כותרת וכמות
+    document.getElementById('insCityName').textContent  = chosenCity || 'כל הערים';
+    document.getElementById('insCityTotal').textContent = `${cityRows.length.toLocaleString('he-IL')} פניות`;
+
+    // פירוקים Top 3
     renderTopList('insCitySubject', cityRows, subjCol);
     renderTopList('insCityProblem', cityRows, probCol);
+
+    // היפותזות
     const topSubj = topKey(cityRows, subjCol);
     const topProb = topKey(cityRows, probCol);
     document.getElementById('insCityHypo').innerHTML = buildHypothesisBlock(topSubj, topProb);
-    document.getElementById('insCityRowsBtn').onclick   = ()=> openRowsModal(cityRows, `שורות — ${chosenCity||'כללי'}`);
-    document.getElementById('insCityExportBtn').onclick = ()=> exportAny(cityRows, `city_${sanitize(chosenCity)||'all'}.xlsx`);
 
-    // B) “גורמי תקלות”
+    // כפתורי טבלה/ייצוא
+    document.getElementById('insCityRowsBtn').onclick   = ()=> openRowsModal(cityRows, `שורות — ${chosenCity||'כל הערים'}`);
+    document.getElementById('insCityExportBtn').onclick = ()=> exportAny(cityRows, `city_${sanitize(chosenCity||'all')}.xlsx`);
+
+    // “גורמי תקלות” — לפי כל השורות לאחר סינוני מחלקה+פתוחות+יחידה
     const faultRows = rows.filter(isFaultRow);
     const prodRates = rateByKey(rows, prodCol, isFaultRow);
     const subjRates = rateByKey(rows, subjCol, isFaultRow);
@@ -3099,7 +3135,7 @@
     document.getElementById('insFaultRowsBtn').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
     document.getElementById('insFaultExportBtn').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
 
-    // C) חרגי SLA
+    // חרגי SLA
     const slaRows = rows.filter(isSLABreach);
     const slaProd = rateByKey(rows, prodCol, isSLABreach);
     const slaSubj = rateByKey(rows, subjCol, isSLABreach);
@@ -3113,9 +3149,17 @@
       buildSLASuggestions(slaProd.top?.name||'', slaSubj.top?.name||'', slaProb.top?.name||'');
   }
 
-  // ── עזרי רנדר ───────────────────────────────────────────────────────────
+  // ── עזרי רנדר/מציאת טופ ────────────────────────────────────────────────
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
+
+  function topKeyBasic(rows, col){
+    if (!col || !rows.length) return {name:'',count:0};
+    const m=new Map();
+    rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; m.set(k,(m.get(k)||0)+1); });
+    const items=[...m.entries()].sort((a,b)=>b[1]-a[1]);
+    return {name:items[0]?.[0]||'', count:items[0]?.[1]||0};
+  }
 
   function renderTopList(containerId, rows, col){
     const el=document.getElementById(containerId); el.innerHTML='';
@@ -3209,9 +3253,8 @@
     </div>`;
   }
 
-  // ── טבלת שורות + ייצוא ──────────────────────────────────────────────────
+  // ── טבלת שורות + ייצוא (ממחזר את המודאל הכללי אם קיים) ───────────────
   function openRowsModal(rows, title){
-    // שימוש במודאל הכללי אם יש (biModal)
     if (document.getElementById('biModal') && typeof window.exportXLSX==='function'){
       const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
       const tHead=document.getElementById('biThead'), tBody=document.getElementById('biTbody');
@@ -3224,49 +3267,14 @@
       document.getElementById('biModal').classList.remove('hidden');
       return;
     }
-    // אחרת – מודאל קטן פנימי
-    let host=document.getElementById('insRowsModal');
-    if (!host){
-      document.body.insertAdjacentHTML('beforeend', `
-        <div id="insRowsModal" class="fixed inset-0 z-[1700] hidden">
-          <div class="absolute inset-0 bg-black/60"></div>
-          <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-2xl bg-[#0b1220] border border-white/10">
-            <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
-              <div id="insRowsTitle" class="font-bold">נתונים</div>
-              <button id="insRowsExport" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
-              <button id="insRowsClose" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
-            </div>
-            <div class="p-3 overflow-auto" style="max-height:70vh">
-              <table class="w-full text-sm border-separate border-spacing-0">
-                <thead id="insRowsHead"></thead><tbody id="insRowsBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>`);
-      host=document.getElementById('insRowsModal');
-      document.getElementById('insRowsClose').onclick=()=>host.classList.add('hidden');
-      document.getElementById('insRowsExport').onclick=()=>{
-        if (typeof window.exportXLSX==='function') window.exportXLSX(__INS_ROWS||[], sanitize(document.getElementById('insRowsTitle').textContent||'export')+'.xlsx');
-        else alert('פונקציית ייצוא לא זמינה.');
-      };
-    }
-    window.__INS_ROWS = rows;
-    document.getElementById('insRowsTitle').textContent = title||'נתונים';
-    const head=document.getElementById('insRowsHead'), body=document.getElementById('insRowsBody');
-    if (rows.length){
-      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
-      head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
-      body.innerHTML='<tr>'+rows.map(r=>headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')).join('</tr><tr>')+'</tr>';
-    }else{ head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
-    host.classList.remove('hidden');
+    alert('מודאל טבלה/ייצוא לא זמין בדף.');
   }
-
   function exportAny(rows, filename){
     if (typeof window.exportXLSX==='function') window.exportXLSX(rows, filename||'export.xlsx');
-    else alert('פונקציית ייצוא לא זמינה (ודאי שהדבקת את בלוק XLSX Export Fix).');
+    else alert('פונקציית ייצוא לא זמינה (ודאי שהודבק בלוק תיקון XLSX).');
   }
 
-  // ── אירועים מערכתיים ───────────────────────────────────────────────────
+  // ── אירוע מערכת: כשנטענים נתונים מחדש ─────────────────────────────────
   document.addEventListener('bi:data-loaded', ()=>{
     const m=document.getElementById('biInsightsModal');
     if (m && !m.classList.contains('hidden')) {
