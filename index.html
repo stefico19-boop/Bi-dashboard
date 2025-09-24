@@ -2782,538 +2782,369 @@
   console.log('XLSX Export Fix loaded');
 })();
 </script>
-<!-- === STEP INSIGHTS: תובנות איכותיות === -->
-<section id="biInsightsHost"></section>
+<!-- === Insights Modal — Quality Analysis w/ SLA (fixed: unit selector + dept-aware) === -->
 <script>
-(()=>{
-  if(window.__BI_INSIGHTS) return;
-  window.__BI_INSIGHTS = true;
-
-  const TZ='Asia/Jerusalem';
-  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
-
-  const COLS={
-    unit:['יחידת דואר: שם','שם יחידה','יחידה'],
-    city:['עיר','יישוב','ישוב','יישוב לקוח','עיר לקוח'],
-    subject:['סיווג נושא','נושא'],
-    problem:['סיווג בעיה','בעיה'],
-    product:['סיווג מוצר','מוצר'],
-    opened:['תאריך/שעת פתיחה','תאריך פתיחה','פתיחה'],
-    status:['סטאטוס פניה','סטאטוס','סטטוס פניה']
-  };
-
-  function findCol(row,keys){
-    if(!row) return null;
-    for(const k of keys) if(k in row) return k;
-    return null;
-  }
-  function getTxt(row,keys){
-    const k=findCol(row,keys);return k?String(row[k]??'').trim():'';
-  }
-  function isOpenRow(row){
-    const v=getTxt(row,COLS.status);
-    return !CLOSED.some(c=>v===c||v.includes(c));
-  }
-  function parseOpenDate(row){
-    const k=findCol(row,COLS.opened);
-    if(!k) return null;
-    const v=row[k];
-    if(typeof v==='number'){
-      const excelEpoch=new Date(Date.UTC(1899,11,30));
-      return new Date(excelEpoch.getTime()+v*86400000);
-    }
-    const d=new Date(v);
-    return isNaN(d)?null:d;
+(function(){
+  // ── כפתור פתיחה קבוע ────────────────────────────────────────────────────
+  if(!document.getElementById('biInsightsBtn')){
+    const btn=document.createElement('button');
+    btn.id='biInsightsBtn';
+    btn.className='fixed bottom-4 left-4 z-[1500] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow';
+    btn.textContent='🧠 תובנות';
+    btn.title='חלון תובנות איכותיות';
+    document.body.appendChild(btn);
+    btn.addEventListener('click', openInsights);
   }
 
-  function pickSLARule(row){
-    const dept=(row['מחלקה מטפלת']||'').toLowerCase();
-    const subj=getTxt(row,COLS.subject).toLowerCase();
-    const prob=getTxt(row,COLS.problem).toLowerCase();
-    const prod=getTxt(row,COLS.product).toLowerCase();
-
-    if((subj.includes('חלוקת')||subj.includes('יחידות'))&&dept.includes('פנים'))
-      return 8*86400000;
-    if((prob.includes('תקלה')&&prob.includes('פורטל'))||prod.includes('מידע'))
-      return 24*3600000;
-    if((prob.includes('איסוף')||prob.includes('הזמנה'))&&dept.includes('שליח'))
-      return 24*3600000;
-    if(dept.includes('בינלאומי')) return 60*86400000;
-    if(dept.includes('פנים')||dept.includes('שליח')) return 30*86400000;
-    return null;
-  }
-
-  function analyze(rows){
-    const insights=[];
-    if(!rows.length) return ['אין נתונים לניתוח.'];
-
-    // עיר עם הכי הרבה פניות
-    const cityCol=findCol(rows[0],COLS.city);
-    if(cityCol){
-      const cnt={};
-      rows.forEach(r=>{if(isOpenRow(r)){const c=r[cityCol];if(c)cnt[c]=(cnt[c]||0)+1;}});
-      const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
-      if(top) insights.push(`🔎 העיר עם הכי הרבה פניות: **${top[0]}** (${top[1]}) — בדקי אילו נושאים ובעיות מובילים שם.`);
-    }
-
-    // סיווג מוצר/נושא גורם ליותר תקלות
-    const subjCol=findCol(rows[0],COLS.subject);
-    const probCol=findCol(rows[0],COLS.problem);
-    if(subjCol||probCol){
-      const cnt={};
-      rows.forEach(r=>{
-        if(isOpenRow(r)){
-          const s=subjCol?r[subjCol]:'';
-          const p=probCol?r[probCol]:'';
-          const k=(s||p);if(k) cnt[k]=(cnt[k]||0)+1;
-        }
-      });
-      const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
-      if(top) insights.push(`⚠️ הסיווג שגורם ליותר תקלות: **${top[0]}** (${top[1]} פניות).`);
-    }
-
-    // חריגות SLA
-    const now=Date.now();
-    let slaOver={};
-    rows.forEach(r=>{
-      if(!isOpenRow(r)) return;
-      const opened=parseOpenDate(r);
-      const rule=pickSLARule(r);
-      if(opened&&rule){
-        const due=opened.getTime()+rule;
-        if(now>due){
-          const key=getTxt(r,COLS.problem)||getTxt(r,COLS.subject)||'—';
-          slaOver[key]=(slaOver[key]||0)+1;
-        }
-      }
-    });
-    const topOver=Object.entries(slaOver).sort((a,b)=>b[1]-a[1])[0];
-    if(topOver) insights.push(`⏰ סוגי פניות שתמיד חורגים מ־SLA: **${topOver[0]}** (${topOver[1]} פניות).`);
-
-    return insights;
-  }
-
-  function buildSolutionsTable(rows){
-    const items=[
-      {prob:'תקלה בפורטל',why:'בעיות טכניות/עדכון מערכת',sol:'חיזוק תשתיות, ניטור בזמן אמת'},
-      {prob:'פניה לקבלת מידע',why:'חוסר בערוצים ברורים',sol:'הוספת מדריכים, FAQ באתר'},
-      {prob:'חלוקת דואר',why:'מחסור בכוח אדם או עומס לוגיסטי',sol:'חיזוק סניפים, אופטימיזציה בשרשרת'},
-      {prob:'יחידות דואר',why:'תקלות ניהול/עומסים מקומיים',sol:'חיזוק תהליכי שירות, תגבור סניפים'}
-    ];
-    return `<table class="w-full text-sm mt-4 border border-white/10">
-      <thead><tr class="bg-white/10">
-        <th class="px-3 py-2 text-right">בעיה</th>
-        <th class="px-3 py-2 text-right">סיבה אפשרית</th>
-        <th class="px-3 py-2 text-right">פתרון מוצע</th>
-      </tr></thead>
-      <tbody>
-      ${items.map(x=>`<tr class="border-t border-white/10">
-        <td class="px-3 py-2">${x.prob}</td>
-        <td class="px-3 py-2">${x.why}</td>
-        <td class="px-3 py-2">${x.sol}</td>
-      </tr>`).join('')}
-      </tbody>
-    </table>`;
-  }
-
-  function ensureModal(){
-    if(document.getElementById('biInsightsModal')) return;
+  // ── מודאל תובנות ───────────────────────────────────────────────────────
+  function ensureInsightsModal(){
+    if (document.getElementById('biInsightsModal')) return;
     const html=`
-    <div id="biInsightsModal" class="fixed inset-0 z-[2000] hidden">
-      <div class="absolute inset-0 bg-black/60"></div>
-      <div class="relative mx-auto my-10 max-w-5xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
-        <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-          <div class="text-lg font-bold">🔮 תובנות איכותיות</div>
-          <button id="insCloseBtn" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
-        </div>
-        <div class="p-4 overflow-auto" style="max-height:70vh">
-          <div class="flex items-center gap-2 mb-4">
-            <label class="text-sm">בחר יחידה:</label>
-            <select id="insUnitSel" class="bg-white/10 border border-white/20 rounded px-2 py-1 text-sm">
-              <option value="">(כל היחידות)</option>
-            </select>
-            <button id="insUnitClear" class="px-2 py-1 rounded-full bg-white/10 border border-white/20 text-xs">איפוס יחידה</button>
+      <div id="biInsightsModal" class="fixed inset-0 z-[1600] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div class="text-xl font-bold">תובנות איכותיות</div>
+            <div class="ms-auto flex items-center gap-3 text-sm">
+              <label class="inline-flex items-center gap-2">
+                <input id="insOpenOnly" type="checkbox" class="accent-violet-500" checked/> רק פניות פתוחות
+              </label>
+              <label class="inline-flex items-center gap-2">
+                יחידה:
+                <select id="insUnitSel" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[14rem]"></select>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                עיר:
+                <select id="insCitySel" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[14rem]"></select>
+              </label>
+              <button id="insRefresh" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">רענון</button>
+              <button id="insClose" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
+            </div>
           </div>
-          <div id="insInsights" class="space-y-3 text-sm"></div>
-          <div id="insSolutions"></div>
-        </div>
-      </div>
-    </div>`;
-    document.getElementById('biInsightsHost').insertAdjacentHTML('beforeend',html);
-    document.getElementById('insCloseBtn').onclick=()=>document.getElementById('biInsightsModal').classList.add('hidden');
-    document.getElementById('insUnitClear').onclick=()=>{
-      const sel=document.getElementById('insUnitSel');sel.value='';renderInsights();
-    };
-    document.getElementById('insUnitSel').onchange=()=>renderInsights();
-  }
+          <div class="p-5 space-y-5 overflow-auto" style="max-height:70vh">
+            <div class="text-xs text-ink-200/70">
+              הניתוח מכבד את הטאב הפעיל של <b>מחלקה מטפלת</b>. עמודות: "יחידת דואר: שם", "עיר/יישוב", "סיווג נושא", "סיווג בעיה", "סיווג מוצר", "שעת/תאריך פתיחה ".
+            </div>
 
-  function renderInsights(){
-    const rows=Array.isArray(window.__dataset)?window.__dataset:[];
-    const sel=document.getElementById('insUnitSel').value;
-    const filtered=sel?rows.filter(r=>getTxt(r,COLS.unit)===sel):rows;
-    const insights=analyze(filtered);
-    document.getElementById('insInsights').innerHTML=insights.map(x=>`<div>${x}</div>`).join('');
-    document.getElementById('insSolutions').innerHTML=buildSolutionsTable(filtered);
+            <!-- A) למה עיר X מובילה -->
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-bold">למה העיר <span id="insCityName">—</span> מייצרת הכי הרבה פניות?</h3>
+                <span id="insCityTotal" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
+              </div>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">פירוק לפי סיווג נושא (Top 3)</div>
+                  <div id="insCitySubject" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">פירוק לפי סיווג בעיה (Top 3)</div>
+                  <div id="insCityProblem" class="space-y-1"></div>
+                </div>
+              </div>
+              <div id="insCityHypo" class="mt-3 text-sm"></div>
+              <div class="mt-3">
+                <button id="insCityRowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+                <button id="insCityExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+              </div>
+            </section>
+
+            <!-- B) מי גורם יותר תקלות -->
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-bold">מה גורם ליותר תקלות? סיווג מוצר או סיווג נושא</h3>
+              </div>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">סיווג מוצר — שיעור “תקלות”</div>
+                  <div id="insProdFaults" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">סיווג נושא — שיעור “תקלות”</div>
+                  <div id="insSubjFaults" class="space-y-1"></div>
+                </div>
+              </div>
+              <div class="mt-3">
+                <button id="insFaultRowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+                <button id="insFaultExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+              </div>
+            </section>
+
+            <!-- C) מי חורג מ-SLA -->
+            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-bold">אילו סוגי פניות כמעט תמיד חורגים מ־SLA?</h3>
+              </div>
+              <div class="grid md:grid-cols-3 gap-4">
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">לפי סיווג מוצר</div>
+                  <div id="insSLAProd" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">לפי סיווג נושא</div>
+                  <div id="insSLASubj" class="space-y-1"></div>
+                </div>
+                <div>
+                  <div class="text-sm text-ink-200/80 mb-1">לפי סיווג בעיה</div>
+                  <div id="insSLAProb" class="space-y-1"></div>
+                </div>
+              </div>
+              <div id="insSLARecommendations" class="mt-3 text-sm"></div>
+              <div class="mt-3">
+                <button id="insSLARowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+                <button id="insSLAExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    // חוטי אירועים
+    document.getElementById('insClose').onclick = () => document.getElementById('biInsightsModal').classList.add('hidden');
+    document.getElementById('biInsightsModal').addEventListener('click', (e)=>{ if(e.target.id==='biInsightsModal') e.currentTarget.classList.add('hidden'); });
+    document.getElementById('insRefresh').onclick = () => renderInsights();
+
+    // שינויי בקרה (פתוחות/יחידה/עיר)
+    document.getElementById('insOpenOnly').onchange = () => renderInsights();
+    document.getElementById('insUnitSel').onchange  = () => renderInsights();
+    document.getElementById('insCitySel').onchange  = () => renderInsights();
+
+    // רענון כאשר מחליפים טאב מחלקה מטפלת
+    const tabs=document.getElementById('deptTabs');
+    if (tabs && !tabs.dataset.insightsBound){
+      tabs.addEventListener('click', ()=>{
+        const m=document.getElementById('biInsightsModal');
+        if (m && !m.classList.contains('hidden')) renderInsights();
+      });
+      tabs.dataset.insightsBound='1';
+    }
   }
 
   function openInsights(){
-    ensureModal();
-    const sel=document.getElementById('insUnitSel');
-    if(sel) sel.value='';
-    // למלא אפשרויות יחידות
-    const rows=Array.isArray(window.__dataset)?window.__dataset:[];
-    const units=[...new Set(rows.map(r=>getTxt(r,COLS.unit)).filter(x=>x))];
-    sel.innerHTML='<option value="">(כל היחידות)</option>'+units.map(u=>`<option>${u}</option>`).join('');
+    ensureInsightsModal();
+    // איפוס ברירת מחדל בכל פתיחה
+    document.getElementById('insOpenOnly').checked = true;
+    // נבנה מחדש ליסטים של יחידות/ערים לפי הטאב הנוכחי
+    fillUnitAndCitySelectors();
     renderInsights();
     document.getElementById('biInsightsModal').classList.remove('hidden');
   }
 
-  // כפתור לפתיחת תובנות
-  const btn=document.createElement('button');
-  btn.textContent='🔮 תובנות איכותיות';
-  btn.className='fixed bottom-4 left-4 z-[2100] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow-lg';
-  btn.onclick=openInsights;
-  document.body.appendChild(btn);
-})();
-</script>
-  <!-- === INSIGHTS PRO (ADD-ON): חלון תובנות מסודר ומדויק === -->
-<script>
-(()=>{
-  if (window.__BI_INSIGHTS_PRO) return;
-  window.__BI_INSIGHTS_PRO = true;
-
-  // ─────────── הגדרות כלליות ───────────
-  const DAY = 24*60*60*1000, TZ='Asia/Jerusalem';
-  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
-
-  // עמודות (כולל וריאציות נפוצות)
-  const COL = {
-    unit:  { exact:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'] },
-    city:  { exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'] },
-    subj:  { exact:['סיווג נושא','נושא','סיווג נושא '] },
-    prob:  { exact:['סיווג בעיה','בעיה','סיווג בעיה '] },
-    prod:  { exact:['סיווג מוצר','מוצר','שם מוצר'] },
-    dept:  { exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '] },
-    status:{ exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'] },
-    opened:{ exact:['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'] }
-  };
-
-  const HEB=/[\u0591-\u05C7]/g;
-  const norm=(s)=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
-
-  function findCol(row0, spec){
-    if (!row0) return null;
-    const headers = Object.keys(row0);
-    for (const h of headers) {
-      for (const ex of spec.exact) {
-        if (h===ex || norm(h)===norm(ex)) return h;
-      }
-    }
+  // ── עזרי עמודות/תאריכים/SLA ─────────────────────────────────────────────
+  const DAY=24*60*60*1000, TZ='Asia/Jerusalem';
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  function findColumnFlexible(row0, exactList, keywordSets){
+    if(!row0) return null;
+    const headers=Object.keys(row0);
+    for(const h of headers){ if (exactList.includes(h)) return h;
+      const hNorm=norm(h); for(const ex of exactList){ if (hNorm===norm(ex)) return h; } }
+    for(const h of headers){ const n=norm(h); if (keywordSets?.some(set=>set.every(k=>n.includes(norm(k))))) return h; }
     return null;
   }
-  function getTxt(r,spec){ const k=findCol(r, spec); return k? String(r[k]??'').trim() : ''; }
-  function isOpenRow(r){
-    const k=findCol(r,COL.status);
-    if (!k) return true;
-    const v=String(r[k]??'').trim();
-    return !CLOSED.some(c=>v===c || v.includes(c));
-  }
+  const COL = {
+    unit:  { exact:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'], kw:[['יחידת','דואר','שם'],['שם','יחידה']] },
+    city:  { exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'], kw:[['עיר'],['יישוב']] },
+    subj:  { exact:['סיווג נושא','נושא','סיווג נושא '], kw:[['סיווג','נושא'],['נושא']] },
+    prob:  { exact:['סיווג בעיה','בעיה','סיווג בעיה '], kw:[['סיווג','בעיה'],['בעיה']] },
+    prod:  { exact:['סיווג מוצר','מוצר','שם מוצר'], kw:[['סיווג','מוצר'],['מוצר']] },
+    dept:  { exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '], kw:[['מחלקה','מטפלת'],['מחלקה']] },
+    status:{ exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'], kw:[] },
+    opened:{ exact:['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'], kw:[['פתיחה'],['תאריך']] }
+  };
+  function findCol(row0, spec){ return findColumnFlexible(row0, spec.exact, spec.kw); }
+
   function excelToDate(n){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+n*DAY); }
   function parseDate(val){
     if (val==null||val==='') return null;
     if (typeof val==='number') return excelToDate(val);
-    let d=new Date(val); if(!isNaN(d)) return d;
+    let d=new Date(val);
+    if(!isNaN(d)) return d;
     const m=String(val).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
     if (m){ let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy; d=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`); if(!isNaN(d)) return d; }
     return null;
   }
-  function todayKey(){
-    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
-    const map=Object.fromEntries(p.map(x=>[x.type,x.value])); return `${map.year}-${map.month}-${map.day}`;
-  }
-  function yesterdayKey(){
-    const t=new Date(); const y=new Date(t.getTime()-DAY);
-    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(y);
-    const map=Object.fromEntries(p.map(x=>[x.type,x.value])); return `${map.year}-${map.month}-${map.day}`;
-  }
-  function normalizeDateOnly(val){
-    const d=parseDate(val); if(!d) return null;
-    const parts=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
-    const m=Object.fromEntries(parts.map(p=>[p.type,p.value])); return `${m.year}-${m.month}-${m.day}`;
+  const CLOSED_WORDS=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  function isOpenRow(r){ 
+    const k=findCol(r,COL.status); 
+    if(!k) return true; 
+    const v=String(r[k]??'').trim(); 
+    return !CLOSED_WORDS.some(c=>v===c||v.includes(c)); 
   }
 
-  // SLA לפי הכללים שסיכמנו
   function pickSLARule(row){
-    const dept=norm(getTxt(row,COL.dept));
-    const subj=norm(getTxt(row,COL.subj));
-    const prob=norm(getTxt(row,COL.prob));
+    const dept = norm(row[findCol(row, COL.dept)]||'');
+    const subj = norm(row[findCol(row, COL.subj)]||'');
+    const prob = norm(row[findCol(row, COL.prob)]||'');
 
-    if (dept.includes('פנים') && dept.includes('ארצי') && (subj.includes('חלוקתדואר') || subj.includes('יחידותדואר'))) return 8*DAY;
-    if ((prob.includes('תקל') && prob.includes('פורטל'))) return 1*DAY;
-    if ((prob.includes('איסוף') || prob.includes('הזמנה')) && dept.includes('שליח')) return 1*DAY;
-    if ((dept.includes('פנים')&&dept.includes('ארצי')) || dept.includes('שליח')) return 30*DAY;
-    if (dept.includes('בינלאומי')) return 60*DAY;
+    if (dept.includes('פנים') && dept.includes('ארצי') && (subj.includes('חלוקתדואר') || subj.includes('יחידותדואר')))
+      return {ms: 8*DAY, label:'8 ימים — חלוקת/יחידות דואר (פנים-ארצי)'};
+    if ((prob.includes('תקל') && prob.includes('פורטל')))
+      return {ms: 1*DAY, label:'24 שעות — תקלה בפורטל'};
+    if ((prob.includes('איסוף') || prob.includes('הזמנה')) && dept.includes('שליח'))
+      return {ms: 1*DAY, label:'24 שעות — איסוף/הזמנה (שליחים)'};
+    if ((dept.includes('פנים')&&dept.includes('ארצי')) || dept.includes('שליח'))
+      return {ms: 30*DAY, label:'30 ימים — ברירת מחדל (פנים-ארצי/שליחים)'};
+    if (dept.includes('בינלאומי'))
+      return {ms: 60*DAY, label:'60 ימים — ברירת מחדל (בינלאומי)'};
     return null;
   }
-  function isSLABreach(r){
-    if(!isOpenRow(r)) return false;
-    const k=findCol(r,COL.opened); if(!k) return false;
-    const opened=parseDate(r[k]); if(!opened) return false;
-    const rule=pickSLARule(r); if(!rule) return false;
-    return Date.now() > (opened.getTime()+rule);
+  function isSLABreach(row){
+    if(!isOpenRow(row)) return false;
+    const k=findCol(row,COL.opened); if(!k) return false;
+    const opened=parseDate(row[k]); if(!opened) return false;
+    const rule=pickSLARule(row); if(!rule) return false;
+    return Date.now() > (opened.getTime()+rule.ms);
+  }
+  function isFaultRow(row){
+    const pKey=findCol(row, COL.prob), sKey=findCol(row, COL.subj);
+    const txt=(String(row[pKey]||'')+' '+String(row[sKey]||'')).toLowerCase();
+    return /(תקלה|שגיאה|כשל|קריסה|פורטל)/.test(txt);
   }
 
-  // ─────────── מודאל + כפתור ───────────
-  function ensureModal(){
-    if (document.getElementById('biInsightsPro')) return;
-    const html=`
-    <div id="biInsightsPro" class="fixed inset-0 z-[2100] hidden">
-      <div class="absolute inset-0 bg-black/60"></div>
-      <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
-        <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b border-white/10">
-          <div class="text-xl font-bold">🧠 תובנות PRO</div>
-          <div class="ms-auto flex flex-wrap items-center gap-2 text-sm">
-            <label class="inline-flex items-center gap-2"><input id="ipOpenOnly" type="checkbox" class="accent-violet-500" checked> רק פתוחות</label>
-            <label class="inline-flex items-center gap-1">יחידה:
-              <select id="ipUnit" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[12rem]">
-                <option value="">(כל היחידות)</option>
-              </select>
-            </label>
-            <label class="inline-flex items-center gap-1">עיר:
-              <select id="ipCity" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[12rem]">
-                <option value="">(כל הערים)</option>
-              </select>
-            </label>
-            <button id="ipReset" class="px-2 py-1 rounded-full bg-white/10 border border-white/20 text-xs">איפוס</button>
-            <button id="ipClose" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20">סגירה</button>
-          </div>
-        </div>
-
-        <div class="p-5 space-y-6 overflow-auto" style="max-height:72vh">
-          <!-- KPIs -->
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="ipKPIs">
-            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-              <div class="text-xs text-ink-200/70">סה״כ פתוחות</div>
-              <div id="ipKpiOpen" class="text-2xl font-bold">—</div>
-            </div>
-            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-              <div class="text-xs text-ink-200/70">נפתחו היום</div>
-              <div id="ipKpiToday" class="text-2xl font-bold">—</div>
-            </div>
-            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-              <div class="text-xs text-ink-200/70">נפתחו אתמול</div>
-              <div id="ipKpiYesterday" class="text-2xl font-bold">—</div>
-            </div>
-            <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
-              <div class="text-xs text-ink-200/70">חריגי SLA</div>
-              <div id="ipKpiSLA" class="text-2xl font-bold">—</div>
-            </div>
-          </div>
-
-          <!-- פירוקים -->
-          <div class="grid md:grid-cols-3 gap-4">
-            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
-              <div class="flex items-center gap-2 mb-2">
-                <h3 class="font-bold">Top נושאים בעיר נבחרת</h3>
-                <span id="ipCityBadge" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
-              </div>
-              <div id="ipTopSubject" class="space-y-1 text-sm"></div>
-              <div class="mt-3">
-                <button id="ipCityRows" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">פתח טבלה</button>
-                <button id="ipCityExport" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">ייצוא XLSX</button>
-              </div>
-            </section>
-
-            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
-              <h3 class="font-bold mb-2">גורמי “תקלות”</h3>
-              <div class="text-xs text-ink-200/70 mb-1">סיווג מוצר — שיעור תקלות</div>
-              <div id="ipProdFaults" class="space-y-1 text-sm mb-3"></div>
-              <div class="text-xs text-ink-200/70 mb-1">סיווג נושא — שיעור תקלות</div>
-              <div id="ipSubjFaults" class="space-y-1 text-sm"></div>
-              <div class="mt-3">
-                <button id="ipFaultRows" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">פתח טבלה</button>
-                <button id="ipFaultExport" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">ייצוא XLSX</button>
-              </div>
-            </section>
-
-            <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
-              <h3 class="font-bold mb-2">חורגי SLA (Top)</h3>
-              <div class="text-xs text-ink-200/70 mb-1">לפי סיווג מוצר</div>
-              <div id="ipSLAProd" class="space-y-1 text-sm mb-2"></div>
-              <div class="text-xs text-ink-200/70 mb-1">לפי סיווג נושא</div>
-              <div id="ipSLASubj" class="space-y-1 text-sm mb-2"></div>
-              <div class="text-xs text-ink-200/70 mb-1">לפי סיווג בעיה</div>
-              <div id="ipSLAProb" class="space-y-1 text-sm"></div>
-              <div class="mt-3">
-                <button id="ipSLARows" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">פתח טבלה</button>
-                <button id="ipSLAExport" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs">ייצוא XLSX</button>
-              </div>
-            </section>
-          </div>
-
-          <!-- השערות והמלצות -->
-          <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
-            <h3 class="font-bold mb-2">בעיה → סיבה אפשרית → פתרון מוצע</h3>
-            <div id="ipHypo" class="text-sm"></div>
-          </section>
-        </div>
-      </div>
-    </div>`;
-    document.body.insertAdjacentHTML('beforeend', html);
-
-    // events
-    document.getElementById('ipClose').onclick = ()=> document.getElementById('biInsightsPro').classList.add('hidden');
-    document.getElementById('ipReset').onclick = ()=>{
-      document.getElementById('ipOpenOnly').checked = true;
-      document.getElementById('ipUnit').value = '';
-      document.getElementById('ipCity').value = '';
-      renderInsightsPro();
-    };
-    ['ipOpenOnly','ipUnit','ipCity'].forEach(id=>{
-      const el=document.getElementById(id);
-      el.onchange = ()=> renderInsightsPro();
-    });
-  }
-
-  // כפתור צף
-  if (!document.getElementById('ipBtn')) {
-    const btn=document.createElement('button');
-    btn.id='ipBtn';
-    btn.className='fixed bottom-16 left-4 z-[2150] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow';
-    btn.textContent='🧠 תובנות PRO';
-    btn.onclick=()=>{ ensureModal(); fillFilters(); renderInsightsPro(); document.getElementById('biInsightsPro').classList.remove('hidden'); };
-    document.body.appendChild(btn);
-  }
-
-  // מילוי פילטרים (יחידה/עיר) לפי הדאטה והטאב הפעיל
+  // כיבוד טאב מחלקה
   function activeDept(){
     const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
-    const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
+    const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('bg-gradient-to-r')||b.className.includes('from-brand-600'));
     return (btn?.textContent||'כללי').trim();
   }
-  function scopedRows(){
-    const rows = Array.isArray(window.__dataset)? window.__dataset : [];
-    const dept = activeDept();
-    if (dept==='כללי') return rows;
-    const k=findCol(rows[0], COL.dept); if(!k) return rows;
-    return rows.filter(r=> String(r[k]??'').trim() === dept);
+  function scopeByDept(rows){
+    const dept=activeDept(); if (dept==='כללי') return rows;
+    const key=findCol(rows[0], COL.dept); if(!key) return rows;
+    return rows.filter(r=>String(r[key]??'').trim()===dept);
   }
-  function fillFilters(){
-    ensureModal();
-    const rows = scopedRows();
-    const unitSel=document.getElementById('ipUnit');
-    const citySel=document.getElementById('ipCity');
-    const unitCol=findCol(rows[0],COL.unit);
-    const cityCol=findCol(rows[0],COL.city);
+
+  // ── מילוי סלקטים של יחידה/עיר לפי הטאב ─────────────────────────────────
+  function fillUnitAndCitySelectors(){
+    const rowsAll = Array.isArray(window.__dataset)? window.__dataset : [];
+    let rows = scopeByDept(rowsAll);
+    if (document.getElementById('insOpenOnly')?.checked) rows = rows.filter(isOpenRow);
+
+    const r0 = rows[0] || {};
+    const unitCol = findCol(r0, COL.unit);
+    const cityCol = findCol(r0, COL.city);
 
     // יחידות
-    const unitSet=new Map();
-    if (unitCol) rows.forEach(r=>{ const u=(r[unitCol]??'').toString().trim(); if(u) unitSet.set(u,(unitSet.get(u)||0)+1); });
-    unitSel.innerHTML = '<option value="">(כל היחידות)</option>' +
-      [...unitSet.entries()].sort((a,b)=>b[1]-a[1]).map(([u,c])=>`<option value="${escapeHtml(u)}">${escapeHtml(u)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+    const unitSel = document.getElementById('insUnitSel');
+    const unitMap = new Map();
+    if (unitCol) rows.forEach(r=>{ const u=(r[unitCol]??'').toString().trim(); if(!u) return; unitMap.set(u,(unitMap.get(u)||0)+1); });
+    unitSel.innerHTML = `<option value="">(כל היחידות)</option>` + [...unitMap.entries()].sort((a,b)=>b[1]-a[1]).map(([u,c])=>`<option value="${escapeHtml(u)}">${escapeHtml(u)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+    unitSel.value = '';
 
-    // ערים
-    const citySet=new Map();
-    if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(c) citySet.set(c,(citySet.get(c)||0)+1); });
-    citySel.innerHTML = '<option value="">(כל הערים)</option>' +
-      [...citySet.entries()].sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<option value="${escapeHtml(c)}">${escapeHtml(c)} — ${n.toLocaleString('he-IL')}</option>`).join('');
+    // ערים (מתבסס על כל היחידות כברירת מחדל)
+    const citySel = document.getElementById('insCitySel');
+    const cityMap = new Map();
+    if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(!c) return; cityMap.set(c,(cityMap.get(c)||0)+1); });
+    const cities=[...cityMap.entries()].sort((a,b)=>b[1]-a[1]);
+    citySel.innerHTML = `<option value="">(בחרי עיר)</option>` + cities.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+    citySel.value = cities[0]?.[0] || '';
   }
 
-  // חישוב תובנות + רנדר
-  function renderInsightsPro(){
-    const rows0 = scopedRows();
-    const onlyOpen = document.getElementById('ipOpenOnly').checked;
-    const unitSel  = document.getElementById('ipUnit').value;
-    const citySel  = document.getElementById('ipCity').value;
+  // ── רנדר תובנות ─────────────────────────────────────────────────────────
+  function renderInsights(){
+    ensureInsightsModal();
+    const openOnly = document.getElementById('insOpenOnly').checked;
+    const rowsAll  = Array.isArray(window.__dataset)? window.__dataset : [];
+    if (!rowsAll.length) return;
 
-    let rows = rows0;
-    if (onlyOpen) rows = rows.filter(isOpenRow);
+    // סינון לפי מחלקה מטפלת
+    let rows = scopeByDept(rowsAll);
+    if (openOnly) rows = rows.filter(isOpenRow);
 
-    const unitCol=findCol(rows[0],COL.unit);
-    const cityCol=findCol(rows[0],COL.city);
-    const subjCol=findCol(rows[0],COL.subj);
-    const probCol=findCol(rows[0],COL.prob);
-    const prodCol=findCol(rows[0],COL.prod);
-    const openCol=findCol(rows[0],COL.opened);
+    const r0 = rows[0] || {};
+    const unitCol = findCol(r0, COL.unit);
+    const cityCol = findCol(r0, COL.city);
+    const subjCol = findCol(r0, COL.subj);
+    const probCol = findCol(r0, COL.prob);
+    const prodCol = findCol(r0, COL.prod);
 
-    if (unitSel && unitCol) rows = rows.filter(r=> String(r[unitCol]??'').trim()===unitSel);
-    const rowsUnit = rows; // אחרי יחידה
-    if (citySel && cityCol) rows = rows.filter(r=> String(r[cityCol]??'').trim()===citySel);
+    // סינון לפי יחידה (אם נבחרה)
+    const unitVal = document.getElementById('insUnitSel').value || '';
+    if (unitVal && unitCol) rows = rows.filter(r => String(r[unitCol]??'').trim() === unitVal);
 
-    // KPIs
-    const tKey=todayKey(), yKey=yesterdayKey();
-    const dateKey = (r)=> openCol? normalizeDateOnly(r[openCol]) : null;
-    const openRows = rowsUnit; // KPIs על “יחידה/פתוחות”, והעיר נבחרת מוצגת בבאדג'
-    const kOpen   = openRows.length;
-    const kToday  = openRows.filter(r=> dateKey(r)===tKey ).length;
-    const kYest   = openRows.filter(r=> dateKey(r)===yKey ).length;
-    const kSLA    = openRows.filter(isSLABreach).length;
-    $('ipKpiOpen').textContent      = kOpen.toLocaleString('he-IL');
-    $('ipKpiToday').textContent     = kToday.toLocaleString('he-IL');
-    $('ipKpiYesterday').textContent = kYest.toLocaleString('he-IL');
-    $('ipKpiSLA').textContent       = kSLA.toLocaleString('he-IL');
+    // בניית רשימת ערים דינמית לפי הסינון הנוכחי (כולל יחידה)
+    const citySel = document.getElementById('insCitySel');
+    if (!citySel.dataset.boundForUnit || citySel.dataset.boundForUnit !== unitVal){
+      // מלאי מחדש ערים
+      const m = new Map();
+      if (cityCol) rows.forEach(r=>{const c=(r[cityCol]??'').toString().trim(); if(!c) return; m.set(c,(m.get(c)||0)+1);});
+      const arr=[...m.entries()].sort((a,b)=>b[1]-a[1]);
+      const current = citySel.value;
+      citySel.innerHTML = `<option value="">(בחרי עיר)</option>` + arr.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+      // שמרי בחירה אם עדיין קיימת, אחרת ברירת מחדל לראשונה
+      citySel.value = arr.some(([n])=>n===current) ? current : (arr[0]?.[0] || '');
+      citySel.dataset.boundForUnit = unitVal;
+    }
 
-    // עיר נבחרת — Top נושאים
-    const chosenCity = citySel || '';
-    $('ipCityBadge').textContent = chosenCity ? chosenCity : 'ללא בחירת עיר';
-    const cityRows = (chosenCity && cityCol) ? rowsUnit.filter(r=> String(r[cityCol]??'').trim()===chosenCity) : [];
-    renderTopList('ipTopSubject', cityRows, subjCol);
+    // A) עיר נבחרת
+    const chosenCity = citySel.value || '';
+    document.getElementById('insCityName').textContent = chosenCity || '—';
+    const cityRows = (chosenCity && cityCol) ? rows.filter(r => String(r[cityCol]||'').trim()===chosenCity) : [];
+    document.getElementById('insCityTotal').textContent = chosenCity? `${cityRows.length.toLocaleString('he-IL')} פניות` : '';
 
-    // Fault rates
-    const faultRows = rowsUnit.filter(r=>{
-      const txt=(String(r[probCol]||'')+' '+String(r[subjCol]||'')).toLowerCase();
-      return /(תקלה|שגיאה|כשל|קריסה|פורטל)/.test(txt);
-    });
-    renderRates('ipProdFaults', rateByKey(rowsUnit, prodCol, r=>faultRows.includes(r)), false);
-    renderRates('ipSubjFaults', rateByKey(rowsUnit, subjCol, r=>faultRows.includes(r)), false);
+    renderTopList('insCitySubject', cityRows, subjCol);
+    renderTopList('insCityProblem', cityRows, probCol);
+    const topSubj = topKey(cityRows, subjCol);
+    const topProb = topKey(cityRows, probCol);
+    document.getElementById('insCityHypo').innerHTML = buildHypothesisBlock(topSubj, topProb);
+    document.getElementById('insCityRowsBtn').onclick   = ()=> openRowsModal(cityRows, `שורות — ${chosenCity||'כללי'}`);
+    document.getElementById('insCityExportBtn').onclick = ()=> exportAny(cityRows, `city_${sanitize(chosenCity)||'all'}.xlsx`);
 
-    // SLA breaches
-    const slaRows = rowsUnit.filter(isSLABreach);
-    renderRates('ipSLAProd', rateByKey(rowsUnit, prodCol, isSLABreach), true);
-    renderRates('ipSLASubj', rateByKey(rowsUnit, subjCol, isSLABreach), true);
-    renderRates('ipSLAProb', rateByKey(rowsUnit, probCol, isSLABreach), true);
+    // B) “גורמי תקלות”
+    const faultRows = rows.filter(isFaultRow);
+    const prodRates = rateByKey(rows, prodCol, isFaultRow);
+    const subjRates = rateByKey(rows, subjCol, isFaultRow);
+    renderRates('insProdFaults', prodRates);
+    renderRates('insSubjFaults', subjRates);
+    document.getElementById('insFaultRowsBtn').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
+    document.getElementById('insFaultExportBtn').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
 
-    // Hypothesis / Recommendations
-    $('ipHypo').innerHTML = buildHypothesis(cityRows, subjCol, probCol, slaRows);
-
-    // פעולות כפתורים (טבלאות + ייצוא — משתמש בפונקציית exportXLSX אם קיימת)
-    $('#ipCityRows').onclick   = ()=> openRowsModal(cityRows, chosenCity? `שורות — עיר: ${chosenCity}` : 'שורות — עיר (ללא בחירה)');
-    $('#ipCityExport').onclick = ()=> exportAny(cityRows, chosenCity? `city_${sanitize(chosenCity)}.xlsx` : 'city_all.xlsx');
-
-    $('#ipFaultRows').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
-    $('#ipFaultExport').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
-
-    $('#ipSLARows').onclick   = ()=> openRowsModal(slaRows, 'שורות — חרגי SLA');
-    $('#ipSLAExport').onclick = ()=> exportAny(slaRows, 'sla_breach_rows.xlsx');
+    // C) חרגי SLA
+    const slaRows = rows.filter(isSLABreach);
+    const slaProd = rateByKey(rows, prodCol, isSLABreach);
+    const slaSubj = rateByKey(rows, subjCol, isSLABreach);
+    const slaProb = rateByKey(rows, probCol, isSLABreach);
+    renderRates('insSLAProd', slaProd, true);
+    renderRates('insSLASubj', slaSubj, true);
+    renderRates('insSLAProb', slaProb, true);
+    document.getElementById('insSLARowsBtn').onclick   = ()=> openRowsModal(slaRows, 'שורות — חרגי SLA');
+    document.getElementById('insSLAExportBtn').onclick = ()=> exportAny(slaRows, 'sla_breach_rows.xlsx');
+    document.getElementById('insSLARecommendations').innerHTML =
+      buildSLASuggestions(slaProd.top?.name||'', slaSubj.top?.name||'', slaProb.top?.name||'');
   }
 
-  // ─────────── עזרי רנדר וחישוב ───────────
-  function $(id){ return document.getElementById(id); }
+  // ── עזרי רנדר ───────────────────────────────────────────────────────────
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
 
   function renderTopList(containerId, rows, col){
-    const el=$(containerId); el.innerHTML='';
+    const el=document.getElementById(containerId); el.innerHTML='';
     if (!col || !rows.length){ el.textContent='—'; return; }
-    const map=new Map();
-    rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const map=new Map(); rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3);
     const total=rows.length||1;
-    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5);
     items.forEach(([name,count])=>{
-      const p=Math.round(count*100/total);
       const row=document.createElement('div');
-      row.innerHTML=`<div class="flex items-center gap-2">
-        <span>${escapeHtml(name)}</span>
-        <span class="ms-auto text-xs px-2 py-0.5 rounded-full bg-white/10 border border-white/10">${count.toLocaleString('he-IL')} • ${p}%</span>
-      </div>
-      <div class="h-1.5 bg-white/10 rounded mt-1 overflow-hidden"><div class="bg-brand-500" style="width:${p}%"></div></div>`;
+      row.className='flex items-center gap-2';
+      row.innerHTML=`
+        <span class="text-ink-50/90">${escapeHtml(name)}</span>
+        <span class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">${count.toLocaleString('he-IL')} • ${Math.round(count*100/total)}%</span>`;
       el.appendChild(row);
     });
     if (!items.length) el.textContent='—';
   }
 
-  function rateByKey(allRows, col, predicateFn, minN=15){
-    if (!col || !allRows.length) return {list:[],top:null};
+  function topKey(rows, col){
+    if (!col) return {name:'', count:0, pct:0};
+    const map=new Map(); rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]);
+    const total=rows.length||1;
+    if (!items.length) return {name:'',count:0,pct:0};
+    return {name:items[0][0], count:items[0][1], pct: Math.round(items[0][1]*100/total)};
+  }
+
+  function rateByKey(allRows, col, predicateFn, minN=20){
+    if (!col || !allRows.length) return {list:[], top:null};
     const buckets=new Map();
     allRows.forEach(r=>{
       const key=(r[col]??'').toString().trim() || '(לא צוין)';
@@ -3321,21 +3152,22 @@
       b.n++; if (predicateFn(r)) b.yes++;
       buckets.set(key,b);
     });
-    const list=[...buckets.entries()].map(([name,{n,yes}])=>({name,n,yes,rate:n?yes/n:0}));
+    const list=[...buckets.entries()].map(([name,{n,yes}])=>({name, yes, n, rate: n? (yes/n):0 }));
     const filtered=list.filter(x=>x.n>=minN).sort((a,b)=>b.rate-a.rate||b.n-a.n).slice(0,5);
-    return {list:filtered, top:filtered[0]||null};
+    return { list: filtered, top: filtered[0]||null };
   }
-  function renderRates(containerId, data, emphasizeHigh){
-    const el=$(containerId); el.innerHTML='';
+
+  function renderRates(containerId, data, emphasizeHigh=false){
+    const el=document.getElementById(containerId); el.innerHTML='';
     if (!data.list.length){ el.textContent='—'; return; }
-    data.list.forEach(({name,n,yes,rate})=>{
-      const p=Math.round(rate*100);
+    data.list.forEach(item=>{
+      const p=Math.round(item.rate*100);
       const bar=document.createElement('div');
       bar.className='text-xs';
       bar.innerHTML=`
         <div class="flex items-center gap-2">
-          <span class="text-ink-50/90">${escapeHtml(name)}</span>
-          <span class="ms-auto">${yes.toLocaleString('he-IL')}/${n.toLocaleString('he-IL')} • ${p}%</span>
+          <span class="text-ink-50/90">${escapeHtml(item.name)}</span>
+          <span class="ms-auto">${item.yes.toLocaleString('he-IL')}/${item.n.toLocaleString('he-IL')} • ${p}%</span>
         </div>
         <div class="h-1.5 bg-white/10 rounded mt-1 overflow-hidden">
           <div class="${emphasizeHigh?'bg-red-500':'bg-brand-500'}" style="width:${p}%"></div>
@@ -3344,66 +3176,105 @@
     });
   }
 
-  function buildHypothesis(cityRows, subjCol, probCol, slaRows){
-    const topSubj = topKey(cityRows, subjCol);
-    const topProb = topKey(cityRows, probCol);
+  function buildHypothesisBlock(topSubj, topProb){
     const hints=[];
-    if ((topSubj.name||'').includes('חלוקת') || (topProb.name||'').includes('חלוקת') || (topSubj.name||'').includes('יחידות דואר')){
-      hints.push({ issue:'עומס בחלוקת/יחידות', cause:'קיבולת סניפים ושליחים', fix:'תיעדוף SLA 8 ימים, איזון עומסים ותגבור נקודתי' });
+    if ((topSubj.name||'').includes('חלוקת') || (topSubj.name||'').includes('יחידות דואר') || (topProb.name||'').includes('חלוקת')){
+      hints.push({ issue:'עומס בחלוקת דואר/יחידות דואר', cause:'קיבולת שליחים/סניפים וזמני מיון.', fix:'תיעדוף לפי SLA 8 ימים, ניטור עומסים יומי והסטת משלוחים בין יחידות עמוסות.' });
     }
-    if ((topProb.name||'').match(/פורטל|תקלה|שגיאה|כשל|קריסה/)){
-      hints.push({ issue:'תקלות מערכת/פורטל', cause:'רגרסיות/זמינות', fix:'ניטור שגיאות, בדיקות רגרסיה, תיעדוף 24 שעות' });
+    if ((topProb.name||'').includes('פורטל') || /(תקלה|שגיאה|כשל|קריסה)/.test(topProb.name||'')){
+      hints.push({ issue:'תקלות מערכת/פורטלים', cause:'באגים/רגרסיות או זמינות נמוכה.', fix:'פתיחת באגים מסווגים, בדיקות רגרסיה אוטומטיות וניטור זמינות; תקשורת סטטוס לנציגים.' });
     }
-    if (slaRows.length>0){
-      hints.push({ issue:'חריגות SLA נקודתיות', cause:'צווארי בקבוק בתהליך', fix:'מיפוי שלבים, אוטומציה, חיזוק תורים עמוסים' });
+    if (!hints.length){
+      hints.push({ issue:'ריכוזיות קטגוריה מובילה', cause:'תהליך שירות לא אופטימלי בקטגוריה המובילה.', fix:'סקירת תהליך קצה־לקצה, קיצור נקודות חיכוך והדרכת צוותים.' });
     }
-    if (!hints.length) hints.push({ issue:'ריכוזיות קטגוריה מובילה', cause:'תהליך שירות לא אופטימלי', fix:'שיפור UX ותהליכים, הדרכת צוות' });
-
     return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
+      <div class="font-semibold mb-1">השערה ופעולה</div>
       <ul class="list-disc ms-5">
         ${hints.map(h=>`<li><b>בעיה:</b> ${escapeHtml(h.issue)} → <b>סיבה אפשרית:</b> ${escapeHtml(h.cause)} → <b>פתרון מוצע:</b> ${escapeHtml(h.fix)}</li>`).join('')}
       </ul>
     </div>`;
   }
-  function topKey(rows, col){
-    if (!col) return {name:'',count:0,pct:0};
-    const m=new Map(); rows.forEach(r=>{const k=(r[col]??'').toString().trim(); if(!k) return; m.set(k,(m.get(k)||0)+1);});
-    const items=[...m.entries()].sort((a,b)=>b[1]-a[1]);
-    if (!items.length) return {name:'',count:0,pct:0};
-    const total=rows.length||1;
-    return {name:items[0][0], count:items[0][1], pct:Math.round(items[0][1]*100/total)};
+
+  function buildSLASuggestions(prodName, subjName, probName){
+    const keys=[prodName,subjName,probName].join(' ').toLowerCase();
+    const recs=[];
+    if (/חלוקת|יחידות/.test(keys)) recs.push('החלת בקרות קיבולת ביחידות עמוסות, SLA 8 ימים, ניטור תפוקה יומי.');
+    if (/פורטל|תקלה|שגיאה|כשל|קריסה/.test(keys)) recs.push('יציבות פורטל: ניטור שגיאות, בדיקות רגרסיה, תור טיפול מהיר (SLA 24 שעות).');
+    if (/איסוף|הזמנה/.test(keys)) recs.push('בדיקת זרימת הזמנות ואימות SLA 24 שעות לשחרור/תיאום איסוף.');
+    if (/בינלאומי/.test(keys)) recs.push('סינכרון עם ספקי חוץ/מכס והצגת ציפיות SLA 60 ימים ללקוחות.');
+    if (!recs.length) recs.push('מיפוי שלבי התהליך בקטגוריות החורגות, קיצור צווארי בקבוק והוספת אוטומציה.');
+    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
+      <div class="font-semibold mb-1">המלצות פעולה</div>
+      <ul class="list-disc ms-5">${recs.map(r=>`<li>${escapeHtml(r)}</li>`).join('')}</ul>
+    </div>`;
   }
 
-  // טבלת שורות + ייצוא (מנצל את המודאל הכללי אם קיים)
+  // ── טבלת שורות + ייצוא ──────────────────────────────────────────────────
   function openRowsModal(rows, title){
+    // שימוש במודאל הכללי אם יש (biModal)
     if (document.getElementById('biModal') && typeof window.exportXLSX==='function'){
       const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
-      const tHead=$('biThead'), tBody=$('biTbody');
-      $('biModalTitle').textContent=title||'נתונים';
-      $('biModalTitle').dataset.filename=sanitize(title||'export')+'.xlsx';
+      const tHead=document.getElementById('biThead'), tBody=document.getElementById('biTbody');
+      document.getElementById('biModalTitle').textContent=title||'נתונים';
+      document.getElementById('biModalTitle').dataset.filename=sanitize(title||'export')+'.xlsx';
       if (rows.length){
         tHead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
         tBody.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
-      } else {
-        tHead.innerHTML=''; tBody.innerHTML='<tr><td class="px-3 py-2 text-ink-200/70">אין נתונים</td></tr>';
-      }
-      $('biModal').classList.remove('hidden'); return;
+      }else{ tHead.innerHTML=''; tBody.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+      document.getElementById('biModal').classList.remove('hidden');
+      return;
     }
-    alert('מודאל טבלה/ייצוא לא זמין בדף.'); // לגיבוי
+    // אחרת – מודאל קטן פנימי
+    let host=document.getElementById('insRowsModal');
+    if (!host){
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="insRowsModal" class="fixed inset-0 z-[1700] hidden">
+          <div class="absolute inset-0 bg-black/60"></div>
+          <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-2xl bg-[#0b1220] border border-white/10">
+            <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
+              <div id="insRowsTitle" class="font-bold">נתונים</div>
+              <button id="insRowsExport" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
+              <button id="insRowsClose" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+            </div>
+            <div class="p-3 overflow-auto" style="max-height:70vh">
+              <table class="w-full text-sm border-separate border-spacing-0">
+                <thead id="insRowsHead"></thead><tbody id="insRowsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>`);
+      host=document.getElementById('insRowsModal');
+      document.getElementById('insRowsClose').onclick=()=>host.classList.add('hidden');
+      document.getElementById('insRowsExport').onclick=()=>{
+        if (typeof window.exportXLSX==='function') window.exportXLSX(__INS_ROWS||[], sanitize(document.getElementById('insRowsTitle').textContent||'export')+'.xlsx');
+        else alert('פונקציית ייצוא לא זמינה.');
+      };
+    }
+    window.__INS_ROWS = rows;
+    document.getElementById('insRowsTitle').textContent = title||'נתונים';
+    const head=document.getElementById('insRowsHead'), body=document.getElementById('insRowsBody');
+    if (rows.length){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+      body.innerHTML='<tr>'+rows.map(r=>headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')).join('</tr><tr>')+'</tr>';
+    }else{ head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+    host.classList.remove('hidden');
   }
+
   function exportAny(rows, filename){
     if (typeof window.exportXLSX==='function') window.exportXLSX(rows, filename||'export.xlsx');
-    else alert('פונקציית ייצוא לא זמינה (ודאי שהודבק בלוק תיקון XLSX).');
+    else alert('פונקציית ייצוא לא זמינה (ודאי שהדבקת את בלוק XLSX Export Fix).');
   }
 
-  // עזר קצר
-  function $(id){ return document.getElementById(id); }
-
-  // רנדר אוטומטי אם הנתונים נטענו בזמן שהמודאל פתוח
+  // ── אירועים מערכתיים ───────────────────────────────────────────────────
   document.addEventListener('bi:data-loaded', ()=>{
-    const m=$('biInsightsPro');
-    if (m && !m.classList.contains('hidden')) renderInsightsPro();
+    const m=document.getElementById('biInsightsModal');
+    if (m && !m.classList.contains('hidden')) {
+      fillUnitAndCitySelectors();
+      renderInsights();
+    }
   });
+
 })();
 </script>
 </body>
