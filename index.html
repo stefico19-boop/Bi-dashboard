@@ -3254,4 +3254,142 @@
 
 })();
 </script>
+  <!-- === Quick Fix: Ensure XLSX + File Upload + Dataset + Insights Button === -->
+<script>
+(function(){
+  // -------- 1) Ensure SheetJS (XLSX) is loaded, with fallback --------
+  function ensureXLSX(){
+    return new Promise((resolve)=>{
+      if (window.XLSX) return resolve(true);
+      // נסה לטעון CDN חלופי
+      const s=document.createElement('script');
+      s.src="https://unpkg.com/xlsx@0.20.2/dist/xlsx.full.min.js";
+      s.onload=()=>resolve(!!window.XLSX);
+      s.onerror=()=>resolve(false);
+      document.head.appendChild(s);
+    });
+  }
+
+  // -------- 2) Uploader re-bind (file input + drag&drop) --------
+  async function bindUploader(){
+    const fileInput=document.getElementById('fileInput');
+    const dropzone =document.getElementById('dropzone');
+    if (!fileInput && !dropzone) return;
+
+    async function parseFile(file){
+      if (!file) return;
+      const ok=await ensureXLSX();
+      if (!ok){ alert('טעינת ספריית XLSX נכשלה. בדקי חיבור אינטרנט ונסי שוב.'); return; }
+      try{
+        // UI: אם קיימות פונקציות מצב קיים, נשתמש; אחרת נציג הודעת ברירת מחדל
+        const setLoading=window.setLoadingState||(()=>{});
+        const onSuccess=window.updateSuccessUI||((name,rows)=>console.log('Loaded:',name,rows));
+        const onError  =window.updateErrorUI||((msg)=>alert(msg||'שגיאה בקריאת הקובץ'));
+
+        setLoading(true);
+        const buf=await file.arrayBuffer();
+        const wb=XLSX.read(buf,{type:'array'});
+        const first=wb.SheetNames && wb.SheetNames[0];
+        if (!first){ onError('לא נמצאו גיליונות בקובץ.'); setLoading(false); return; }
+        const sheet=wb.Sheets[first];
+        const json =XLSX.utils.sheet_to_json(sheet,{defval:null});
+
+        if (!Array.isArray(json) || !json.length){
+          onError('הקובץ ריק או כותרות העמודות לא זוהו.');
+        }else{
+          // נשמור גלובלית, נעדכן UI, ונשדר אירוע לכל המודולים
+          window.__dataset=json;
+          window.__lastFile=file;
+          onSuccess(file.name, json.length);
+          document.dispatchEvent(new CustomEvent('bi:data-loaded',{detail:{rows:json.length,file:file.name}}));
+        }
+        setLoading(false);
+      }catch(err){
+        console.error(err);
+        (window.updateErrorUI||alert)('שגיאה בקריאת הקובץ. נסי לשמור מחדש כ־XLSX.');
+      }
+    }
+
+    // קישור file input
+    if (fileInput && !fileInput.dataset.bound){
+      fileInput.addEventListener('change', (e)=>{
+        const f=e.target.files && e.target.files[0];
+        if (f) parseFile(f);
+      });
+      fileInput.dataset.bound='1';
+    }
+
+    // קישור Drag & Drop
+    if (dropzone && !dropzone.dataset.bound){
+      // הפיכת הקופסה ללחיצה לפתיחת קובץ
+      dropzone.addEventListener('click', ()=> fileInput && fileInput.click());
+      ['dragenter','dragover'].forEach(evt=>{
+        dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); e.stopPropagation(); dropzone.classList.add('dragover'); });
+      });
+      ['dragleave','drop'].forEach(evt=>{
+        dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('dragover'); });
+      });
+      dropzone.addEventListener('drop', (e)=>{
+        const f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) parseFile(f);
+      });
+      dropzone.dataset.bound='1';
+    }
+  }
+
+  // -------- 3) Ensure Insights button exists --------
+  function ensureInsightsButton(){
+    if (document.getElementById('biInsightsBtn')) return;
+    const btn=document.createElement('button');
+    btn.id='biInsightsBtn';
+    btn.className='fixed bottom-4 left-4 z-[1500] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow';
+    btn.textContent='🧠 תובנות';
+    btn.title='חלון תובנות איכותיות';
+    btn.addEventListener('click', ()=>{
+      // יש בלוקים שונים; ננסה למצוא openInsights הגלובלי
+      if (typeof window.openInsights==='function') return window.openInsights();
+      // או טריגר לבלוק שלנו אם רושם פונקציה מקומית
+      const evt=new Event('click');
+      // fallback: אם אין—ננסה לפתוח מודאל קיים לפי id
+      const m=document.getElementById('biInsightsModal');
+      if (m){ m.classList.remove('hidden'); document.dispatchEvent(new CustomEvent('bi:data-loaded')); }
+      else alert('מודאל תובנות לא נטען עדיין. ודאי שהדבקת את בלוק התובנות לפני </body>.');
+    });
+    document.body.appendChild(btn);
+  }
+
+  // -------- 4) Hook: אם יש כבר __lastFile אבל __dataset לא קיים, נטען כעת --------
+  async function recoverLastFile(){
+    if (window.__dataset && Array.isArray(window.__dataset) && window.__dataset.length) return;
+    if (!window.__lastFile) return;
+    const ok=await ensureXLSX();
+    if (!ok) return;
+    try{
+      const buf=await window.__lastFile.arrayBuffer();
+      const wb=XLSX.read(buf,{type:'array'});
+      const first=wb.SheetNames && wb.SheetNames[0];
+      if (!first) return;
+      const sheet=wb.Sheets[first];
+      const json=XLSX.utils.sheet_to_json(sheet,{defval:null});
+      if (json && json.length){
+        window.__dataset=json;
+        document.dispatchEvent(new CustomEvent('bi:data-loaded',{detail:{rows:json.length,file:window.__lastFile.name}}));
+      }
+    }catch(e){ console.warn('recoverLastFile failed', e); }
+  }
+
+  // -------- 5) Init now --------
+  ensureXLSX().then(bindUploader).then(recoverLastFile);
+  ensureInsightsButton();
+
+  // -------- 6) עזרה לאיתור תקלות --------
+  // אם אין כפתור/אין XLSX—נוסיף הודעת דיאגנוסטיקה קצרה בקונסול
+  window.addEventListener('load', ()=>{
+    if (!window.XLSX) console.warn('[BI Fix] XLSX לא נטען. יתכן חסימת CDN. נוסה CDN חלופי.');
+    if (!document.getElementById('fileInput')) console.warn('[BI Fix] לא נמצא #fileInput בדף.');
+    if (!document.getElementById('dropzone')) console.warn('[BI Fix] לא נמצא #dropzone בדף.');
+    if (!document.getElementById('biInsightsBtn')) console.warn('[BI Fix] כפתור תובנות לא נוצר.');
+  });
+})();
+</script>
 </body>
