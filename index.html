@@ -2782,7 +2782,7 @@
   console.log('XLSX Export Fix loaded');
 })();
 </script>
-<!-- === Insights Modal — Unit & City selectable, with Notes (top city/unit) === -->
+  <!-- === Insights Modal — Filter Mode: All OR Unit OR City (dept-aware) === -->
 <script>
 (function(){
   // ── כפתור פתיחה ─────────────────────────────────────────────────────────
@@ -2805,14 +2805,24 @@
         <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow-luxe">
           <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
             <div class="text-xl font-bold">תובנות איכותיות</div>
-            <div class="ms-auto flex items-center gap-3 text-sm">
+            <div class="ms-auto flex flex-wrap items-center gap-3 text-sm">
               <label class="inline-flex items-center gap-2">
                 <input id="insOpenOnly" type="checkbox" class="accent-violet-500" checked/> רק פניות פתוחות
               </label>
-              <label class="inline-flex items-center gap-2">יחידה:
+              <label class="inline-flex items-center gap-2">
+                סינון לפי:
+                <select id="insModeSel" class="bg-white/10 border border-white/20 rounded px-2 py-1">
+                  <option value="all">כללי</option>
+                  <option value="unit">יחידה</option>
+                  <option value="city">עיר</option>
+                </select>
+              </label>
+              <label id="insUnitWrap" class="inline-flex items-center gap-2 hidden">
+                יחידה:
                 <select id="insUnitSel" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[14rem]"></select>
               </label>
-              <label class="inline-flex items-center gap-2">עיר:
+              <label id="insCityWrap" class="inline-flex items-center gap-2 hidden">
+                עיר:
                 <select id="insCitySel" class="bg-white/10 border border-white/20 rounded px-2 py-1 min-w-[14rem]"></select>
               </label>
               <button id="insRefresh" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">רענון</button>
@@ -2828,7 +2838,7 @@
             <!-- NOTES: Top City & Unit -->
             <div id="insNotes" class="rounded-2xl bg-white/5 border border-white/10 p-3 text-sm"></div>
 
-            <!-- A) למה עיר X מובילה -->
+            <!-- A) פירוק לפי עיר -->
             <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
               <div class="flex items-center gap-2 mb-2">
                 <h3 class="font-bold">פירוק לפי עיר: <span id="insCityName">כל הערים</span></h3>
@@ -2902,20 +2912,21 @@
       </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
 
-    document.getElementById('insClose').onclick = () => document.getElementById('biInsightsModal').classList.add('hidden');
-    document.getElementById('insRefresh').onclick = () => { fillUnitAndCitySelectors(); renderInsights(); };
+    // אירועים
+    $('insClose').onclick = () => $('biInsightsModal').classList.add('hidden');
+    $('insRefresh').onclick = () => { fillSelectors(); renderInsights(); };
 
-    // שינויי בקרה
-    document.getElementById('insOpenOnly').onchange = () => { fillUnitAndCitySelectors(); renderInsights(); };
-    document.getElementById('insUnitSel').onchange  = () => { syncCitiesForUnit(); renderInsights(); };
-    document.getElementById('insCitySel').onchange  = () => renderInsights();
+    $('insOpenOnly').onchange = () => { fillSelectors(); renderInsights(); };
+    $('insModeSel').onchange  = () => { toggleModeUI(); fillSelectors(); renderInsights(); };
+    $('insUnitSel').onchange  = () => renderInsights();
+    $('insCitySel').onchange  = () => renderInsights();
 
     // שינוי טאב מחלקה → רענון אם המודאל פתוח
     const tabs=document.getElementById('deptTabs');
     if (tabs && !tabs.dataset.insightsBound){
       tabs.addEventListener('click', ()=>{
-        const m=document.getElementById('biInsightsModal');
-        if (m && !m.classList.contains('hidden')) { fillUnitAndCitySelectors(); renderInsights(); }
+        const m=$('biInsightsModal');
+        if (m && !m.classList.contains('hidden')) { fillSelectors(); renderInsights(); }
       });
       tabs.dataset.insightsBound='1';
     }
@@ -2923,16 +2934,19 @@
 
   function openInsights(){
     ensureInsightsModal();
-    // ברירת מחדל
-    document.getElementById('insOpenOnly').checked = true;
-    fillUnitAndCitySelectors();
+    $('insOpenOnly').checked = true;
+    $('insModeSel').value = 'all';
+    toggleModeUI();
+    fillSelectors();
     renderInsights();
-    document.getElementById('biInsightsModal').classList.remove('hidden');
+    $('biInsightsModal').classList.remove('hidden');
   }
 
-  // ── עזרי עמודות/תאריכים/SLA ─────────────────────────────────────────────
+  // ── Utilities ───────────────────────────────────────────────────────────
   const DAY=24*60*60*1000, TZ='Asia/Jerusalem';
-  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\\-()\\[\\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  const $ = (id)=>document.getElementById(id);
+
   function findColumnFlexible(row0, exactList, keywordSets){
     if(!row0) return null;
     const headers=Object.keys(row0);
@@ -2996,7 +3010,7 @@
     return /(תקלה|שגיאה|כשל|קריסה|פורטל)/.test(txt);
   }
 
-  // ── טאב מחלקה פעיל ──────────────────────────────────────────────────────
+  // טאב מחלקה פעיל
   function activeDept(){
     const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
     const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('bg-gradient-to-r')||b.className.includes('from-brand-600'));
@@ -3008,74 +3022,61 @@
     return rows.filter(r=>String(r[key]??'').trim()===dept);
   }
 
-  // ── סלקטים של יחידה/עיר ────────────────────────────────────────────────
-  function fillUnitAndCitySelectors(){
+  // ממשק מצב סינון
+  function toggleModeUI(){
+    const mode=$('insModeSel').value;
+    $('insUnitWrap').classList.toggle('hidden', mode!=='unit');
+    $('insCityWrap').classList.toggle('hidden', mode!=='city');
+  }
+
+  // מילוי סלקטים לפי מצב
+  function fillSelectors(){
     const rowsAll = Array.isArray(window.__dataset)? window.__dataset : [];
     let rows = scopeByDept(rowsAll);
-    if (document.getElementById('insOpenOnly')?.checked) rows = rows.filter(isOpenRow);
+    if ($('insOpenOnly')?.checked) rows = rows.filter(isOpenRow);
 
     const r0 = rows[0] || {};
     const unitCol = findCol(r0, COL.unit);
     const cityCol = findCol(r0, COL.city);
 
-    // יחידות
-    const unitSel = document.getElementById('insUnitSel');
-    const unitMap = new Map();
-    if (unitCol) rows.forEach(r=>{ const u=(r[unitCol]??'').toString().trim(); if(!u) return; unitMap.set(u,(unitMap.get(u)||0)+1); });
-    unitSel.innerHTML = `<option value="">(כל היחידות)</option>` +
-      [...unitMap.entries()].sort((a,b)=>b[1]-a[1]).map(([u,c])=>`<option value="${escapeHtml(u)}">${escapeHtml(u)} — ${c.toLocaleString('he-IL')}</option>`).join('');
-    unitSel.value = '';
+    const mode = $('insModeSel').value;
 
-    // ערים
-    const citySel = document.getElementById('insCitySel');
-    const cityMap = new Map();
-    if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(!c) return; cityMap.set(c,(cityMap.get(c)||0)+1); });
-    const cities=[...cityMap.entries()].sort((a,b)=>b[1]-a[1]);
-    citySel.innerHTML = `<option value="">(כל הערים)</option>` +
-      cities.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
-    citySel.value = ''; // ברירת מחדל: כל הערים
-  }
-  function syncCitiesForUnit(){
-    // בונה מחדש את רשימת הערים בהתאם ליחידה שנבחרה
-    const rowsAll = Array.isArray(window.__dataset)? window.__dataset : [];
-    let rows = scopeByDept(rowsAll);
-    if (document.getElementById('insOpenOnly')?.checked) rows = rows.filter(isOpenRow);
-
-    const r0 = rows[0] || {};
-    const unitCol = findCol(r0, COL.unit);
-    const cityCol = findCol(r0, COL.city);
-
-    const unitVal = document.getElementById('insUnitSel').value || '';
-    if (unitVal && unitCol) rows = rows.filter(r => String(r[unitCol]??'').trim() === unitVal);
-
-    const citySel = document.getElementById('insCitySel');
-    const cityMap = new Map();
-    if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(!c) return; cityMap.set(c,(cityMap.get(c)||0)+1); });
-    const cities=[...cityMap.entries()].sort((a,b)=>b[1]-a[1]);
-    const current = citySel.value;
-    citySel.innerHTML = `<option value="">(כל הערים)</option>` +
-      cities.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
-    citySel.value = cities.some(([n])=>n===current) ? current : ''; // שמור בחירה אם אפשר, אחרת כל הערים
+    if (mode==='unit'){
+      const unitSel = $('insUnitSel');
+      const map = new Map();
+      if (unitCol) rows.forEach(r=>{ const u=(r[unitCol]??'').toString().trim(); if(!u) return; map.set(u,(map.get(u)||0)+1); });
+      const arr=[...map.entries()].sort((a,b)=>b[1]-a[1]);
+      const keep = unitSel.value;
+      unitSel.innerHTML = arr.map(([u,c])=>`<option value="${escapeHtml(u)}">${escapeHtml(u)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+      unitSel.value = arr.some(([u])=>u===keep) ? keep : (arr[0]?.[0] || '');
+    }
+    if (mode==='city'){
+      const citySel = $('insCitySel');
+      const map = new Map();
+      if (cityCol) rows.forEach(r=>{ const c=(r[cityCol]??'').toString().trim(); if(!c) return; map.set(c,(map.get(c)||0)+1); });
+      const arr=[...map.entries()].sort((a,b)=>b[1]-a[1]);
+      const keep = citySel.value;
+      citySel.innerHTML = arr.map(([n,c])=>`<option value="${escapeHtml(n)}">${escapeHtml(n)} — ${c.toLocaleString('he-IL')}</option>`).join('');
+      citySel.value = arr.some(([n])=>n===keep) ? keep : (arr[0]?.[0] || '');
+    }
   }
 
-  // ── רנדר תובנות ─────────────────────────────────────────────────────────
+  // רנדר תובנות
   function renderInsights(){
-    const notesEl = document.getElementById('insNotes');
-
-    const openOnly = document.getElementById('insOpenOnly').checked;
+    const notesEl = $('insNotes');
     const rowsAll  = Array.isArray(window.__dataset)? window.__dataset : [];
     if (!rowsAll.length){ notesEl.innerHTML='אין נתונים.'; return; }
 
-    // א) חישוב הערות (טופ עיר/יחידה) לפי הטאב וה־openOnly — ללא סינון יחידה/עיר
+    const openOnly = $('insOpenOnly').checked;
+
+    // הערות (טופ עיר/יחידה) תמיד על פי הטאב וה-OpenOnly — בלי מצב הבחירה
     let rowsForNotes = scopeByDept(rowsAll);
     if (openOnly) rowsForNotes = rowsForNotes.filter(isOpenRow);
     const rN = rowsForNotes[0] || {};
     const unitColN = findCol(rN, COL.unit);
     const cityColN = findCol(rN, COL.city);
-
     const topUnit = topKeyBasic(rowsForNotes, unitColN);
     const topCity = topKeyBasic(rowsForNotes, cityColN);
-
     notesEl.innerHTML = `
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-ink-200/80">הערות:</span>
@@ -3087,7 +3088,7 @@
         </span>
       </div>`;
 
-    // ב) המשך ניתוח עם סינונים נוכחיים (יחידה/עיר)
+    // בסיס לניתוח לפי מצב
     let rows = scopeByDept(rowsAll);
     if (openOnly) rows = rows.filter(isOpenRow);
 
@@ -3097,59 +3098,63 @@
     const subjCol = findCol(r0, COL.subj);
     const probCol = findCol(r0, COL.prob);
     const prodCol = findCol(r0, COL.prod);
-    const openCol = findCol(r0, COL.opened);
 
-    // סינון לפי יחידה
-    const unitVal = document.getElementById('insUnitSel').value || '';
-    if (unitVal && unitCol) rows = rows.filter(r => String(r[unitCol]??'').trim() === unitVal);
+    const mode = $('insModeSel').value;
+    let chosenCity = '';
+    let filteredRows = rows;
 
-    // עיר: "(כל הערים)" = ערך ריק => נשתמש בכל השורות לאחר סינון יחידה
-    const chosenCity = document.getElementById('insCitySel').value || '';
+    if (mode==='unit'){
+      const selected = $('insUnitSel').value || '';
+      if (selected && unitCol) filteredRows = rows.filter(r=>String(r[unitCol]??'').trim()===selected);
+      $('insCityName').textContent  = 'כל הערים';
+      $('insCityTotal').textContent = `${filteredRows.length.toLocaleString('he-IL')} פניות`;
+    } else if (mode==='city'){
+      chosenCity = $('insCitySel').value || '';
+      if (chosenCity && cityCol) filteredRows = rows.filter(r=>String(r[cityCol]??'').trim()===chosenCity);
+      $('insCityName').textContent  = chosenCity || '—';
+      $('insCityTotal').textContent = `${filteredRows.length.toLocaleString('he-IL')} פניות`;
+    } else {
+      // all
+      $('insCityName').textContent  = 'כל הערים';
+      $('insCityTotal').textContent = `${filteredRows.length.toLocaleString('he-IL')} פניות`;
+    }
 
-    // שורות לפי עיר שנבחרה (או כל הערים)
-    const cityRows = (chosenCity && cityCol) ? rows.filter(r => String(r[cityCol]||'').trim()===chosenCity) : rows.slice();
-
-    // UI כותרת וכמות
-    document.getElementById('insCityName').textContent  = chosenCity || 'כל הערים';
-    document.getElementById('insCityTotal').textContent = `${cityRows.length.toLocaleString('he-IL')} פניות`;
-
-    // פירוקים Top 3
-    renderTopList('insCitySubject', cityRows, subjCol);
-    renderTopList('insCityProblem', cityRows, probCol);
+    // פירוקים Top 3 (על filteredRows)
+    renderTopList('insCitySubject', filteredRows, subjCol);
+    renderTopList('insCityProblem', filteredRows, probCol);
 
     // היפותזות
-    const topSubj = topKey(cityRows, subjCol);
-    const topProb = topKey(cityRows, probCol);
-    document.getElementById('insCityHypo').innerHTML = buildHypothesisBlock(topSubj, topProb);
+    const topSubj = topKey(filteredRows, subjCol);
+    const topProb = topKey(filteredRows, probCol);
+    $('insCityHypo').innerHTML = buildHypothesisBlock(topSubj, topProb);
 
-    // כפתורי טבלה/ייצוא
-    document.getElementById('insCityRowsBtn').onclick   = ()=> openRowsModal(cityRows, `שורות — ${chosenCity||'כל הערים'}`);
-    document.getElementById('insCityExportBtn').onclick = ()=> exportAny(cityRows, `city_${sanitize(chosenCity||'all')}.xlsx`);
+    // טבלה/ייצוא
+    $('insCityRowsBtn').onclick   = ()=> openRowsModal(filteredRows, `שורות — ${mode==='city'?(chosenCity||'עיר'): (mode==='unit'?'יחידה נבחרת':'כללי')}`);
+    $('insCityExportBtn').onclick = ()=> exportAny(filteredRows, `ins_${mode==='city'?(sanitize(chosenCity)||'city'):(mode==='unit'?'unit':'all')}.xlsx`);
 
-    // “גורמי תקלות” — לפי כל השורות לאחר סינוני מחלקה+פתוחות+יחידה
-    const faultRows = rows.filter(isFaultRow);
-    const prodRates = rateByKey(rows, prodCol, isFaultRow);
-    const subjRates = rateByKey(rows, subjCol, isFaultRow);
+    // “גורמי תקלות” / SLA — תמיד לפי filteredRows
+    const faultRows = filteredRows.filter(isFaultRow);
+    const prodRates = rateByKey(filteredRows, prodCol, isFaultRow);
+    const subjRates = rateByKey(filteredRows, subjCol, isFaultRow);
     renderRates('insProdFaults', prodRates);
     renderRates('insSubjFaults', subjRates);
-    document.getElementById('insFaultRowsBtn').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
-    document.getElementById('insFaultExportBtn').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
+    $('insFaultRowsBtn').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
+    $('insFaultExportBtn').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
 
-    // חרגי SLA
-    const slaRows = rows.filter(isSLABreach);
-    const slaProd = rateByKey(rows, prodCol, isSLABreach);
-    const slaSubj = rateByKey(rows, subjCol, isSLABreach);
-    const slaProb = rateByKey(rows, probCol, isSLABreach);
+    const slaRows = filteredRows.filter(isSLABreach);
+    const slaProd = rateByKey(filteredRows, prodCol, isSLABreach);
+    const slaSubj = rateByKey(filteredRows, subjCol, isSLABreach);
+    const slaProb = rateByKey(filteredRows, probCol, isSLABreach);
     renderRates('insSLAProd', slaProd, true);
     renderRates('insSLASubj', slaSubj, true);
     renderRates('insSLAProb', slaProb, true);
-    document.getElementById('insSLARowsBtn').onclick   = ()=> openRowsModal(slaRows, 'שורות — חרגי SLA');
-    document.getElementById('insSLAExportBtn').onclick = ()=> exportAny(slaRows, 'sla_breach_rows.xlsx');
-    document.getElementById('insSLARecommendations').innerHTML =
+    $('insSLARowsBtn').onclick   = ()=> openRowsModal(slaRows, 'שורות — חרגי SLA');
+    $('insSLAExportBtn').onclick = ()=> exportAny(slaRows, 'sla_breach_rows.xlsx');
+    $('insSLARecommendations').innerHTML =
       buildSLASuggestions(slaProd.top?.name||'', slaSubj.top?.name||'', slaProb.top?.name||'');
   }
 
-  // ── עזרי רנדר/מציאת טופ ────────────────────────────────────────────────
+  // עזרי חישוב/רנדר
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
 
@@ -3162,7 +3167,7 @@
   }
 
   function renderTopList(containerId, rows, col){
-    const el=document.getElementById(containerId); el.innerHTML='';
+    const el=$(containerId); el.innerHTML='';
     if (!col || !rows.length){ el.textContent='—'; return; }
     const map=new Map(); rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
     const items=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3);
@@ -3202,7 +3207,7 @@
   }
 
   function renderRates(containerId, data, emphasizeHigh=false){
-    const el=document.getElementById(containerId); el.innerHTML='';
+    const el=$(containerId); el.innerHTML='';
     if (!data.list.length){ el.textContent='—'; return; }
     data.list.forEach(item=>{
       const p=Math.round(item.rate*100);
@@ -3220,40 +3225,7 @@
     });
   }
 
-  function buildHypothesisBlock(topSubj, topProb){
-    const hints=[];
-    if ((topSubj.name||'').includes('חלוקת') || (topSubj.name||'').includes('יחידות דואר') || (topProb.name||'').includes('חלוקת')){
-      hints.push({ issue:'עומס בחלוקת דואר/יחידות דואר', cause:'קיבולת שליחים/סניפים וזמני מיון.', fix:'תיעדוף לפי SLA 8 ימים, ניטור עומסים יומי והסטת משלוחים בין יחידות עמוסות.' });
-    }
-    if ((topProb.name||'').includes('פורטל') || /(תקלה|שגיאה|כשל|קריסה)/.test(topProb.name||'')){
-      hints.push({ issue:'תקלות מערכת/פורטלים', cause:'באגים/רגרסיות או זמינות נמוכה.', fix:'פתיחת באגים מסווגים, בדיקות רגרסיה אוטומטיות וניטור זמינות; תקשורת סטטוס לנציגים.' });
-    }
-    if (!hints.length){
-      hints.push({ issue:'ריכוזיות קטגוריה מובילה', cause:'תהליך שירות לא אופטימלי בקטגוריה המובילה.', fix:'סקירת תהליך קצה־לקצה, קיצור נקודות חיכוך והדרכת צוותים.' });
-    }
-    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
-      <div class="font-semibold mb-1">השערה ופעולה</div>
-      <ul class="list-disc ms-5">
-        ${hints.map(h=>`<li><b>בעיה:</b> ${escapeHtml(h.issue)} → <b>סיבה אפשרית:</b> ${escapeHtml(h.cause)} → <b>פתרון מוצע:</b> ${escapeHtml(h.fix)}</li>`).join('')}
-      </ul>
-    </div>`;
-  }
-
-  function buildSLASuggestions(prodName, subjName, probName){
-    const keys=[prodName,subjName,probName].join(' ').toLowerCase();
-    const recs=[];
-    if (/חלוקת|יחידות/.test(keys)) recs.push('החלת בקרות קיבולת ביחידות עמוסות, SLA 8 ימים, ניטור תפוקה יומי.');
-    if (/פורטל|תקלה|שגיאה|כשל|קריסה/.test(keys)) recs.push('יציבות פורטל: ניטור שגיאות, בדיקות רגרסיה, תור טיפול מהיר (SLA 24 שעות).');
-    if (/איסוף|הזמנה/.test(keys)) recs.push('בדיקת זרימת הזמנות ואימות SLA 24 שעות לשחרור/תיאום איסוף.');
-    if (/בינלאומי/.test(keys)) recs.push('סינכרון עם ספקי חוץ/מכס והצגת ציפיות SLA 60 ימים ללקוחות.');
-    if (!recs.length) recs.push('מיפוי שלבי התהליך בקטגוריות החורגות, קיצור צווארי בקבוק והוספת אוטומציה.');
-    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
-      <div class="font-semibold mb-1">המלצות פעולה</div>
-      <ul class="list-disc ms-5">${recs.map(r=>`<li>${escapeHtml(r)}</li>`).join('')}</ul>
-    </div>`;
-  }
-
-  // ── טבלת שורות + ייצוא (ממחזר את המודאל הכללי אם קיים) ───────────────
+  // טבלת שורות + ייצוא (ממחזר את המודאל הכללי אם קיים)
   function openRowsModal(rows, title){
     if (document.getElementById('biModal') && typeof window.exportXLSX==='function'){
       const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
@@ -3274,13 +3246,10 @@
     else alert('פונקציית ייצוא לא זמינה (ודאי שהודבק בלוק תיקון XLSX).');
   }
 
-  // ── אירוע מערכת: כשנטענים נתונים מחדש ─────────────────────────────────
+  // רענון אוטומטי אם מודאל פתוח והדאטה נטענה
   document.addEventListener('bi:data-loaded', ()=>{
-    const m=document.getElementById('biInsightsModal');
-    if (m && !m.classList.contains('hidden')) {
-      fillUnitAndCitySelectors();
-      renderInsights();
-    }
+    const m=$('biInsightsModal');
+    if (m && !m.classList.contains('hidden')) { fillSelectors(); renderInsights(); }
   });
 
 })();
