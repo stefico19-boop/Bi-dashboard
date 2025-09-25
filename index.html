@@ -1006,7 +1006,7 @@
   // עמודות אפשריות (קצר)
   const COLS = {
     tracking:{ exact:['מספר מעקב','מספר משלוח','מספר פריט','Tracking','tracking','מספר שבלי','מספר שבל״י'], kw:[['מספר','מעקב'],['מספר','משלוח'],['מספר','פריט']] },
-    name:    { exact:['שם לקוח','שם הלקוח','שם שולח','שם המקבל'],                           kw:[['שם','לקוח'],['שם','שולח'],['שם','מקבל']] },
+    name:    { exact:['שם לקוח','שם הלקוח','שם שולח',שם' המקבל'],                           kw:[['שם','לקוח'],['שם','שולח'],['שם','מקבל']] },
     email:   { exact:['דואר אלקטרוני','אימייל','מייל','Email','email','כתובת דוא״ל','כתובת דואל'], kw:[['דואר','אלקטרוני'],['email']] }
   };
 
@@ -4045,6 +4045,210 @@ function renderInsights(){
 
   // אם כבר יש נתונים – רנדר עכשיו
   if (getDataset().length) renderBNandSRC();
+})();
+</script>
+  <!-- === STAGES 13–14 (PATCHED): Status breakdown + Clean Channel Source === -->
+<script>
+(function(){
+  // ----- Small CSS to keep selects readable in dark mode -----
+  const css = `
+    .bi-box { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 1rem; }
+    .bi-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); }
+    .bi-btn { padding:.45rem .8rem; border-radius:999px; background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); }
+    .bi-table th { position:sticky; top:0; background:#0b1220; }
+    .bi-bar { height:6px; border-radius:6px; background: rgba(255,255,255,.1); overflow:hidden; }
+    .bi-bar > div { height:100%; background:#7c3aed; }
+  `;
+  const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
+
+  // ----- Utilities -----
+  const DAY = 24*60*60*1000, CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  function findColumnFlexible(row0, exactList, keywordSets){
+    if(!row0) return null; const headers=Object.keys(row0);
+    for(const h of headers){ if (exactList.includes(h)) return h;
+      const hn=norm(h); for(const ex of exactList){ if (hn===norm(ex)) return h; } }
+    for(const h of headers){ const n=norm(h); if (keywordSets?.some(set=>set.every(k=>n.includes(norm(k))))) return h; }
+    return null;
+  }
+  const COL = {
+    status: { exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','סטטוס מקרה','Status','status'], kw:[['סטטוס']] },
+    source: { exact:['מקור פניה','מקור הפניה','ערוץ פניה','ערוץ','מקור','Channel','Source'], kw:[['מקור','פניה'],['ערוץ']] },
+    dept:   { exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '], kw:[['מחלקה','מטפלת'],['מחלקה']] },
+  };
+  function findCol(row, spec){ return findColumnFlexible(row, spec.exact, spec.kw); }
+
+  function excelToDate(n){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+n*DAY); }
+  function parseDate(v){ if(v==null||v==='')return null; if(typeof v==='number') return excelToDate(v); const d=new Date(v); return isNaN(d)?null:d; }
+
+  function isOpenRow(r){
+    const k=findCol(r, COL.status); if(!k) return true;
+    const v = String(r[k]??'').trim();
+    return !CLOSED.some(c => v===c || v.includes(c));
+  }
+  function scopeByDept(rows){
+    const tabs=document.getElementById('deptTabs'); if(!tabs) return rows;
+    const act=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
+    const deptName=(act?.textContent||'כללי').trim(); if(deptName==='כללי') return rows;
+    const k=findCol(rows[0], COL.dept); if(!k) return rows;
+    return rows.filter(r=>String(r[k]??'').trim()===deptName);
+  }
+  function cleanCell(val){
+    if (!val) return 'לא צוין';
+    return String(val).replace(/<img[^>]*>/gi,'').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim() || 'לא צוין';
+  }
+  function pct(num,den){ return den? Math.round(num*100/den):0; }
+
+  // ----- Section DOM -----
+  const main = document.querySelector('main')||document.body;
+  const host = document.createElement('section');
+  host.id = 'biStep13_14';
+  host.className = 'max-w-6xl mx-auto px-4 mt-6';
+  host.innerHTML = `
+    <div class="bi-box p-6 md:p-8">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלבים 13–14 (מתוקן)</span>
+        <span id="biCountChip" class="bi-chip">— שורות בטווח</span>
+        <label class="ms-auto inline-flex items-center gap-2 text-sm">
+          <input id="biOpenOnly" type="checkbox" class="accent-violet-500" checked> רק פניות פתוחות
+        </label>
+        <button id="biRerender1314" class="bi-btn text-sm">רענון</button>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- 13: Status breakdown -->
+        <div class="bi-box p-4">
+          <div class="flex items-center gap-2 mb-2">
+            <h3 class="font-bold">שלב 13 — צובר סטטוסים</h3>
+          </div>
+          <div id="biStage13Empty" class="text-sm text-ink-200/70 hidden">אין נתונים.</div>
+          <div id="biStage13Bars" class="space-y-3"></div>
+        </div>
+
+        <!-- 14: Channel/Source -->
+        <div class="bi-box p-4">
+          <div class="flex items-center gap-2 mb-2">
+            <h3 class="font-bold">שלב 14 — ערוצי פניה (מקור פניה)</h3>
+            <button id="biExportSrc" class="bi-btn text-xs ms-auto">ייצוא ל-XLSX</button>
+          </div>
+          <div id="biStage14Empty" class="text-sm text-ink-200/70 hidden">אין נתונים להצגה.</div>
+          <div id="biStage14Bars" class="space-y-3 mb-4"></div>
+          <div class="overflow-auto" style="max-height:260px">
+            <table class="w-full text-sm bi-table">
+              <thead id="biSrcHead"></thead>
+              <tbody id="biSrcBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  main.appendChild(host);
+
+  // ----- Render -----
+  function render(){
+    const rowsAll = Array.isArray(window.__dataset) ? window.__dataset : [];
+    if (!rowsAll.length) return;
+    let rows = scopeByDept(rowsAll);
+    if (document.getElementById('biOpenOnly').checked) rows = rows.filter(isOpenRow);
+    document.getElementById('biCountChip').textContent = `${rows.length.toLocaleString('he-IL')} שורות בטווח`;
+
+    const r0 = rows[0]||{};
+    const statusCol = findCol(r0, COL.status);
+    const sourceCol = findCol(r0, COL.source);
+
+    // 13) Status breakdown
+    const bars13 = document.getElementById('biStage13Bars');
+    const empty13= document.getElementById('biStage13Empty');
+    bars13.innerHTML=''; empty13.classList.add('hidden');
+    if (!statusCol){ empty13.classList.remove('hidden'); }
+    else {
+      const map = new Map();
+      rows.forEach(r=>{ const k=(r[statusCol]??'').toString().trim()||'לא צוין'; map.set(k,(map.get(k)||0)+1); });
+      const items=[...map.entries()].sort((a,b)=>b[1]-a[1]);
+      const total = rows.length || 1;
+      items.forEach(([name,count])=>{
+        const p = pct(count,total);
+        const row = document.createElement('div');
+        row.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span>${escapeHtml(name)}</span>
+            <span class="ms-auto text-xs bi-chip">${count.toLocaleString('he-IL')} • ${p}%</span>
+          </div>
+          <div class="bi-bar mt-1"><div style="width:${p}%"></div></div>`;
+        bars13.appendChild(row);
+      });
+    }
+
+    // 14) Source/Channel (clean HTML)
+    const bars14 = document.getElementById('biStage14Bars');
+    const empty14= document.getElementById('biStage14Empty');
+    const head   = document.getElementById('biSrcHead');
+    const body   = document.getElementById('biSrcBody');
+    bars14.innerHTML=''; empty14.classList.add('hidden'); head.innerHTML=''; body.innerHTML='';
+    if (!sourceCol){ empty14.classList.remove('hidden'); }
+    else {
+      const map = new Map();
+      rows.forEach(r=>{ const key = cleanCell(r[sourceCol]); map.set(key,(map.get(key)||0)+1); });
+      const items=[...map.entries()].sort((a,b)=>b[1]-a[1]);
+      const total = rows.length || 1;
+
+      // bars
+      items.forEach(([name,count])=>{
+        const p = pct(count,total);
+        const row = document.createElement('div');
+        row.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span>${escapeHtml(name)}</span>
+            <span class="ms-auto text-xs bi-chip">${count.toLocaleString('he-IL')} • ${p}%</span>
+          </div>
+          <div class="bi-bar mt-1"><div style="width:${p}%"></div></div>`;
+        bars14.appendChild(row);
+      });
+
+      // table
+      head.innerHTML = `<tr>
+        <th class="px-2 py-1 text-right">מקור פניה</th>
+        <th class="px-2 py-1 text-right">כמות</th>
+        <th class="px-2 py-1 text-right">אחוז</th>
+      </tr>`;
+      body.innerHTML = items.map(([name,count])=>{
+        const p = pct(count,total);
+        return `<tr>
+          <td class="px-2 py-1">${escapeHtml(name)}</td>
+          <td class="px-2 py-1">${count.toLocaleString('he-IL')}</td>
+          <td class="px-2 py-1">${p}%</td>
+        </tr>`;
+      }).join('');
+      // export
+      document.getElementById('biExportSrc').onclick = () => {
+        const rowsExport = items.map(([name,count])=>({ 'מקור פניה':name, 'כמות':count, 'אחוז %': pct(count,total) }));
+        if (typeof window.exportXLSX==='function') window.exportXLSX(rowsExport, 'channel_breakdown.xlsx');
+        else alert('פונקציית ייצוא XLSX לא זמינה בדף.');
+      };
+    }
+  }
+
+  // helpers
+  function escapeHtml(s){ return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+  // events
+  document.getElementById('biOpenOnly').addEventListener('change', render);
+  document.getElementById('biRerender1314').addEventListener('click', render);
+  // Re-render when department tabs switch (delegation)
+  const deptTabs = document.getElementById('deptTabs');
+  if (deptTabs) deptTabs.addEventListener('click', (e)=>{ if (e.target.tagName==='BUTTON') setTimeout(render,0); });
+
+  // render when data ready (the app usually fires updateSuccessUI)
+  if (Array.isArray(window.__dataset) && window.__dataset.length) render();
+  document.addEventListener('bi:data-loaded', render);
+  // Also patch updateSuccessUI if exists
+  if (typeof window.updateSuccessUI==='function' && !window.__BI_1314_WRAP){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){ prev.apply(this,arguments); setTimeout(render,0); };
+    window.__BI_1314_WRAP = true;
+  }
 })();
 </script>
 </body>
