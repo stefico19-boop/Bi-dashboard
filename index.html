@@ -3804,4 +3804,247 @@ function renderInsights(){
 })();
 </script>
 <!-- === /INSIGHTS BLOCK === -->
+<!-- === STEP 13 + 14: Bottlenecks (Statuses) & Channels (Sources) === -->
+<section id="biStep13_14" class="max-w-6xl mx-auto px-4 mt-8">
+  <div class="rounded-3xl bg-white/5 border border-white/10 backdrop-blur-lg shadow-luxe p-6 md:p-8">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="text-sm font-semibold text-ink-200/80">אנליטיקה — שלבים 13–14</span>
+      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">מכבד טאב מחלקה</span>
+      <label class="ms-auto text-sm inline-flex items-center gap-2">
+        <input id="biBottleneckOpenOnly" type="checkbox" class="accent-violet-500" checked>
+        רק פניות פתוחות
+      </label>
+      <button id="biBottleneckRefresh" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15">רענון</button>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- STEP 13 -->
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="flex items-center gap-2 mb-2">
+          <h3 class="font-bold">שלב 13 — צווארי בקבוק (סטטוסים)</h3>
+          <span id="biBNTotal" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
+        </div>
+        <div id="biBNBars" class="space-y-2"></div>
+        <div id="biBNTable" class="mt-4"></div>
+      </div>
+
+      <!-- STEP 14 -->
+      <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+        <div class="flex items-center gap-2 mb-2">
+          <h3 class="font-bold">שלב 14 — ערוצי פנייה (מקור פנייה)</h3>
+          <span id="biSRCStat" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
+        </div>
+        <div id="biSRCBars" class="space-y-2"></div>
+        <div id="biSRCTable" class="mt-4"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  // ---------- helpers ----------
+  const DAY = 24*60*60*1000;
+  const HEB = /[\u0591-\u05C7]/g;
+  const norm = s => String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  const $ = id => document.getElementById(id);
+
+  function findColumnFlexible(row0, exactList, keywordSets){
+    if(!row0) return null;
+    const headers = Object.keys(row0);
+    for (const h of headers){
+      if (exactList.includes(h)) return h;
+      const hN = norm(h);
+      for (const ex of exactList) if (hN === norm(ex)) return h;
+    }
+    for (const h of headers){
+      const n = norm(h);
+      if (keywordSets?.some(set => set.every(k=>n.includes(norm(k))))) return h;
+    }
+    return null;
+  }
+
+  // columns
+  const COLS = {
+    status: { exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'], kw:[] },
+    source: { exact:['מקור פניה','מקור הפניה','ערוץ פניה','ערוץ','מקור','Channel','Source'], kw:[['מקור','פניה'],['ערוץ']] },
+    dept:   { exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '], kw:[['מחלקה','מטפלת'],['מחלקה']] },
+  };
+  const CLOSED_WORDS = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+
+  function isOpenRow(r){
+    const k = findColumnFlexible(r, COLS.status.exact, COLS.status.kw);
+    if (!k) return true;
+    const v = String(r[k] ?? '').trim();
+    return !CLOSED_WORDS.some(c => v === c || v.includes(c));
+  }
+
+  function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
+
+  function activeDept(){
+    const tabs = document.getElementById('deptTabs');
+    if (!tabs) return 'כללי';
+    const btn = [...tabs.querySelectorAll('button')].find(b => b.className.includes('from-brand-600') || b.className.includes('bg-gradient-to-r'));
+    return (btn?.textContent || 'כללי').trim();
+  }
+  function scopeByDept(rows){
+    const dep = activeDept();
+    if (dep === 'כללי') return rows;
+    const k = rows.length ? findColumnFlexible(rows[0], COLS.dept.exact, COLS.dept.kw) : null;
+    if (!k) return rows;
+    return rows.filter(r => String(r[k] ?? '').trim() === dep);
+  }
+
+  function pct(n, d){ return d ? Math.round(n*100/d) : 0; }
+  function escapeHTML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
+
+  // ---------- rendering ----------
+  function renderBars(containerId, items, total, clickHandler){
+    const el = $(containerId);
+    el.innerHTML = '';
+    if (!items.length){ el.innerHTML = '<div class="text-sm text-ink-200/70">אין נתונים.</div>'; return; }
+
+    items.forEach(({name,count})=>{
+      const p = pct(count,total);
+      const row = document.createElement('div');
+      row.className = 'group';
+      row.innerHTML = `
+        <div class="flex items-center gap-2">
+          <div class="text-ink-50/90">${escapeHTML(name)}</div>
+          <div class="ms-auto text-xs">${count.toLocaleString('he-IL')} • ${p}%</div>
+        </div>
+        <div class="h-2 bg-white/10 rounded mt-1 overflow-hidden">
+          <div class="h-2 bg-brand-500 group-hover:bg-gold-500 transition" style="width:${p}%;"></div>
+        </div>`;
+      row.style.cursor = 'pointer';
+      row.title = 'לחיצה לפתיחת טבלה';
+      row.addEventListener('click', ()=> clickHandler?.(name));
+      el.appendChild(row);
+    });
+  }
+
+  function renderTable(containerId, headers, rows){
+    const el = $(containerId);
+    if (!rows.length){ el.innerHTML = '<div class="text-sm text-ink-200/70">אין נתונים להצגה.</div>'; return; }
+    const head = headers.map(h=>`<th class="px-3 py-2 text-right text-ink-200/80 sticky top-0 bg-ink-900/60">${escapeHTML(h)}</th>`).join('');
+    const body = rows.map(r=>`<tr class="hover:bg-white/5">${headers.map(h=>`<td class="px-3 py-1.5">${escapeHTML(r[h] ?? '')}</td>`).join('')}</tr>`).join('');
+    el.innerHTML = `
+      <div class="flex items-center gap-2 mb-2">
+        <button class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20 hover:bg-white/15" id="${containerId}_export">ייצוא ל-XLSX</button>
+      </div>
+      <div class="overflow-auto border border-white/10 rounded-xl">
+        <table class="w-full text-sm border-separate border-spacing-0">
+          <thead><tr>${head}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`;
+    $(containerId + '_export')?.addEventListener('click', ()=>{
+      if (typeof window.exportXLSX === 'function'){ window.exportXLSX(rows, sanitize(containerId)+'.xlsx'); }
+      else alert('פונקציית ייצוא לא זמינה בעמוד זה.');
+    });
+  }
+
+  // open modal (אם יש קיים)
+  function openRowsModal(rows, title){
+    if (typeof window.openModal === 'function'){ window.openModal(rows, title, sanitize(title)); return; }
+    // fallback קטן
+    const headers = [...new Set(rows.flatMap(r=>Object.keys(r)))];
+    const hostId = 'bnFallbackModal';
+    if (!$(hostId)){
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="${hostId}" class="fixed inset-0 z-[1200] hidden">
+          <div class="absolute inset-0 bg-black/60"></div>
+          <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-2xl bg-[#0b1220] border border-white/10 p-4">
+            <div class="flex items-center gap-2 mb-3">
+              <div id="${hostId}_title" class="font-bold">נתונים</div>
+              <button id="${hostId}_close" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+            </div>
+            <div class="overflow-auto" style="max-height:70vh">
+              <table class="w-full text-sm border-separate border-spacing-0">
+                <thead id="${hostId}_head"></thead>
+                <tbody id="${hostId}_body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>`);
+      $(hostId + '_close').onclick = ()=> $(hostId).classList.add('hidden');
+      $(hostId).addEventListener('click', e => { if (e.target.id === hostId) $(hostId).classList.add('hidden'); });
+    }
+    $(hostId+'_title').textContent = title || 'נתונים';
+    $(hostId+'_head').innerHTML = '<tr>'+headers.map(h=>`<th class="px-3 py-2 text-right text-ink-200/80 sticky top-0 bg-ink-900/60">${escapeHTML(h)}</th>`).join('')+'</tr>';
+    $(hostId+'_body').innerHTML = rows.map(r=>'<tr class="hover:bg-white/5">'+headers.map(h=>`<td class="px-3 py-1.5">${escapeHTML(r[h]??'')}</td>`).join('')+'</tr>').join('');
+    $(hostId).classList.remove('hidden');
+  }
+
+  // ---------- main compute ----------
+  function renderBNandSRC(){
+    const rowsAll = getDataset();
+    if (!rowsAll.length) return;
+
+    const openOnly = $('biBottleneckOpenOnly')?.checked;
+    let rows = scopeByDept(rowsAll);
+    if (openOnly) rows = rows.filter(isOpenRow);
+
+    const r0 = rows[0] || {};
+    const statusCol = findColumnFlexible(r0, COLS.status.exact, COLS.status.kw);
+    const sourceCol = findColumnFlexible(r0, COLS.source.exact, COLS.source.kw);
+
+    // status buckets
+    const stMap = new Map();
+    if (statusCol){
+      rows.forEach(r=>{
+        const key = (r[statusCol]??'לא צוין').toString().trim() || 'לא צוין';
+        stMap.set(key, (stMap.get(key)||0)+1);
+      });
+    }
+    const stItems = [...stMap.entries()].sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}));
+    $('biBNTotal').textContent = rows.length ? `${rows.length.toLocaleString('he-IL')} שורות בטווח` : '';
+    renderBars('biBNBars', stItems, rows.length, (name)=>{
+      const filtered = rows.filter(r => String(r[statusCol]??'').trim() === name);
+      openRowsModal(filtered, `פניות בסטטוס: ${name}`);
+    });
+    // status table (top 10)
+    {
+      const top10 = stItems.slice(0,10).map(x=>({ 'סטטוס': x.name, 'כמות': x.count, 'אחוז': pct(x.count, rows.length)+'%' }));
+      renderTable('biBNTable', ['סטטוס','כמות','אחוז'], top10);
+    }
+
+    // source buckets
+    const srcMap = new Map();
+    if (sourceCol){
+      rows.forEach(r=>{
+        const key = (r[sourceCol]??'לא צוין').toString().trim() || 'לא צוין';
+        srcMap.set(key, (srcMap.get(key)||0)+1);
+      });
+    }
+    const srcItems = [...srcMap.entries()].sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}));
+    $('biSRCStat').textContent = rows.length ? `${rows.length.toLocaleString('he-IL')} שורות בטווח` : '';
+    renderBars('biSRCBars', srcItems, rows.length, (name)=>{
+      const filtered = rows.filter(r => String(r[sourceCol]??'').trim() === name);
+      openRowsModal(filtered, `פניות – מקור: ${name}`);
+    });
+    {
+      const top10 = srcItems.slice(0,10).map(x=>({ 'מקור פניה': x.name, 'כמות': x.count, 'אחוז': pct(x.count, rows.length)+'%' }));
+      renderTable('biSRCTable', ['מקור פניה','כמות','אחוז'], top10);
+    }
+  }
+
+  // ---------- wiring ----------
+  $('biBottleneckRefresh')?.addEventListener('click', renderBNandSRC);
+  $('biBottleneckOpenOnly')?.addEventListener('change', renderBNandSRC);
+
+  // רענון בעת שינוי טאב "מחלקה מטפלת"
+  const tabs = document.getElementById('deptTabs');
+  if (tabs){
+    tabs.addEventListener('click', () => setTimeout(renderBNandSRC, 0));
+  }
+
+  // אחרי העלאת קובץ
+  document.addEventListener('bi:data-loaded', renderBNandSRC);
+
+  // אם כבר יש נתונים – רנדר עכשיו
+  if (getDataset().length) renderBNandSRC();
+})();
+</script>
 </body>
