@@ -3868,5 +3868,142 @@
     if (m && !m.classList.contains('hidden')) renderInsights();
   });
 })();
-                                   </script>
+  </script>
+  <script>
+/* --- PATCH שלב 3: 50+ פניות + כיבוד מחלקה מטפלת --- */
+(() => {
+  const MIN_COUNT = 50; // במקום 100
+  const HEB_DIACRITICS=/[\u0591-\u05C7]/g;
+  const normHeader=s=>String(s).replace(HEB_DIACRITICS,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+
+  // התאמות עמודות גמישות
+  const CITY_EXACT=['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'];
+  const CITY_KW   =[['עיר'],['יישוב']];
+  const UNIT_EXACT=['יחידת דואר: שם','יחידת דואר שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה'];
+  const UNIT_KW   =[['יחידת','דואר','שם'],['שם','יחידה']];
+  const STATUS_CAND=['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  const DEPT_CAND  =['מחלקה מטפלת','מחלקה','מחלקה מטפלת '];
+
+  function headerIncludesAll(col, kwSet){ const n=normHeader(col); return kwSet.every(k=>n.includes(normHeader(k))); }
+  function findColumnFlexible(row0, exactList, keywordSets){
+    if (!row0) return null;
+    const headers=Object.keys(row0);
+    for (const h of headers){
+      if (exactList.includes(h)) return h;
+      const hN=normHeader(h); for(const ex of exactList){ if(hN===normHeader(ex)) return h; }
+    }
+    for (const h of headers){ if (keywordSets.some(set=>headerIncludesAll(h,set))) return h; }
+    return null;
+  }
+  function findCol(row,cands){
+    if (!row) return null;
+    for (const c of cands) if (c in row) return c;
+    const target=cands.map(normHeader);
+    for (const k in row) if (target.includes(normHeader(k))) return k;
+    return null;
+  }
+
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  function isOpenRow(row){
+    const k=findCol(row,STATUS_CAND);
+    if (!k) return true;
+    const v=String(row[k]??'').trim();
+    return !CLOSED.some(c=>v===c||v.includes(c));
+  }
+
+  // כיבוד הטאב הפעיל של מחלקה מטפלת
+  function getActiveDept(){
+    const tabs=document.getElementById('deptTabs');
+    if (!tabs) return 'כללי';
+    const active=[...tabs.querySelectorAll('button')].find(b => b.className.includes('from-brand-600') || b.className.includes('bg-gradient-to-r'));
+    return (active?.textContent||'כללי').trim();
+  }
+  function scopeRowsByDept(rows){
+    const dept=getActiveDept();
+    if (dept==='כללי') return rows;
+    const key = rows.length ? findCol(rows[0], DEPT_CAND) : null;
+    if (!key) return rows;
+    return rows.filter(r=>String(r[key]??'').trim()===dept);
+  }
+
+  function aggregateCounts(rows, which){
+    rows = scopeRowsByDept(rows).filter(isOpenRow);
+    if (!rows.length) return { col:null, items:[] };
+
+    let col=null;
+    if (which==='city') col=findColumnFlexible(rows[0], CITY_EXACT, CITY_KW);
+    else if (which==='unit') col=findColumnFlexible(rows[0], UNIT_EXACT, UNIT_KW);
+    if (!col) return { col:null, items:[] };
+
+    const map=new Map();
+    for (const r of rows){
+      const key=(r[col]==null?'':String(r[col]).trim());
+      if (!key) continue;
+      map.set(key, (map.get(key)||0)+1);
+    }
+    const items=[...map.entries()]
+      .filter(([,c])=>c>=MIN_COUNT) // ← עכשיו 50+
+      .sort((a,b)=>b[1]-a[1])
+      .map(([name,count])=>({name,count}));
+    return { col, items };
+  }
+
+  function escapeHTML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function renderList(containerId, items){
+    const el=document.getElementById(containerId); if (!el) return;
+    el.innerHTML='';
+    items.forEach(it=>{
+      const row=document.createElement('div');
+      row.className='py-2 flex items-center gap-3';
+      row.innerHTML = `
+        <span class="text-ink-50/90">${escapeHTML(it.name)}</span>
+        <span class="ms-auto text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10 font-semibold">${it.count.toLocaleString('he-IL')} פניות</span>
+      `;
+      el.appendChild(row);
+    });
+  }
+
+  async function ensureDataset(){
+    if (Array.isArray(window.__dataset) && window.__dataset.length) return true;
+    return false;
+  }
+
+  async function renderStep3Patched(){
+    if (!await ensureDataset()) return;
+    const rows = window.__dataset || [];
+    const byCity = aggregateCounts(rows, 'city');
+    const byUnit = aggregateCounts(rows, 'unit');
+
+    renderList('listByCity', byCity.items);
+    renderList('listByUnit', byUnit.items);
+
+    const msgCity=document.getElementById('msgCity');
+    const msgUnit=document.getElementById('msgUnit');
+    if (msgCity) msgCity.textContent = (!byCity.col) ? 'לא נמצאה עמודת עיר/יישוב.' : (!byCity.items.length ? `אין ערים עם לפחות ${MIN_COUNT} פניות פתוחות.` : '');
+    if (msgUnit) msgUnit.textContent = (!byUnit.col) ? 'לא נמצאה עמודת "יחידת דואר: שם".' : (!byUnit.items.length ? `אין יחידות עם לפחות ${MIN_COUNT} פניות פתוחות.` : '');
+  }
+
+  // מרנדר אחרי קליטת קובץ
+  if (typeof window.updateSuccessUI === 'function' && !window.__STEP3_PATCHED){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){
+      prev.apply(this, arguments);
+      setTimeout(renderStep3Patched, 0);
+    };
+    window.__STEP3_PATCHED = true;
+  }
+
+  // מרנדר גם בשינוי טאב של מחלקה
+  const tabs=document.getElementById('deptTabs');
+  if (tabs && !tabs.dataset.step3watch){
+    tabs.addEventListener('click', e=>{
+      if (e.target.tagName==='BUTTON') setTimeout(renderStep3Patched, 0);
+    });
+    tabs.dataset.step3watch = '1';
+  }
+
+  // ניסיון ראשוני אם יש נתונים
+  setTimeout(renderStep3Patched, 200);
+})();
+  </script>
 </body>
