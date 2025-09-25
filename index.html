@@ -3498,7 +3498,7 @@
   if(!document.getElementById('biInsightsBtn')){
     const btn=document.createElement('button');
     btn.id='biInsightsBtn';
-    btn.className='fixed bottom-4 left-4 z-[1500] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-black shadow';
+    btn.className='fixed bottom-4 left-4 z-[1500] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-text-white lack shadow';
     btn.textContent='🧠 תובנות';
     btn.title='חלון תובנות איכותיות';
     btn.onclick=()=>openInsights();
@@ -3527,11 +3527,11 @@
               </label>
               <label class="inline-flex items-center gap-2">
                 ערך: 
-                <select id="insValue" class="bg-white/10 border border-white/20 rounded px-2 py-1"></select>
+                <select id="insValue" class="bg-black/10 border border-black/20 rounded px-2 py-1"></select>
               </label>
               <div class="flex items-center justify-end gap-2">
-                <button id="insRefresh" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">רענון</button>
-                <button id="insClose"   class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
+                <button id="insRefresh" class="px-3 py-1.5 rounded-full bg-black/10 border border-black/20 hover:bg-white/15">רענון</button>
+                <button id="insClose"   class="px-3 py-1.5 rounded-full bg-black/10 border border-black/20 hover:bg-white/15">סגירה</button>
               </div>
             </div>
           </div>
