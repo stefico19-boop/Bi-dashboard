@@ -3166,4 +3166,231 @@
   setTimeout(renderStep3Patched, 200);
 })();
   </script>
+  <script>
+function renderInsights(){
+  ensureInsightsModal();
+
+  const openOnly = document.getElementById('insOpenOnly').checked;
+  const rowsAll  = Array.isArray(window.__dataset)? window.__dataset : [];
+  if (!rowsAll.length) return;
+
+  let rows = scopeByDept(rowsAll);
+  if (openOnly) rows = rows.filter(isOpenRow);
+
+  const r0 = rows[0] || {};
+  const cityCol  = findCol(r0, COL.city);
+  const unitCol  = findCol(r0, COL.dept); // יחידה = מחלקה מטפלת
+  const subjCol  = findCol(r0, COL.subj);
+  const probCol  = findCol(r0, COL.prob);
+  const prodCol  = findCol(r0, COL.prod);
+
+  // --- בחירת Scope ---
+  const scopeSel = document.getElementById('insScope');
+  if (!scopeSel.innerHTML){
+    scopeSel.innerHTML = `
+      <option value="all">(כללי)</option>
+      <option value="city">לפי עיר</option>
+      <option value="unit">לפי יחידה</option>`;
+    scopeSel.value = "all";
+    scopeSel.onchange = () => renderInsights();
+  }
+
+  let scopeKey = null;
+  if (scopeSel.value==="city") scopeKey=cityCol;
+  if (scopeSel.value==="unit") scopeKey=unitCol;
+
+  let mapScope=new Map();
+  if (scopeKey){
+    rows.forEach(r=>{
+      const k=(r[scopeKey]??'').toString().trim();
+      if (!k) return;
+      mapScope.set(k,(mapScope.get(k)||0)+1);
+    });
+  }
+
+  // populate value select
+  const valSel=document.getElementById('insValue');
+  valSel.innerHTML='';
+  if (scopeKey){
+    [...mapScope.entries()]
+      .sort((a,b)=>b[1]-a[1])
+      .forEach(([name,c])=>{
+        const opt=document.createElement('option');
+        opt.value=name; opt.textContent=`${name} — ${c.toLocaleString('he-IL')}`;
+        valSel.appendChild(opt);
+      });
+    if(!valSel.value && valSel.options.length) valSel.selectedIndex=0;
+  }
+  valSel.onchange=()=>renderInsights();
+
+  // --- רשומות נבחרות ---
+  let chosenRows=rows;
+  let chosenLabel="כללי";
+  if (scopeKey && valSel.value){
+    chosenRows=rows.filter(r=>String(r[scopeKey]||'').trim()===valSel.value);
+    chosenLabel=valSel.value;
+  }
+
+  // כותרת
+  document.getElementById('insCityName').textContent=chosenLabel;
+  document.getElementById('insCityTotal').textContent=chosenRows.length+" פניות";
+
+  // ניתוח
+  renderTopList('insCitySubject', chosenRows, subjCol);
+  renderTopList('insCityProblem', chosenRows, probCol);
+
+  const topSubj=topKey(chosenRows, subjCol);
+  const topProb=topKey(chosenRows, probCol);
+  document.getElementById('insCityHypo').innerHTML=buildHypothesisBlock(topSubj, topProb);
+
+  // Faults
+  const faultRows=chosenRows.filter(isFaultRow);
+  renderRates('insProdFaults', rateByKey(chosenRows, prodCol, isFaultRow));
+  renderRates('insSubjFaults', rateByKey(chosenRows, subjCol, isFaultRow));
+
+  // SLA Breach
+  const slaRows=chosenRows.filter(isSLABreach);
+  renderRates('insSLAProd', rateByKey(chosenRows, prodCol, isSLABreach), true);
+  renderRates('insSLASubj', rateByKey(chosenRows, subjCol, isSLABreach), true);
+  renderRates('insSLAProb', rateByKey(chosenRows, probCol, isSLABreach), true);
+
+  document.getElementById('insSLARecommendations').innerHTML=
+    buildSLASuggestions(topSubj.name, topSubj.name, topProb.name);
+}
+      </script>
+  <script>
+/* --- Insights: Smart Notes (Top City / Top Unit) ----------------------- */
+(function(){
+  // מוודא שיש קופסת הערות בתוך מודאל התובנות
+  function ensureNotesBox(){
+    const modal = document.getElementById('biInsightsModal');
+    if (!modal) return;
+    const scroller = modal.querySelector('.p-5.space-y-5');
+    if (!scroller) return;
+    if (!document.getElementById('insNotesBox')) {
+      const box = document.createElement('section');
+      box.id = 'insNotesBox';
+      box.className = 'rounded-2xl bg-white/5 border border-white/10 p-4';
+      box.innerHTML = `
+        <div class="flex items-center gap-2 mb-2">
+          <h3 class="font-bold">הערות חכמות</h3>
+        </div>
+        <div id="insNotes" class="text-sm space-y-1"></div>
+      `;
+      // מכניסים את ההערות אחרי פסקת ההסבר למעלה
+      scroller.insertBefore(box, scroller.children[1] || null);
+    }
+  }
+
+  // עוזר למציאת TOP ממפה שם->כמות
+  function topFromMap(map){
+    const arr = [...map.entries()];
+    if (!arr.length) return { name: '—', count: 0 };
+    arr.sort((a,b)=>b[1]-a[1]);
+    return { name: arr[0][0], count: arr[0][1] };
+  }
+
+  // בונה מפת ערכים לפי עמודה
+  function countByCol(rows, col){
+    const m = new Map();
+    if (!col) return m;
+    rows.forEach(r=>{
+      const k = (r[col] ?? '').toString().trim();
+      if (!k) return;
+      m.set(k, (m.get(k)||0)+1);
+    });
+    return m;
+  }
+
+  // נעטוף/נרחיב את renderInsights כך שבכל רענון נוסיף הערות
+  const prevRender = window.renderInsights;
+  window.renderInsights = function(){
+    // מריץ את המקורית (כבר מחשבת הכל ומכבדת מחלקה/עיר/יחידה/פתוחות)
+    if (typeof prevRender === 'function') prevRender();
+
+    // עכשיו מוסיפים הערות
+    try{
+      ensureNotesBox();
+
+      const rowsAll  = Array.isArray(window.__dataset)? window.__dataset : [];
+      if (!rowsAll.length) { 
+        const el = document.getElementById('insNotes');
+        if (el) el.textContent = 'אין נתונים להצגה.';
+        return;
+      }
+
+      // נעזרים בפונקציות מהסקריפט הקיים
+      const r0 = rowsAll[0] || {};
+      const cityCol = (typeof findCol === 'function') ? findCol(r0, COL.city) : null;
+      const unitCol = (typeof findCol === 'function') ? findCol(r0, COL.dept) : null;
+
+      // מצב "רק פתוחות"
+      const openOnlyCb = document.getElementById('insOpenOnly');
+      const openOnly = openOnlyCb ? !!openOnlyCb.checked : true;
+
+      // 1) חתך כללי (כל המחלקות)
+      let globalRows = rowsAll.slice();
+      if (openOnly && typeof isOpenRow === 'function') {
+        globalRows = globalRows.filter(isOpenRow);
+      }
+      const topCityGlobal = topFromMap(countByCol(globalRows, cityCol));
+      const topUnitGlobal = topFromMap(countByCol(globalRows, unitCol));
+
+      // 2) חתך לפי בחירה נוכחית במודאל:
+      //    מכבדים מחלקה (טאב), ואז scope (עיר/יחידה/כללי) + value
+      let scoped = (typeof scopeByDept === 'function') ? scopeByDept(rowsAll) : rowsAll.slice();
+      if (openOnly && typeof isOpenRow === 'function') scoped = scoped.filter(isOpenRow);
+
+      // scope + value מהמודאל
+      const scopeSel = document.getElementById('insScope');
+      const valueSel = document.getElementById('insValue');
+      const scopeVal = scopeSel ? scopeSel.value : 'all';
+      const valueVal = valueSel ? valueSel.value : '';
+
+      let scopeKey = null;
+      if (scopeVal === 'city') scopeKey = cityCol;
+      if (scopeVal === 'unit') scopeKey = unitCol;
+
+      // rows לפי הבחירה ב־scope/value
+      let chosenRows = scoped;
+      if (scopeKey && valueVal) {
+        chosenRows = chosenRows.filter(r => String(r[scopeKey]||'').trim() === valueVal);
+      }
+
+      const topCityChosen = topFromMap(countByCol(chosenRows, cityCol));
+      const topUnitChosen = topFromMap(countByCol(chosenRows, unitCol));
+
+      // רינדור טקסט הערות
+      const el = document.getElementById('insNotes');
+      if (el){
+        const fmt = n => Number(n||0).toLocaleString('he-IL');
+        el.innerHTML = `
+          <div>🔹 <b>כללי – כל המחלקות:</b> העיר המובילה היא <b>${escapeHtml(topCityGlobal.name)}</b> (${fmt(topCityGlobal.count)} פניות),
+          והיחידה המובילה היא <b>${escapeHtml(topUnitGlobal.name)}</b> (${fmt(topUnitGlobal.count)}).</div>
+          <div>🔹 <b>לפי בחירה נוכחית:</b> העיר המובילה היא <b>${escapeHtml(topCityChosen.name)}</b> (${fmt(topCityChosen.count)} פניות),
+          והיחידה המובילה היא <b>${escapeHtml(topUnitChosen.name)}</b> (${fmt(topUnitChosen.count)}).</div>
+          <div class="text-xs text-ink-200/70">* הבחירה הנוכחית מושפעת גם מטאב "מחלקה מטפלת" וגם מהשדות בראש המודאל (כללי/עיר/יחידה).</div>
+        `;
+      }
+    }catch(e){
+      console.warn('Insights notes add-on error:', e);
+    }
+  };
+
+  // עזר קטן לשמירה על בטיחות HTML
+  function escapeHtml(s){ 
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+                    .replace(/'/g,'&#39;'); 
+  }
+
+  // אם המודאל כבר פתוח ונעשה אירוע טעינת נתונים – נרנדר כולל הערות
+  document.addEventListener('bi:data-loaded', ()=>{
+    const m=document.getElementById('biInsightsModal');
+    if (m && !m.classList.contains('hidden')) {
+      setTimeout(()=>window.renderInsights && window.renderInsights(), 0);
+    }
+  });
+})();
+  </script>
 </body>
