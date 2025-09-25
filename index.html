@@ -2857,7 +2857,6 @@
       });
       fileInput.dataset.bound='1';
     }
-
     // קישור Drag & Drop
     if (dropzone && !dropzone.dataset.bound){
       // הפיכת הקופסה ללחיצה לפתיחת קובץ
@@ -2874,27 +2873,6 @@
       });
       dropzone.dataset.bound='1';
     }
-  }
-
-  // -------- 3) Ensure Insights button exists --------
-  function ensureInsightsButton(){
-    if (document.getElementById('biInsightsBtn')) return;
-    const btn=document.createElement('button');
-    btn.id='biInsightsBtn';
-    btn.className='fixed bottom-4 left-4 z-[1500] px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow';
-    btn.textContent='🧠 תובנות';
-    btn.title='חלון תובנות איכותיות';
-    btn.addEventListener('click', ()=>{
-      // יש בלוקים שונים; ננסה למצוא openInsights הגלובלי
-      if (typeof window.openInsights==='function') return window.openInsights();
-      // או טריגר לבלוק שלנו אם רושם פונקציה מקומית
-      const evt=new Event('click');
-      // fallback: אם אין—ננסה לפתוח מודאל קיים לפי id
-      const m=document.getElementById('biInsightsModal');
-      if (m){ m.classList.remove('hidden'); document.dispatchEvent(new CustomEvent('bi:data-loaded')); }
-      else alert('מודאל תובנות לא נטען עדיין. ודאי שהדבקת את בלוק התובנות לפני </body>.');
-    });
-    document.body.appendChild(btn);
   }
 
   // -------- 4) Hook: אם יש כבר __lastFile אבל __dataset לא קיים, נטען כעת --------
