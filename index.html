@@ -3393,4 +3393,437 @@ function renderInsights(){
   });
 })();
   </script>
+  <!-- === INSIGHTS (QUALITY ANALYSIS) — SINGLE DROP-IN BLOCK === -->
+<script>
+(function(){
+  // ---------- Small dark-style fix for <select> ----------
+  const styleId='insights-dark-select-style';
+  if(!document.getElementById(styleId)){
+    const css=document.createElement('style'); css.id=styleId; css.textContent=
+`#biInsightsBtn{position:fixed;left:1rem;bottom:1rem;z-index:1500}
+#insScope,#insValue,#insOpenOnly{accent-color:#8b5cf6}
+#insScope, #insValue{background-color:#0b1220 !important;color:#fff !important;border:1px solid rgba(255,255,255,.2) !important;border-radius:.5rem;padding:.25rem .5rem}
+#insScope option, #insValue option{background-color:#0b1220 !important;color:#fff !important}`;
+    document.head.appendChild(css);
+  }
+
+  // ---------- Floating open button ----------
+  if(!document.getElementById('biInsightsBtn')){
+    const btn=document.createElement('button');
+    btn.id='biInsightsBtn';
+    btn.className='px-4 py-2 rounded-full bg-gradient-to-r from-brand-600 to-gold-500 text-white shadow';
+    btn.textContent='🧠 תובנות';
+    btn.title='חלון תובנות איכותיות';
+    document.body.appendChild(btn);
+    btn.addEventListener('click', openInsights);
+  }
+
+  // ---------- Modal skeleton (created once) ----------
+  function ensureModal(){
+    if (document.getElementById('biInsightsModal')) return;
+    const html=`
+    <div id="biInsightsModal" class="fixed inset-0 z-[1600] hidden">
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 shadow">
+        <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+          <div class="text-xl font-bold">תובנות איכותיות</div>
+          <div class="ms-auto flex flex-wrap items-center gap-3 text-sm">
+            <label class="inline-flex items-center gap-2">טווח: 
+              <select id="insScope">
+                <option value="city">עיר</option>
+                <option value="unit">יחידה</option>
+              </select>
+            </label>
+            <label class="inline-flex items-center gap-2" title="הערכים מתעדכנים לפי הטווח והמחלקה הפעילה">
+              ערך: <select id="insValue"></select>
+            </label>
+            <label class="inline-flex items-center gap-2"><input id="insOpenOnly" type="checkbox" checked/> רק פניות פתוחות</label>
+            <button id="insRefresh" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">רענון</button>
+            <button id="insClose" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15">סגירה</button>
+          </div>
+        </div>
+        <div class="p-5 space-y-5 overflow-auto" style="max-height:70vh">
+          <div class="text-xs text-ink-200/70">
+            הניתוח מכבד את הטאב הפעיל של <b>מחלקה מטפלת</b> (אם קיים). עמודות דרושות: עיר/יישוב, "יחידת דואר: שם", סיווג נושא/בעיה/מוצר, "שעת/תאריך פתיחה ".
+          </div>
+
+          <!-- A -->
+          <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <h3 class="font-bold"><span id="insScopeTitle">עיר</span> מובילה — למה יש הכי הרבה פניות?</h3>
+              <span id="insChosenTotal" class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10"></span>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <div class="text-sm text-ink-200/80 mb-1">Top 3 — סיווג נושא</div>
+                <div id="insTopSubject" class="space-y-1"></div>
+              </div>
+              <div>
+                <div class="text-sm text-ink-200/80 mb-1">Top 3 — סיווג בעיה</div>
+                <div id="insTopProblem" class="space-y-1"></div>
+              </div>
+            </div>
+            <div id="insHypo" class="mt-3 text-sm"></div>
+            <div class="mt-3 flex gap-2">
+              <button id="insChosenRowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+              <button id="insChosenExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+            </div>
+          </section>
+
+          <!-- B -->
+          <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <h3 class="font-bold mb-2">מה גורם ליותר תקלות — סיווג מוצר או סיווג נושא?</h3>
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <div class="text-sm text-ink-200/80 mb-1">סיווג מוצר — שיעור “תקלות”</div>
+                <div id="insProdFaults" class="space-y-1"></div>
+              </div>
+              <div>
+                <div class="text-sm text-ink-200/80 mb-1">סיווג נושא — שיעור “תקלות”</div>
+                <div id="insSubjFaults" class="space-y-1"></div>
+              </div>
+            </div>
+            <div class="mt-3 flex gap-2">
+              <button id="insFaultRowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+              <button id="insFaultExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+            </div>
+          </section>
+
+          <!-- C -->
+          <section class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <h3 class="font-bold mb-2">איפה כמעט תמיד חורגים מ־SLA?</h3>
+            <div class="grid md:grid-cols-3 gap-4">
+              <div><div class="text-sm text-ink-200/80 mb-1">לפי סיווג מוצר</div><div id="insSLAProd" class="space-y-1"></div></div>
+              <div><div class="text-sm text-ink-200/80 mb-1">לפי סיווג נושא</div><div id="insSLASubj" class="space-y-1"></div></div>
+              <div><div class="text-sm text-ink-200/80 mb-1">לפי סיווג בעיה</div><div id="insSLAProb" class="space-y-1"></div></div>
+            </div>
+            <div id="insSLARecommendations" class="mt-3 text-sm"></div>
+            <div class="mt-3 flex gap-2">
+              <button id="insSLARowsBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">פתח טבלה</button>
+              <button id="insSLAExportBtn" class="px-3 py-1.5 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 text-sm">ייצוא לאקסל</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    $('insClose').onclick = () => $('biInsightsModal').classList.add('hidden');
+    $('biInsightsModal').addEventListener('click',(e)=>{ if(e.target.id==='biInsightsModal') e.currentTarget.classList.add('hidden'); });
+    $('insRefresh').onclick = () => renderInsights();
+    $('insScope').onchange   = () => populateValuesThenRender();  // כשמשנים טווח → טען רשימת ערכים מחדש
+    $('insValue').onchange   = () => renderInsights();
+    $('insOpenOnly').onchange= () => renderInsights();
+  }
+
+  function openInsights(){
+    ensureModal();
+    if (!dataset().length){ alert('לא נטען קובץ עדיין.'); return; }
+    populateValuesThenRender(); // ממלא ערכים לפי הטווח (עיר/יחידה) ואז מרנדר
+    $('biInsightsModal').classList.remove('hidden');
+  }
+
+  // ---------- Utilities ----------
+  const DAY=24*60*60*1000;
+  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const HEB=/[\u0591-\u05C7]/g;
+  const norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  const $=(id)=>document.getElementById(id);
+  const has= (o,k)=>Object.prototype.hasOwnProperty.call(o,k);
+
+  const COL={
+    city:{exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'],kw:[['עיר'],['יישוב']]},
+    unit:{exact:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'],kw:[['יחידת','דואר','שם'],['שם','יחידה']]},
+    subj:{exact:['סיווג נושא','נושא','סיווג נושא '],kw:[['סיווג','נושא'],['נושא']]},
+    prob:{exact:['סיווג בעיה','בעיה','סיווג בעיה '],kw:[['סיווג','בעיה'],['בעיה']]},
+    prod:{exact:['סיווג מוצר','מוצר','שם מוצר'],kw:[['סיווג','מוצר'],['מוצר']]},
+    dept:{exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],kw:[['מחלקה','מטפלת'],['מחלקה']]},
+    status:{exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],kw:[]},
+    opened:{exact:['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'],kw:[['פתיחה'],['תאריך']]}
+  };
+
+  function findColumnFlexible(row0, exactList, keywordSets){
+    if(!row0) return null;
+    const headers=Object.keys(row0);
+    for(const h of headers){ if (exactList.includes(h)) return h;
+      const hN=norm(h); for(const ex of exactList){ if (hN===norm(ex)) return h; } }
+    for(const h of headers){ const n=norm(h); if (keywordSets?.some(set=>set.every(k=>n.includes(norm(k))))) return h; }
+    return null;
+  }
+  function findCol(row0, spec){ return findColumnFlexible(row0, spec.exact, spec.kw); }
+
+  function dataset(){ return Array.isArray(window.__dataset)? window.__dataset : []; }
+  function activeDept(){
+    const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
+    const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
+    return (btn?.textContent||'כללי').trim();
+  }
+  function scopeRowsByDept(rows){
+    const dept=activeDept(); if (dept==='כללי') return rows;
+    const k=findCol(rows[0], COL.dept); if(!k) return rows;
+    return rows.filter(r=>String(r[k]??'').trim()===dept);
+  }
+  function isOpenRow(r){ const k=findCol(r,COL.status); if(!k) return true; const v=String(r[k]??'').trim(); return !CLOSED.some(c=>v===c||v.includes(c)); }
+
+  function excelToDate(n){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+n*DAY); }
+  function parseDate(val){
+    if (val==null||val==='') return null;
+    if (typeof val==='number') return excelToDate(val);
+    const d=new Date(val); if(!isNaN(d)) return d;
+    const m=String(val).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (m){ let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy; const d2=new Date(`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`); if(!isNaN(d2)) return d2; }
+    return null;
+  }
+
+  // SLA rules (כמו שסיכמנו)
+  function pickSLARule(row){
+    const dept=norm(row[findCol(row, COL.dept)]||'');
+    const subj=norm(row[findCol(row, COL.subj)]||'');
+    const prob=norm(row[findCol(row, COL.prob)]||'');
+    if (dept.includes('פנים')&&dept.includes('ארצי') && (subj.includes('חלוקתדואר')||subj.includes('יחידותדואר'))) return {ms:8*DAY,label:'8 ימים — חלוקת/יחידות דואר (פנים-ארצי)'};
+    if ((prob.includes('תקל')&&prob.includes('פורטל')) && (dept.includes('שליח')||dept.includes('בינלאומי'))) return {ms:1*DAY,label:'24 שעות — תקלה בפורטל'};
+    if ((prob.includes('איסוף')||prob.includes('הזמנה')) && dept.includes('שליח')) return {ms:1*DAY,label:'24 שעות — איסוף/הזמנה (שליחים)'};
+    if ((dept.includes('פנים')&&dept.includes('ארצי')) || dept.includes('שליח')) return {ms:30*DAY,label:'30 ימים — ברירת מחדל'};
+    if (dept.includes('בינלאומי')) return {ms:60*DAY,label:'60 ימים — ברירת מחדל (בינלאומי)'};
+    return null;
+  }
+  function isSLABreach(row){
+    if(!isOpenRow(row)) return false;
+    const k=findCol(row,COL.opened); if(!k) return false;
+    const opened=parseDate(row[k]); if(!opened) return false;
+    const rule=pickSLARule(row); if(!rule) return false;
+    return Date.now() > (opened.getTime()+rule.ms);
+  }
+  function isFaultRow(row){
+    const pk=findCol(row, COL.prob), sk=findCol(row, COL.subj);
+    const txt=(String(row[pk]||'')+' '+String(row[sk]||'')).toLowerCase();
+    return /(תקלה|שגיאה|כשל|קריסה|פורטל)/.test(txt);
+  }
+
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
+
+  // ---------- Populate values (city / unit) ----------
+  function populateValuesThenRender(){
+    const rowsAll = dataset(); if(!rowsAll.length) return;
+    ensureModal();
+    const scope = $('insScope').value || 'city';
+    $('insScopeTitle').textContent = (scope==='unit'?'יחידה':'עיר');
+
+    let rows = scopeRowsByDept(rowsAll);
+    const r0 = rows[0] || {};
+    const col = findCol(r0, scope==='unit'? COL.unit : COL.city);
+
+    const map=new Map();
+    if (col){ rows.forEach(r=>{ const v=(r[col]??'').toString().trim(); if(!v) return; map.set(v,(map.get(v)||0)+1); }); }
+
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]).map(([name,c])=>({name,count:c}));
+    const sel=$('insValue');
+    sel.innerHTML = items.length
+      ? items.map(x=>`<option value="${escapeHtml(x.name)}">${escapeHtml(x.name)} — ${x.count.toLocaleString('he-IL')}</option>`).join('')
+      : '<option value="">(אין ערכים)</option>';
+
+    renderInsights(); // מרנדר עם הערך הראשון (אם יש)
+  }
+
+  // ---------- Render ----------
+  function renderInsights(){
+    ensureModal();
+    const rowsAll = dataset(); if(!rowsAll.length){ alert('לא נטען קובץ עדיין.'); return; }
+
+    const openOnly = $('insOpenOnly').checked;
+    const scope    = $('insScope').value || 'city';
+    const chosen   = $('insValue').value || '';
+
+    let rows = scopeRowsByDept(rowsAll);
+    if (openOnly) rows = rows.filter(isOpenRow);
+
+    const r0 = rows[0] || {};
+    const cityCol = findCol(r0, COL.city);
+    const unitCol = findCol(r0, COL.unit);
+    const subjCol = findCol(r0, COL.subj);
+    const probCol = findCol(r0, COL.prob);
+    const prodCol = findCol(r0, COL.prod);
+
+    // slice by chosen scope
+    let chosenRows = rows;
+    if (scope==='city' && cityCol && chosen) chosenRows = rows.filter(r => String(r[cityCol]||'').trim()===chosen);
+    if (scope==='unit' && unitCol && chosen) chosenRows = rows.filter(r => String(r[unitCol]||'').trim()===chosen);
+
+    $('insChosenTotal').textContent = chosen ? `${chosenRows.length.toLocaleString('he-IL')} פניות` : '';
+
+    renderTopList('insTopSubject', chosenRows, subjCol);
+    renderTopList('insTopProblem', chosenRows, probCol);
+    $('insHypo').innerHTML = buildHypothesisBlock(topKey(chosenRows, subjCol), topKey(chosenRows, probCol));
+
+    // buttons (chosen)
+    $('insChosenRowsBtn').onclick   = ()=> openRowsModal(chosenRows, `${scope==='unit'?'יחידה':'עיר'} — ${chosen||'הכל'}`);
+    $('insChosenExportBtn').onclick = ()=> exportAny(chosenRows, `${scope==='unit'?'unit':'city'}_${sanitize(chosen||'all')}.xlsx`);
+
+    // Faults
+    const faultRows = rows.filter(isFaultRow);
+    renderRates('insProdFaults', rateByKey(rows, prodCol, isFaultRow));
+    renderRates('insSubjFaults', rateByKey(rows, subjCol, isFaultRow));
+    $('insFaultRowsBtn').onclick   = ()=> openRowsModal(faultRows, 'שורות — תקלות');
+    $('insFaultExportBtn').onclick = ()=> exportAny(faultRows, 'fault_rows.xlsx');
+
+    // SLA
+    const slaRows = rows.filter(isSLABreach);
+    const slaProd = rateByKey(rows, prodCol, isSLABreach);
+    const slaSubj = rateByKey(rows, subjCol, isSLABreach);
+    const slaProb = rateByKey(rows, probCol, isSLABreach);
+    renderRates('insSLAProd', slaProd, true);
+    renderRates('insSLASubj', slaSubj, true);
+    renderRates('insSLAProb', slaProb, true);
+    $('insSLARecommendations').innerHTML = buildSLASuggestions(slaProd.top?.name||'', slaSubj.top?.name||'', slaProb.top?.name||'');
+    $('insSLARowsBtn').onclick   = ()=> openRowsModal(slaRows, 'שורות — חרגי SLA');
+    $('insSLAExportBtn').onclick = ()=> exportAny(slaRows, 'sla_breach_rows.xlsx');
+  }
+
+  // ---------- Helpers (lists, rates, table, export) ----------
+  function renderTopList(containerId, rows, col){
+    const el=$(containerId); el.innerHTML='';
+    if (!col || !rows.length){ el.textContent='—'; return; }
+    const map=new Map(); rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3);
+    const total=rows.length||1;
+    items.forEach(([name,count])=>{
+      const row=document.createElement('div');
+      row.className='flex items-center gap-2';
+      row.innerHTML=`<span class="text-ink-50/90">${escapeHtml(name)}</span>
+        <span class="ms-auto text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">${count.toLocaleString('he-IL')} • ${Math.round(count*100/total)}%</span>`;
+      el.appendChild(row);
+    });
+    if (!items.length) el.textContent='—';
+  }
+  function topKey(rows, col){
+    if (!col) return {name:'',count:0,pct:0};
+    const map=new Map(); rows.forEach(r=>{ const k=(r[col]??'').toString().trim(); if(!k) return; map.set(k,(map.get(k)||0)+1); });
+    const items=[...map.entries()].sort((a,b)=>b[1]-a[1]);
+    const total=rows.length||1;
+    if (!items.length) return {name:'',count:0,pct:0};
+    return {name:items[0][0],count:items[0][1],pct:Math.round(items[0][1]*100/total)};
+  }
+  function rateByKey(allRows, col, predicateFn, minN=20){
+    if (!col || !allRows.length) return {list:[], top:null};
+    const buckets=new Map();
+    allRows.forEach(r=>{
+      const key=(r[col]??'').toString().trim() || '(לא צוין)';
+      const b=buckets.get(key)||{n:0,yes:0};
+      b.n++; if (predicateFn(r)) b.yes++;
+      buckets.set(key,b);
+    });
+    const list=[...buckets.entries()].map(([name,{n,yes}])=>({name,yes,n,rate:n?(yes/n):0}));
+    const filtered=list.filter(x=>x.n>=minN).sort((a,b)=>b.rate-a.rate||b.n-a.n).slice(0,5);
+    return {list:filtered, top:filtered[0]||null};
+  }
+  function renderRates(containerId,data,emphasizeHigh=false){
+    const el=$(containerId); el.innerHTML='';
+    if (!data.list.length){ el.textContent='—'; return; }
+    data.list.forEach(item=>{
+      const p=Math.round(item.rate*100);
+      const bar=document.createElement('div'); bar.className='text-xs';
+      bar.innerHTML=`<div class="flex items-center gap-2">
+          <span class="text-ink-50/90">${escapeHtml(item.name)}</span>
+          <span class="ms-auto">${item.yes.toLocaleString('he-IL')}/${item.n.toLocaleString('he-IL')} • ${p}%</span>
+        </div>
+        <div class="h-1.5 bg-white/10 rounded mt-1 overflow-hidden">
+          <div class="${emphasizeHigh?'bg-red-500':'bg-brand-500'}" style="width:${p}%"></div>
+        </div>`;
+      el.appendChild(bar);
+    });
+  }
+  function buildHypothesisBlock(topSubj, topProb){
+    const hints=[];
+    if ((topSubj.name||'').includes('חלוקת') || (topSubj.name||'').includes('יחידות דואר') || (topProb.name||'').includes('חלוקת')){
+      hints.push({ issue:'עומס בחלוקת דואר/יחידות דואר', cause:'קיבולת שליחים/סניפים וזמני מיון', fix:'תיעדוף לפי SLA 8 ימים, ניטור עומסים והסטות בין יחידות' });
+    }
+    if ((topProb.name||'').includes('פורטל') || /(תקלה|שגיאה|כשל|קריסה)/.test(topProb.name||'')){
+      hints.push({ issue:'תקלות מערכת/פורטלים', cause:'באגים/רגרסיות או זמינות נמוכה', fix:'ניטור שגיאות, בדיקות רגרסיה ותעדוף טיפול 24 ש׳' });
+    }
+    if (!hints.length){
+      hints.push({ issue:'קטגוריה מובילה מרוכזת', cause:'תהליך שירות לא אופטימלי', fix:'סקירת תהליך קצה־לקצה, קיצור חיכוכים והדרכת צוותים' });
+    }
+    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
+      <div class="font-semibold mb-1">השערה ופעולה</div>
+      <ul class="list-disc ms-5">
+        ${hints.map(h=>`<li><b>בעיה:</b> ${escapeHtml(h.issue)} → <b>סיבה אפשרית:</b> ${escapeHtml(h.cause)} → <b>פתרון:</b> ${escapeHtml(h.fix)}</li>`).join('')}
+      </ul>
+    </div>`;
+  }
+  function buildSLASuggestions(prodName, subjName, probName){
+    const keys=[prodName,subjName,probName].join(' ').toLowerCase();
+    const recs=[];
+    if (/חלוקת|יחידות/.test(keys)) recs.push('בקרות קיבולת ביחידות עמוסות, SLA 8 ימים, ניטור תפוקה יומי.');
+    if (/פורטל|תקלה|שגיאה|כשל|קריסה/.test(keys)) recs.push('יציבות פורטל: ניטור שגיאות, רגרסיה אוטומטית ותור מהיר (24 ש׳).');
+    if (/איסוף|הזמנה/.test(keys)) recs.push('שיפור זרימת הזמנות ותיאומי איסוף — SLA 24 ש׳.');
+    if (/בינלאומי/.test(keys)) recs.push('תיאום עם ספקי חוץ/מכס והכוונת ציפיות (SLA 60 ימים).');
+    if (!recs.length) recs.push('מיפוי תהליכים בקטגוריות החורגות והסרת צווארי בקבוק.');
+    return `<div class="rounded-xl bg-white/5 border border-white/10 p-3">
+      <div class="font-semibold mb-1">המלצות פעולה</div>
+      <ul class="list-disc ms-5">${recs.map(r=>`<li>${escapeHtml(r)}</li>`).join('')}</ul>
+    </div>`;
+  }
+
+  // ---------- Table + Export ----------
+  function openRowsModal(rows, title){
+    // שימוש במודאל הכללי אם קיים (מהמערכת שלך)
+    if ($('biModal') && $('biThead') && $('biTbody')){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      $('biModalTitle').textContent=title||'נתונים';
+      $('biModalTitle').dataset.filename=sanitize(title||'export')+'.xlsx';
+      if (rows.length){
+        $('biThead').innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+        $('biTbody').innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+      } else { $('biThead').innerHTML=''; $('biTbody').innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+      $('biModal').classList.remove('hidden'); return;
+    }
+    // מודאל מינימלי
+    let host=$('insRowsModal');
+    if(!host){
+      document.body.insertAdjacentHTML('beforeend',`
+        <div id="insRowsModal" class="fixed inset-0 z-[1700] hidden">
+          <div class="absolute inset-0 bg-black/60"></div>
+          <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-2xl bg-[#0b1220] border border-white/10">
+            <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
+              <div id="insRowsTitle" class="font-bold">נתונים</div>
+              <button id="insRowsExport" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
+              <button id="insRowsClose" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+            </div>
+            <div class="p-3 overflow-auto" style="max-height:70vh">
+              <table class="w-full text-sm border-separate border-spacing-0"><thead id="insRowsHead"></thead><tbody id="insRowsBody"></tbody></table>
+            </div>
+          </div>
+        </div>`);
+      host=$('insRowsModal');
+      $('insRowsClose').onclick=()=>host.classList.add('hidden');
+      $('insRowsExport').onclick=()=>{
+        if (typeof window.exportXLSX==='function') window.exportXLSX(window.__INS_ROWS||[], sanitize($('insRowsTitle').textContent||'export')+'.xlsx');
+        else alert('פונקציית ייצוא לא זמינה.');
+      };
+    }
+    window.__INS_ROWS=rows;
+    $('insRowsTitle').textContent=title||'נתונים';
+    const head=$('insRowsHead'), body=$('insRowsBody');
+    if (rows.length){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+      body.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+    } else { head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+    host.classList.remove('hidden');
+  }
+  function exportAny(rows, filename){
+    if (typeof window.exportXLSX==='function') window.exportXLSX(rows, filename||'export.xlsx');
+    else alert('פונקציית ייצוא לא זמינה (ודאי שהדבקת את תיקון ה־XLSX אצלך).');
+  }
+
+  // ---------- System hook (אם הדאטה נטענה מחדש) ----------
+  document.addEventListener('bi:data-loaded', ()=>{
+    if ($('biInsightsModal') && !$('biInsightsModal').classList.contains('hidden')){
+      populateValuesThenRender();
+    }
+  });
+
+})();
+</script>
+<!-- === /INSIGHTS BLOCK === -->
 </body>
