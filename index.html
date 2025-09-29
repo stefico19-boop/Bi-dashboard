@@ -3998,4 +3998,161 @@ function renderInsights(){
 
 })();
         </script>
+  <!-- Change-Tracking 72h: open table first, then export (XLSX/CSV fallback) -->
+<script>
+(function(){
+  const DAY=24*60*60*1000;
+  function excelToDate(n){ const e=new Date(Date.UTC(1899,11,30)); return new Date(e.getTime()+n*DAY); }
+  function parseDate(v){
+    if(v==null||v==='') return null;
+    if(typeof v==='number') return excelToDate(v);
+    const d=new Date(v); if(!isNaN(d)) return d;
+    const m=String(v).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if(m){let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy;
+      const s=`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`;
+      const d2=new Date(s); if(!isNaN(d2)) return d2;
+    }
+    return null;
+  }
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  function findCol(row0, names){
+    if(!row0) return null;
+    const headers=Object.keys(row0);
+    for(const h of headers){ if(names.some(n=>norm(h)===norm(n))) return h; }
+    // ניסיונות גנריים
+    for(const h of headers){ const n=norm(h);
+      if(n.includes('שינוי')&&n.includes('תאריך')) return h;
+      if(n.includes('עדכון')&&n.includes('אחרון')) return h;
+      if(n.includes('last')&&n.includes('update')) return h;
+    }
+    return null;
+  }
+  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  function isOpen(r,statusCol){ if(!statusCol) return true; const v=String(r[statusCol]??''); return !CLOSED.some(w=>v===w||v.includes(w)); }
+
+  // ====== Modal renderer (מעדיף את המודאל הכללי אם קיים) ======
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
+
+  function openRowsTable(rows, title, filenameBase){
+    // אם יש מודאל BI כללי – נשתמש בו
+    const bi = document.getElementById('biModal');
+    if (bi && document.getElementById('biThead') && document.getElementById('biTbody')){
+      const tHead=document.getElementById('biThead'), tBody=document.getElementById('biTbody');
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      document.getElementById('biModalTitle').textContent = title||'נתונים';
+      document.getElementById('biModalTitle').dataset.filename = (filenameBase||'export')+'.xlsx';
+      if (rows.length){
+        tHead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+        tBody.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+      } else {
+        tHead.innerHTML=''; tBody.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>';
+      }
+      // נשמור שורות נוכחיות לייצוא
+      window.__BI_CURRENT_ROWS = rows;
+      bi.classList.remove('hidden');
+      return;
+    }
+    // מודאל קטן מקומי
+    let host=document.getElementById('chg72RowsModal');
+    if(!host){
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="chg72RowsModal" class="fixed inset-0 z-[1700] hidden">
+          <div class="absolute inset-0 bg-black/60"></div>
+          <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-2xl bg-[#0b1220] border border-white/10">
+            <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
+              <div id="chg72RowsTitle" class="font-bold">נתונים</div>
+              <button id="chg72RowsExport" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
+              <button id="chg72RowsClose" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+            </div>
+            <div class="p-3 overflow-auto" style="max-height:70vh">
+              <table class="w-full text-sm border-separate border-spacing-0">
+                <thead id="chg72RowsHead"></thead><tbody id="chg72RowsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>`);
+      host=document.getElementById('chg72RowsModal');
+      document.getElementById('chg72RowsClose').onclick=()=>host.classList.add('hidden');
+      document.getElementById('chg72RowsExport').onclick=()=>exportAny(window.__CHG72_LAST_ROWS||[], (window.__CHG72_LAST_FN||'export')+'.xlsx');
+    }
+    const head=document.getElementById('chg72RowsHead'), body=document.getElementById('chg72RowsBody');
+    document.getElementById('chg72RowsTitle').textContent = title||'נתונים';
+    window.__CHG72_LAST_ROWS = rows; window.__CHG72_LAST_FN = filenameBase||'export';
+    if (rows.length){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
+      body.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+    } else { head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+    document.getElementById('chg72RowsModal').classList.remove('hidden');
+  }
+
+  // ייצוא (XLSX אם יש SheetJS; אחרת CSV)
+  function exportAny(rows, filename){
+    if (window.XLSX){
+      const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb, filename||'export.xlsx');
+    }else{
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+      const csv=[headers.join(','), ...rows.map(r=>headers.map(h=>esc(r[h])).join(','))].join('\n');
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+      a.download=(filename||'export')+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+    }
+  }
+
+  function activeDept(){
+    const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
+    const el=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
+    return (el?.textContent||'כללי').trim();
+  }
+  function scopeByDept(rows, deptCol){
+    const d=activeDept(); if(d==='כללי'||!deptCol) return rows;
+    return rows.filter(r=>String(r[deptCol]??'').trim()===d);
+  }
+
+  // ====== Logic: compute groups & wire buttons ======
+  function recomputeChg72(){
+    const rows = Array.isArray(window.__dataset)? window.__dataset : [];
+    if(!rows.length) return;
+
+    const r0 = rows[0];
+    const statusCol = findCol(r0, ['סטאטוס פניה','סטטוס פניה','סטטוס','Status']);
+    const deptCol   = findCol(r0, ['מחלקה מטפלת','מחלקה']);
+    const changeCol = findCol(r0, ['שעת/תאריך שינוי אחרון','תאריך שינוי אחרון','עדכון אחרון','Last Update']);
+
+    let scoped = scopeByDept(rows, deptCol).filter(r=>isOpen(r,statusCol));
+    const now=Date.now(), LIM=72*60*60*1000;
+
+    const withTs = scoped.map(r=>{
+      const d = parseDate(r[changeCol]);
+      return {row:r, ts: d? d.getTime() : null};
+    });
+
+    const breach = withTs.filter(x=>x.ts!=null && (now - x.ts) > LIM).map(x=>x.row);
+    const ok     = withTs.filter(x=>x.ts!=null && (now - x.ts) <= LIM).map(x=>x.row);
+    const noDate = withTs.filter(x=>x.ts==null).map(x=>x.row);
+
+    window.__CHG72 = {breach, ok, noDate, all: scoped};
+
+    // חיבור כפתורים לפתיחת טבלה:
+    const wireOpen = (selector, list, title, fnBase)=>{
+      document.querySelectorAll(selector).forEach(btn=>{
+        btn.onclick = ()=> openRowsTable(list, title, fnBase);
+      });
+    };
+    wireOpen('#chg72BtnBreach, [data-open="chg72:breach"]', breach, 'חריגים – שינוי אחרון מעל 72 שעות', 'chg72_breach');
+    wireOpen('#chg72BtnOk, [data-open="chg72:ok"]', ok, 'עומדים בזמנים – שינוי עד 72 שעות', 'chg72_ok');
+    wireOpen('#chg72BtnAll, [data-open="chg72:all"]', scoped, 'כל הפניות (מעקב שינוי אחרון)', 'chg72_all');
+    wireOpen('#chg72BtnNoDate, [data-open="chg72:nodate"]', noDate, 'ללא תאריך שינוי אחרון', 'chg72_nodate');
+  }
+
+  // הפעלה ראשונית + האזנה
+  if (Array.isArray(window.__dataset) && window.__dataset.length) recomputeChg72();
+  document.addEventListener('bi:data-loaded', recomputeChg72);
+  const tabs=document.getElementById('deptTabs');
+  if (tabs){ tabs.addEventListener('click', ()=>setTimeout(recomputeChg72, 50)); }
+})();
+</script>
 </body>
