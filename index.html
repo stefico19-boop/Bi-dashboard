@@ -2052,25 +2052,77 @@
   if(getDataset().length)compute();
 })();
 </script>
-/* === STEP 9 — Last Change ≤/＞ 72h (with built-in table + XLSX export) === */
+  <!-- === STEP 9 — שינוי אחרון 96ש: עומד/חריג (כללי + מחלקה) === -->
+<section id="biStale96" class="max-w-6xl mx-auto px-4 mt-6">
+  <div class="rounded-3xl shadow-luxe bg-white/5 border border-white/10 backdrop-blur-lg p-6 md:p-8">
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <span class="text-sm font-semibold text-ink-200/80">מעקב שינוי אחרון — 96 שעות</span>
+      <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">TZ: Asia/Jerusalem</span>
+    </div>
+
+    <!-- כללי -->
+    <div class="mb-4">
+      <div class="text-xs text-ink-200/70 mb-1">כל המחלקות</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">עומד בזמנים — כללי (≤ 96ש')</div>
+          <div id="s9AllOkNum" class="text-3xl font-bold mt-1">—</div>
+          <div id="s9AllOkPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">חריג — כללי (> 96ש')</div>
+          <div id="s9AllOverNum" class="text-3xl font-bold mt-1">—</div>
+          <div id="s9AllOverPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- לפי המחלקה שנבחרה -->
+    <div>
+      <div id="s9DeptTitle" class="text-xs text-ink-200/70 mb-1">מחלקה: כללי</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">עומד בזמנים — מחלקה (≤ 96ש')</div>
+          <div id="s9DeptOkNum" class="text-3xl font-bold mt-1">—</div>
+          <div id="s9DeptOkPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+        <div class="rounded-2xl bg-ink-900/60 border border-white/10 p-4">
+          <div class="text-xs text-ink-200/70">חריג — מחלקה (> 96ש')</div>
+          <div id="s9DeptOverNum" class="text-3xl font-bold mt-1">—</div>
+          <div id="s9DeptOverPct" class="text-xs text-ink-200/70 mt-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 text-[11px] text-ink-200/60">
+      מבוסס על עמודה <b>„תאריך שינוי אחרון”</b>. נחשב חריג אם עברו יותר מ־96 שעות מאז השינוי האחרון.<br/>
+      לחיצה על המספר מציגה טבלה מלאה עם אפשרות יצוא ל-XLSX. מתחשב במחלקה שנבחרה בטאבים.
+    </div>
+  </div>
+</section>
+
+<script>
 (() => {
-  const $ = (id) => document.getElementById(id);
+  const $ = id => document.getElementById(id);
   const TZ = 'Asia/Jerusalem';
-  const HOUR = 60 * 60 * 1000;
+  const H = 60*60*1000;
+  const THRESH = 96*H;
   const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
 
+  // כותרות גמישות
   const COLS = {
-    lastChange: [
-      'תאריך שינוי אחרון','שעת/תאריך שינוי אחרון','עדכון אחרון','תאריך עדכון אחרון',
-      'שינוי אחרון','עודכן בתאריך','תאריך שינוי','שעת/תאריך עדכון אחרון',
-      'Last Update','Last Updated','Updated At','updated_at','last_update','modified_at'
-    ],
-    dept:   ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
-    status: ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status']
+    lastChange: ['תאריך שינוי אחרון','שעת/תאריך שינוי אחרון','עדכון אחרון','תאריך עדכון אחרון','שינוי אחרון','עודכן בתאריך','תאריך שינוי','שעת/תאריך עדכון אחרון','Last Update','Last Updated','Updated At','updated_at','last_update','modified_at'],
+    opened:     ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened'],
+    dept:       ['מחלקה מטפלת','מחלקה','מחלקה מטפלת '],
+    status:     ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'],
+    caseNo:     ['מספר מקרה','מס מקרה','מספר פניה','Case #','case_id'],
+    name:       ['שם לקוח','שם שולח','שם','שם לקוח/שולח'],
+    tracking:   ['מספר מעקב','Tracking','מס מעקב','tracking_no'],
+    prod:       ['סיווג מוצר','מוצר','שם מוצר'],
+    subj:       ['סיווג נושא','נושא'],
+    prob:       ['סיווג בעיה','בעיה']
   };
-
-  /* ---------- utils ---------- */
-  function norm(s){ return String(s).replace(/\s+/g,'').toLowerCase(); }
+  const norm = s => String(s).replace(/\s+/g,'').toLowerCase();
   function findCol(row, keys){
     if (!row) return null;
     for (const k of keys) if (k in row) return k;
@@ -2078,160 +2130,171 @@
     for (const k in row) if (targets.includes(norm(k))) return k;
     return null;
   }
+
   function getDataset(){ return Array.isArray(window.__dataset) ? window.__dataset : []; }
   function activeDept(){ return window.__biActiveDept || 'כללי'; }
 
-  function dtFromCell(v){
+  // פרסור תאריכים (כולל ערך אקסל מספרי)
+  function excelToDate(n){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+Math.round(n*24*60*60*1000)); }
+  function parseDate(v){
     if (v==null || v==='') return null;
-    if (typeof v === 'number'){
-      const epoch = new Date(Date.UTC(1899,11,30));
-      return new Date(epoch.getTime() + Math.round(v*24*60*60*1000));
-    }
-    const s = String(v).trim();
-    const m = s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-    if (m){
-      let [_, dd, mm, yy, HH='00', MM='00', SS='00'] = m;
-      if (yy.length===2) yy = '20'+yy;
-      return new Date(+yy,(+mm)-1,+dd,+HH,+MM,+SS);
-    }
-    const d = new Date(s);
-    return isNaN(d) ? null : d;
+    if (typeof v==='number') return excelToDate(v);
+    const s=String(v).trim();
+    const m=s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m){ let[_,dd,mm,yy,HH='00',MM='00',SS='00']=m; if(yy.length===2) yy='20'+yy; return new Date(+yy,(+mm)-1,+dd,+HH,+MM,+SS); }
+    const d=new Date(s); return isNaN(d)?null:d;
   }
-  function fmt(date){
-    try {
-      const p = new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(date);
-      const m = Object.fromEntries(p.map(x=>[x.type,x.value]));
-      return `${m.day}/${m.month}/${m.year} ${m.hour}:${m.minute}`;
-    } catch { return date.toLocaleString('he-IL'); }
-  }
-  function isOpenRow(r){
-    const k = findCol(r, COLS.status);
-    if (!k) return true;
-    const v = String(r[k]??'').trim();
-    return !CLOSED.some(c => v===c || v.includes(c));
+  function fmtTZ(d){
+    try{
+      const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(d);
+      const m=Object.fromEntries(p.map(x=>[x.type,x.value])); return `${m.day}/${m.month}/${m.year} ${m.hour}:${m.minute}`;
+    }catch{ return d.toLocaleString('he-IL'); }
   }
 
-  /* ---------- local modal + export (fallback) ---------- */
-  // נשתמש בגלובלי אם קיים; אחרת ניצור אחד פנימי.
+  // פתוחים בלבד
+  function isOpenRow(r){
+    const k=findCol(r,COLS.status); if(!k) return true;
+    const v=String(r[k]??'').trim();
+    return !CLOSED.some(c=>v===c || v.includes(c));
+  }
+
+  // העשרה לשורות + סטטוס 96ש
+  function enrichRow(r){
+    const kLC=findCol(r,COLS.lastChange);
+    const kOP=findCol(r,COLS.opened);
+    const lc = kLC? parseDate(r[kLC]) : null;
+    const op = kOP? parseDate(r[kOP]) : null;
+    if(!lc) return {...r, __s9:'unknown'};
+    const hours=Math.floor((Date.now()-lc.getTime())/H);
+    const status = (hours> (THRESH/H)) ? 'over' : 'ok';
+    const out={...r, 'תאריך שינוי אחרון (IZ)':fmtTZ(lc), 'שעות מאז שינוי':hours};
+    if(op) out['שעת/תאריך פתיחה (IZ)']=fmtTZ(op);
+    return {...out, __s9:status};
+  }
+
+  // סינון למחלקה הפעילה
+  function byDept(rows){
+    const d=activeDept(); if(d==='כללי') return rows;
+    const k=findCol(rows[0],COLS.dept); return k? rows.filter(r=>String(r[k]??'').trim()===d) : rows;
+  }
+
+  // מודאל: נשתמש בגלובלי אם קיים; אחרת מקומי + יצוא עם XLSX
   function ensureLocalModal(){
     if (document.getElementById('biModal')) return 'global';
-    if (document.getElementById('s9Modal')) return 'local';
+    if (document.getElementById('s9LocalModal')) return 'local';
     document.body.insertAdjacentHTML('beforeend', `
-      <div id="s9Modal" class="fixed inset-0 z-[1600] hidden">
+      <div id="s9LocalModal" class="fixed inset-0 z-[1600] hidden">
         <div class="absolute inset-0 bg-black/60"></div>
         <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10">
           <div class="flex items-center gap-2 px-5 py-3 border-b border-white/10">
-            <div id="s9Title" class="font-bold">נתונים</div>
-            <button id="s9Export" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא ל-XLSX</button>
-            <button id="s9Close"  class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+            <div id="s9LocalTitle" class="font-bold">נתונים</div>
+            <button id="s9LocalExport" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא ל-XLSX</button>
+            <button id="s9LocalClose"  class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
           </div>
           <div class="p-3 overflow-auto" style="max-height:70vh">
             <table class="w-full text-sm border-separate border-spacing-0">
-              <thead id="s9Head"></thead><tbody id="s9Body"></tbody>
+              <thead id="s9LocalHead"></thead><tbody id="s9LocalBody"></tbody>
             </table>
           </div>
         </div>
       </div>
     `);
-    $('s9Close').onclick = ()=> $('s9Modal').classList.add('hidden');
-    $('s9Modal').addEventListener('click', e=>{ if(e.target.id==='s9Modal') $('s9Modal').classList.add('hidden'); });
-    $('s9Export').onclick = ()=>{
-      if (!window.XLSX){ alert('XLSX לא נטען'); return; }
-      const ws = XLSX.utils.json_to_sheet(window.__S9_ROWS||[]);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Data');
-      XLSX.writeFile(wb, ( ($('s9Title').dataset.fname)||'export') + '.xlsx');
+    document.getElementById('s9LocalClose').onclick=()=>document.getElementById('s9LocalModal').classList.add('hidden');
+    document.getElementById('s9LocalModal').addEventListener('click',e=>{ if(e.target.id==='s9LocalModal') e.currentTarget.classList.add('hidden'); });
+    document.getElementById('s9LocalExport').onclick=()=>{
+      if(!window.XLSX){ alert('XLSX לא נטען'); return; }
+      const ws=XLSX.utils.json_to_sheet(window.__S9_ROWS||[]);
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data');
+      XLSX.writeFile(wb,(document.getElementById('s9LocalTitle').dataset.fname||'export')+'.xlsx');
     };
     return 'local';
   }
 
   function openRows(rows, title, fileBase){
-    // נסה להשתמש במודאל הגלובלי (אם יש שלבים אחרים)
     if (document.getElementById('biModal') && typeof window.exportXLSX==='function'){
-      const tHead = document.getElementById('biThead');
-      const tBody = document.getElementById('biTbody');
-      document.getElementById('biModalTitle').textContent = title;
-      document.getElementById('biModalTitle').dataset.filename = (fileBase||'export') + '.xlsx';
-      const headers = [...new Set(rows.flatMap(r=>Object.keys(r)))];
-      if (rows.length){
-        tHead.innerHTML = '<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
-        tBody.innerHTML = rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${r[h]??''}</td>`).join('')+'</tr>').join('');
-      } else {
-        tHead.innerHTML=''; tBody.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>';
-      }
+      const head=document.getElementById('biThead'), body=document.getElementById('biTbody');
+      document.getElementById('biModalTitle').textContent=title;
+      document.getElementById('biModalTitle').dataset.filename=(fileBase||'export')+'.xlsx';
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      if(rows.length){
+        head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
+        body.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${r[h]??''}</td>`).join('')+'</tr>').join('');
+      }else{ head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
       document.getElementById('biModal').classList.remove('hidden');
-      window.__BI_CURRENT_ROWS = rows;
+      window.__BI_CURRENT_ROWS=rows;
       return;
     }
-    // אחרת – להשתמש במודאל מקומי
+    // מקומי
     ensureLocalModal();
-    window.__S9_ROWS = rows;
-    $('s9Title').textContent = title;
-    $('s9Title').dataset.fname = fileBase||'export';
-    const head = $('s9Head'), body = $('s9Body');
-    if (rows.length){
-      const headers = [...new Set(rows.flatMap(r=>Object.keys(r)))];
-      head.innerHTML = '<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
-      body.innerHTML = rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${(r[h]??'')}</td>`).join('')+'</tr>').join('');
-    } else { head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
-    $('s9Modal').classList.remove('hidden');
+    window.__S9_ROWS=rows;
+    const head=$('s9LocalHead'), body=$('s9LocalBody');
+    $('s9LocalTitle').textContent=title; $('s9LocalTitle').dataset.fname=fileBase||'export';
+    if(rows.length){
+      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+      head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${h}</th>`).join('')+'</tr>';
+      body.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${r[h]??''}</td>`).join('')+'</tr>').join('');
+    }else{ head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
+    $('s9LocalModal').classList.remove('hidden');
   }
 
-  /* ---------- compute & bind ---------- */
-  function annotateRow(row){
-    const k = findCol(row, COLS.lastChange);
-    const dt = k ? dtFromCell(row[k]) : null;
-    if (!dt) return { ...row, __status:'unknown' };
-
-    const hours = Math.floor((Date.now() - dt.getTime())/HOUR);
-    const status = hours > 72 ? 'over' : 'ok';
-    return { ...row, 'שינוי אחרון (IZ)': fmt(dt), 'שעות מאז שינוי': hours, __status: status };
+  // בניית שורות לתצוגה עם סדר עמודות "כמו בתמונה" ככל שקיים בקובץ
+  function shapeForTable(rows){
+    if(!rows.length) return rows;
+    const order = [
+      findCol(rows[0],COLS.caseNo),
+      findCol(rows[0],COLS.name),
+      findCol(rows[0],COLS.status),
+      findCol(rows[0],COLS.tracking),
+      findCol(rows[0],COLS.prod),
+      findCol(rows[0],COLS.subj),
+      findCol(rows[0],COLS.prob),
+      findCol(rows[0],COLS.opened),
+      findCol(rows[0],COLS.lastChange),
+      findCol(rows[0],COLS.dept),
+      'שעת/תאריך פתיחה (IZ)','תאריך שינוי אחרון (IZ)','שעות מאז שינוי'
+    ].filter(Boolean);
+    return rows.map(r=>{
+      const obj={}; order.forEach(k=>{ if(k in r) obj[k]=r[k]; });
+      return obj;
+    });
   }
 
-  function scopeDept(rows){
-    const d = activeDept();
-    if (d === 'כללי') return rows;
-    const dk = findCol(rows[0], COLS.dept);
-    return dk ? rows.filter(r => String(r[dk]??'').trim() === d) : rows;
-  }
-
-  function computeStale(){
+  // חישוב + קשירה לקליקים
+  function compute(){
     const base = getDataset().filter(isOpenRow);
-    if (!base.length) return;
-    const allAnn = base.map(annotateRow).filter(r => r.__status!=='unknown');
+    if(!base.length) return;
+
+    const ann = base.map(enrichRow).filter(r=>r.__s9!=='unknown');
     const dept = activeDept();
-    $('deptTitleStale').textContent = `מחלקה: ${dept}`;
-    const dAnn = scopeDept(allAnn);
+    $('s9DeptTitle').textContent = `מחלקה: ${dept}`;
+    const dAnn = byDept(ann);
 
-    const allOk   = allAnn.filter(r=>r.__status==='ok');
-    const allOver = allAnn.filter(r=>r.__status==='over');
-    const dOk     = dAnn.filter(r=>r.__status==='ok');
-    const dOver   = dAnn.filter(r=>r.__status==='over');
+    const allOk   = ann.filter(r=>r.__s9==='ok');
+    const allOver = ann.filter(r=>r.__s9==='over');
+    const dOk     = dAnn.filter(r=>r.__s9==='ok');
+    const dOver   = dAnn.filter(r=>r.__s9==='over');
 
-    const pct = (a,t)=> t? `${Math.round(a*100/t)}%` : '—';
-    const bind = (numEl, pctEl, rows, title, fileBase, total)=>{
+    const pct=(a,t)=> t? `${Math.round(a*100/t)}%` : '—';
+    const bind=(numEl,pctEl,rows,title,fileBase,total)=>{
       numEl.textContent = rows.length.toLocaleString('he-IL');
-      pctEl.textContent = pct(rows.length, total);
+      pctEl.textContent = pct(rows.length,total);
       numEl.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
-      numEl.onclick = ()=> openRows(rows, title, fileBase);
+      numEl.onclick = ()=> openRows( shapeForTable(rows), title, fileBase );
     };
 
-    bind($('kpiStaleAllOk'),   $('kpiStaleAllOkPct'),   allOk,   'עומד בזמנים (≤72ש) — כל המחלקות', 'stale_all_ok', allAnn.length);
-    bind($('kpiStaleAllOver'), $('kpiStaleAllOverPct'), allOver, 'חריג (>72ש) — כל המחלקות',        'stale_all_over', allAnn.length);
-    bind($('kpiStaleDeptOk'),  $('kpiStaleDeptOkPct'),  dOk,     `עומד בזמנים (≤72ש) — ${dept}`,     'stale_dept_ok', dAnn.length);
-    bind($('kpiStaleDeptOver'),$('kpiStaleDeptOverPct'),dOver,   `חריג (>72ש) — ${dept}`,             'stale_dept_over', dAnn.length);
+    bind($('s9AllOkNum'),   $('s9AllOkPct'),   allOk,   'עומד בזמנים (≤96ש) — כל המחלקות', 's9_all_ok', ann.length);
+    bind($('s9AllOverNum'), $('s9AllOverPct'), allOver, 'חריג (>96ש) — כל המחלקות',        's9_all_over', ann.length);
+    bind($('s9DeptOkNum'),  $('s9DeptOkPct'),  dOk,     `עומד בזמנים (≤96ש) — ${dept}`,     's9_dept_ok', dAnn.length);
+    bind($('s9DeptOverNum'),$('s9DeptOverPct'),dOver,   `חריג (>96ש) — ${dept}`,             's9_dept_over', dAnn.length);
   }
 
-  /* ---------- wire up ---------- */
+  // להריץ אחרי טעינת קובץ/החלפת טאב
   if (typeof window.updateSuccessUI === 'function'){
     const prev = window.updateSuccessUI;
-    window.updateSuccessUI = function(){
-      const r = prev.apply(this, arguments);
-      Promise.resolve(r).finally(computeStale);
-    };
+    window.updateSuccessUI = function(){ const r=prev.apply(this,arguments); Promise.resolve(r).finally(compute); };
   }
-  window.addEventListener('bi:dept-change', computeStale);
-  if (getDataset().length) computeStale();
+  window.addEventListener('bi:dept-change', compute);
+  if (getDataset().length) compute();
 })();
 </script>
     <!-- === STEP 10: Aging Buckets — >3M & >6M (by "שעת/תאריך פתיחה") === -->
