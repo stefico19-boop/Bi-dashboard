@@ -3803,4 +3803,187 @@ function renderInsights(){
 
 })();
 </script>
+  <script>
+/* ===========================================================
+   BI – Universal Click→Table + XLSX Export Patch
+   יצירת מודאל טבלאי, יצוא XLSX, וקישור אוטומטי ל-KPI-ים נפוצים
+   =========================================================== */
+(function(){
+  // ---------- Utilities / Dataset ----------
+  const DAY = 24*60*60*1000, TZ='Asia/Jerusalem';
+  const $ = (id)=>document.getElementById(id);
+  function getDataset(){ return Array.isArray(window.__dataset)? window.__dataset : []; }
+
+  // יש פרויקטים אצלך שחישובי “פתוחות” / “SLA” וכו' כבר קיימים.
+  // הפאץ' משתמש בפונקציות אם קיימות, או יוצר מינימום חלופות בטוחות.
+
+  // התאמות עמודות רכות
+  const HEB=/[\u0591-\u05C7]/g;
+  const norm=s=>String(s||'').replace(HEB,'').replace(/\s+/g,'').toLowerCase();
+  function findCol(row, candidates){
+    if (!row) return null;
+    for (const c of candidates) if (c in row) return c;
+    const want=candidates.map(norm);
+    for (const k in row) if (want.includes(norm(k))) return k;
+    return null;
+  }
+
+  // סטטוס פתוחה
+  const STATUS_COLS = ['סטאטוס פניה','סטאטוס','סטטוס פניה','Status','status'];
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  function isOpenRow(r){
+    const k=findCol(r,STATUS_COLS); if(!k) return true;
+    const v=String(r[k]??'').trim(); return !CLOSED.some(c=>v===c||v.includes(c));
+  }
+
+  // תאריך פתיחה (תאריך בלבד)
+  const OPENED_COLS = ['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'];
+  function excelToDate(n){ const epoch=new Date(Date.UTC(1899,11,30)); return new Date(epoch.getTime()+n*DAY); }
+  function toPartsYMD(d){
+    const p=new Intl.DateTimeFormat('he-IL',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
+    const m=Object.fromEntries(p.map(x=>[x.type,x.value])); return `${m.year}-${m.month}-${m.day}`;
+  }
+  function normalizeDateOnly(val){
+    if (val==null||val==='') return null;
+    if (typeof val==='number') return toPartsYMD(excelToDate(val));
+    const d=new Date(val); if (!isNaN(d)) return toPartsYMD(d);
+    const m=String(val).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+    if (m){ let[_,dd,mm,yy]=m; if(yy.length===2) yy='20'+yy;
+      return `${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`; }
+    return null;
+  }
+  function todayKey(){ return toPartsYMD(new Date()); }
+  function yesterdayKey(){
+    const t = new Date();
+    return toPartsYMD(new Date(t.getTime()-DAY));
+  }
+
+  // ---------- Modal + Export ----------
+  function ensureModal(){
+    if ($('biModal')) return;
+    const html = `
+      <div id="biModal" class="fixed inset-0 z-[2000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div class="text-lg font-bold" id="biModalTitle">נתונים</div>
+            <button id="biExportBtn" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא XLSX</button>
+            <button id="biCloseBtn" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
+          </div>
+          <div class="p-4 overflow-auto" style="max-height:70vh">
+            <table id="biTable" class="w-full text-sm border-separate border-spacing-0">
+              <thead id="biThead"></thead><tbody id="biTbody"></tbody>
+            </table>
+            <div id="biEmpty" class="text-ink-200/70 text-sm p-4 hidden">אין נתונים להצגה.</div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    $('biCloseBtn').onclick = ()=>$('biModal').classList.add('hidden');
+    $('biModal').addEventListener('click',e=>{ if(e.target.id==='biModal') $('biModal').classList.add('hidden'); });
+    $('biExportBtn').onclick = ()=> exportXLSX(window.__BI_CURRENT_ROWS||[], ($('biModalTitle').dataset.filename||'export')+'.xlsx');
+  }
+  function escapeHTML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function renderTable(rows){
+    ensureModal();
+    const tHead=$('biThead'), tBody=$('biTbody'), empty=$('biEmpty');
+    window.__BI_CURRENT_ROWS = rows||[];
+    if (!rows || !rows.length){ tHead.innerHTML=''; tBody.innerHTML=''; empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+    tHead.innerHTML = '<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHTML(h)}</th>`).join('')+'</tr>';
+    tBody.innerHTML = rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHTML(r[h]??'')}</td>`).join('')+'</tr>').join('');
+  }
+  function openRowsModal(rows, title, fileBase){
+    ensureModal();
+    $('biModalTitle').textContent = title||'נתונים';
+    $('biModalTitle').dataset.filename = (fileBase||'export')+'.xlsx';
+    renderTable(rows||[]);
+    $('biModal').classList.remove('hidden');
+  }
+  // יצוא – משתמש בספריית SheetJS אם קיימת
+  function exportXLSX(rows, filename){
+    try{
+      if (!window.XLSX) return alert('ספריית XLSX לא זמינה בדף.');
+      const ws = XLSX.utils.json_to_sheet(rows||[]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Data');
+      XLSX.writeFile(wb, filename||'export.xlsx');
+    }catch(e){ console.error(e); alert('שגיאה בייצוא XLSX'); }
+  }
+  window.exportXLSX = window.exportXLSX || exportXLSX; // חשיפה גלובלית
+
+  // ---------- Rows providers (מה לפתוח לכל KPI) ----------
+  // API לרישום: BI.register({ id, title, file, getRows })
+  const REG = [];
+
+  function safeGet(fn){ try{ return fn(); }catch(e){ console.warn('BI getRows error', e); return []; } }
+
+  // ברירות מחדל (אם יש אלמנטים כאלו בעמוד – נקשר אליהם אוטומטית)
+  REG.push(
+    { id:'kpiOpenTotal',       title:'כל הפניות הפתוחות', file:'open_total',
+      getRows:()=> getDataset().filter(isOpenRow) },
+    { id:'kpiOpenedToday',     title:'נפתחו היום', file:'opened_today',
+      getRows:()=>{
+        const rows=getDataset(); if(!rows.length) return [];
+        const col=findCol(rows[0],OPENED_COLS); if(!col) return [];
+        const key=todayKey();
+        return rows.filter(r=>isOpenRow(r)&&normalizeDateOnly(r[col])===key);
+      }},
+    { id:'kpiOpenedYesterday', title:'נפתחו אתמול', file:'opened_yesterday',
+      getRows:()=>{
+        const rows=getDataset(); if(!rows.length) return [];
+        const col=findCol(rows[0],OPENED_COLS); if(!col) return [];
+        const key=yesterdayKey();
+        return rows.filter(r=>isOpenRow(r)&&normalizeDateOnly(r[col])===key);
+      }}
+  );
+
+  // אם כבר קיימות אצלך פונקציות SLA/אחרות – נשתמש בהן
+  if (typeof window.rowsSLAStatus==='function'){
+    REG.push(
+      { id:'kpiSLAOkVal',   title:'בזמן SLA',  file:'sla_ok',   getRows:()=>window.rowsSLAStatus('בזמן')   },
+      { id:'kpiSLAOverVal', title:'חריגה SLA', file:'sla_over', getRows:()=>window.rowsSLAStatus('חריגה') }
+    );
+  }
+
+  // ---------- Binding ----------
+  function beautifyClickable(el){
+    el.classList.add('cursor-pointer','underline','underline-offset-4','decoration-white/30');
+    el.title = el.title || 'לחיצה תפתח טבלה עם הנתונים';
+  }
+  function bindOne({id,title,file,getRows}){
+    const el = $(id); if (!el || el.dataset.biBound) return;
+    beautifyClickable(el);
+    el.addEventListener('click', ()=>{
+      const rows = safeGet(getRows)||[];
+      openRowsModal(rows, title, file);
+    });
+    el.dataset.biBound=1;
+  }
+  function bindAll(){ REG.forEach(bindOne); }
+
+  // נריץ עכשיו וגם בכל שינוי DOM (כדי לתפוס תוכן שמתווסף מאוחר יותר)
+  bindAll();
+  const mo=new MutationObserver(()=>bindAll());
+  mo.observe(document.documentElement,{childList:true,subtree:true});
+
+  // ---------- API לחשיפת רישום קל (לשלבים/מספרים משלך) ----------
+  window.BI = window.BI || {};
+  window.BI.register = function(def){
+    // def: { id, title, file, getRows() }
+    if (!def || !def.id || !def.getRows) return;
+    REG.push(def);
+    bindOne(def);
+  };
+
+  // ---------- דוגמאות שימוש (לא חובה) ----------
+  // אפשר למחוק/להשאיר – רק להמחשה:
+  // BI.register({
+  //   id:'kpiOver72All', title:'חריג 72 שעות – כלל המחלקות', file:'over_72h',
+  //   getRows:()=> (window.getOver72Rows ? window.getOver72Rows() : [])
+  // });
+
+})();
+  </script>
 </body>
