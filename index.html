@@ -3998,17 +3998,18 @@ function renderInsights(){
 
 })();
         </script>
-  <!-- Change-Tracking 72h: open table first, then export (XLSX/CSV fallback) -->
+<!-- === Change Tracking (72h) — Table first, then Export (works standalone) === -->
 <script>
 (function(){
-  const DAY=24*60*60*1000;
+  // ---------- Utils ----------
+  const DAY = 24*60*60*1000;
   function excelToDate(n){ const e=new Date(Date.UTC(1899,11,30)); return new Date(e.getTime()+n*DAY); }
   function parseDate(v){
     if(v==null||v==='') return null;
     if(typeof v==='number') return excelToDate(v);
     const d=new Date(v); if(!isNaN(d)) return d;
     const m=String(v).match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
-    if(m){let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy;
+    if(m){ let[_,dd,mm,yy,HH='00',MM='00']=m; if(yy.length===2) yy='20'+yy;
       const s=`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${HH.padStart(2,'0')}:${MM}:00`;
       const d2=new Date(s); if(!isNaN(d2)) return d2;
     }
@@ -4017,12 +4018,13 @@ function renderInsights(){
   const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
   function findCol(row0, names){
     if(!row0) return null;
-    const headers=Object.keys(row0);
-    for(const h of headers){ if(names.some(n=>norm(h)===norm(n))) return h; }
-    // ניסיונות גנריים
-    for(const h of headers){ const n=norm(h);
-      if(n.includes('שינוי')&&n.includes('תאריך')) return h;
+    const hs=Object.keys(row0);
+    for(const h of hs){ if(names.some(n=>norm(h)===norm(n))) return h; }
+    // נסיונות כלליים
+    for(const h of hs){
+      const n=norm(h);
       if(n.includes('עדכון')&&n.includes('אחרון')) return h;
+      if(n.includes('שינוי')&&n.includes('תאריך')) return h;
       if(n.includes('last')&&n.includes('update')) return h;
     }
     return null;
@@ -4030,66 +4032,59 @@ function renderInsights(){
   const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
   function isOpen(r,statusCol){ if(!statusCol) return true; const v=String(r[statusCol]??''); return !CLOSED.some(w=>v===w||v.includes(w)); }
 
-  // ====== Modal renderer (מעדיף את המודאל הכללי אם קיים) ======
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
 
-  function openRowsTable(rows, title, filenameBase){
-    // אם יש מודאל BI כללי – נשתמש בו
-    const bi = document.getElementById('biModal');
-    if (bi && document.getElementById('biThead') && document.getElementById('biTbody')){
-      const tHead=document.getElementById('biThead'), tBody=document.getElementById('biTbody');
-      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
-      document.getElementById('biModalTitle').textContent = title||'נתונים';
-      document.getElementById('biModalTitle').dataset.filename = (filenameBase||'export')+'.xlsx';
-      if (rows.length){
-        tHead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
-        tBody.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
-      } else {
-        tHead.innerHTML=''; tBody.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>';
-      }
-      // נשמור שורות נוכחיות לייצוא
-      window.__BI_CURRENT_ROWS = rows;
-      bi.classList.remove('hidden');
-      return;
-    }
-    // מודאל קטן מקומי
-    let host=document.getElementById('chg72RowsModal');
-    if(!host){
-      document.body.insertAdjacentHTML('beforeend', `
-        <div id="chg72RowsModal" class="fixed inset-0 z-[1700] hidden">
-          <div class="absolute inset-0 bg-black/60"></div>
-          <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-2xl bg-[#0b1220] border border-white/10">
-            <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
-              <div id="chg72RowsTitle" class="font-bold">נתונים</div>
-              <button id="chg72RowsExport" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
-              <button id="chg72RowsClose" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
-            </div>
-            <div class="p-3 overflow-auto" style="max-height:70vh">
-              <table class="w-full text-sm border-separate border-spacing-0">
-                <thead id="chg72RowsHead"></thead><tbody id="chg72RowsBody"></tbody>
-              </table>
-            </div>
+  // ---------- Our modal (independent; לא תלוי במודאלים אחרים) ----------
+  function ensureModal(){
+    if(document.getElementById('ct72Modal')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="ct72Modal" class="fixed inset-0 z-[2000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-8 max-w-6xl w-[96%] rounded-3xl bg-[#0b1220] border border-white/10 text-white">
+          <div class="flex items-center gap-3 px-4 py-3 border-b border-white/10">
+            <div id="ct72Title" class="font-bold text-lg">נתונים</div>
+            <input id="ct72Search" placeholder="חיפוש..." class="ms-4 flex-1 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm" />
+            <button id="ct72Export" class="ms-auto px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="ct72Close" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
           </div>
-        </div>`);
-      host=document.getElementById('chg72RowsModal');
-      document.getElementById('chg72RowsClose').onclick=()=>host.classList.add('hidden');
-      document.getElementById('chg72RowsExport').onclick=()=>exportAny(window.__CHG72_LAST_ROWS||[], (window.__CHG72_LAST_FN||'export')+'.xlsx');
-    }
-    const head=document.getElementById('chg72RowsHead'), body=document.getElementById('chg72RowsBody');
-    document.getElementById('chg72RowsTitle').textContent = title||'נתונים';
-    window.__CHG72_LAST_ROWS = rows; window.__CHG72_LAST_FN = filenameBase||'export';
-    if (rows.length){
-      const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
-      head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right">${escapeHtml(h)}</th>`).join('')+'</tr>';
-      body.innerHTML=rows.map(r=>'<tr>'+headers.map(h=>`<td class="px-3 py-2">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
-    } else { head.innerHTML=''; body.innerHTML='<tr><td class="px-3 py-2 text-sm text-ink-200/70">אין נתונים</td></tr>'; }
-    document.getElementById('chg72RowsModal').classList.remove('hidden');
+          <div class="p-3 overflow-auto" style="max-height:70vh">
+            <table class="w-full text-sm border-separate border-spacing-0">
+              <thead id="ct72Head"></thead>
+              <tbody id="ct72Body"></tbody>
+            </table>
+            <div id="ct72Empty" class="p-4 text-ink-200/70 hidden">אין נתונים להצגה.</div>
+          </div>
+        </div>
+      </div>`);
+    document.getElementById('ct72Close').onclick=()=>document.getElementById('ct72Modal').classList.add('hidden');
+    document.getElementById('ct72Modal').addEventListener('click',e=>{ if(e.target.id==='ct72Modal') e.currentTarget.classList.add('hidden'); });
+    document.getElementById('ct72Search').addEventListener('input', ()=>filterTable());
+    document.getElementById('ct72Export').onclick=()=>exportAny(window.__CT72_ROWS||[], (window.__CT72_FN||'export')+'.xlsx');
   }
-
-  // ייצוא (XLSX אם יש SheetJS; אחרת CSV)
+  function renderTable(rows, title, fnBase){
+    ensureModal();
+    window.__CT72_ROWS = rows;
+    window.__CT72_FN   = fnBase||'export';
+    document.getElementById('ct72Title').textContent = title||'נתונים';
+    const head=document.getElementById('ct72Head'), body=document.getElementById('ct72Body'), empty=document.getElementById('ct72Empty');
+    if(!rows.length){ head.innerHTML=''; body.innerHTML=''; empty.classList.remove('hidden'); document.getElementById('ct72Modal').classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+    const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+    head.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right border-b border-white/10">${escapeHtml(h)}</th>`).join('')+'</tr>';
+    body.innerHTML=rows.map(r=>`<tr class="hover:bg-white/5">${headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${escapeHtml(r[h]??'')}</td>`).join('')}</tr>`).join('');
+    document.getElementById('ct72Modal').classList.remove('hidden');
+  }
+  function filterTable(){
+    const q=String(document.getElementById('ct72Search').value||'').toLowerCase();
+    const body=document.getElementById('ct72Body');
+    [...body.rows].forEach(tr=>{
+      const show = tr.textContent.toLowerCase().includes(q);
+      tr.style.display = show ? '' : 'none';
+    });
+  }
   function exportAny(rows, filename){
-    if (window.XLSX){
+    if(window.XLSX){
       const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb, filename||'export.xlsx');
     }else{
@@ -4102,6 +4097,47 @@ function renderInsights(){
     }
   }
 
+  // ---------- UI Block (adds itself once) ----------
+  function ensureBlock(){
+    if(document.getElementById('ct72Block')) return;
+    const host = document.querySelector('main') || document.body;
+    host.insertAdjacentHTML('beforeend', `
+      <section id="ct72Block" class="max-w-6xl mx-auto px-4 mt-6">
+        <div class="rounded-3xl bg-white/5 border border-white/10 backdrop-blur-lg p-6 text-white">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="text-sm font-semibold text-ink-200/80">מעקב שינוי אחרון — 72 שעות</span>
+            <span class="text-[11px] px-2 py-1 rounded-full bg-white/10 border border-white/10">טבלה → ייצוא</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <button id="ctBtnBreach" class="rounded-2xl bg-rose-600/25 border border-rose-400/40 p-4 text-left hover:bg-rose-600/35">
+              <div class="text-xs">חריגים (מעל 72ש')</div>
+              <div id="ctCountBreach" class="text-2xl font-bold mt-1">—</div>
+            </button>
+            <button id="ctBtnOk" class="rounded-2xl bg-emerald-600/25 border border-emerald-400/40 p-4 text-left hover:bg-emerald-600/35">
+              <div class="text-xs">עומד בזמנים (עד 72ש')</div>
+              <div id="ctCountOk" class="text-2xl font-bold mt-1">—</div>
+            </button>
+            <button id="ctBtnNoDate" class="rounded-2xl bg-amber-600/25 border border-amber-400/40 p-4 text-left hover:bg-amber-600/35">
+              <div class="text-xs">חסרי "תאריך שינוי"</div>
+              <div id="ctCountNoDate" class="text-2xl font-bold mt-1">—</div>
+            </button>
+            <button id="ctBtnAll" class="rounded-2xl bg-white/10 border border-white/20 p-4 text-left hover:bg-white/15">
+              <div class="text-xs">כל הפניות (פתוחות)</div>
+              <div id="ctCountAll" class="text-2xl font-bold mt-1">—</div>
+            </button>
+          </div>
+          <div class="mt-3 text-[11px] text-ink-200/60">הבלוק מכבד את הטאב הפעיל של <b>מחלקה מטפלת</b> אם קיים.</div>
+        </div>
+      </section>
+    `);
+    // wire clicks (will be filled with lists after compute)
+    document.getElementById('ctBtnBreach').onclick = ()=>renderTable(window.__CT72?.breach||[], 'חריגים — 72 שעות+', 'chg72_breach');
+    document.getElementById('ctBtnOk').onclick     = ()=>renderTable(window.__CT72?.ok||[],     'עומדים בזמנים — עד 72 שעות', 'chg72_ok');
+    document.getElementById('ctBtnNoDate').onclick = ()=>renderTable(window.__CT72?.noDate||[], 'ללא תאריך שינוי אחרון', 'chg72_nodate');
+    document.getElementById('ctBtnAll').onclick    = ()=>renderTable(window.__CT72?.all||[],    'כל הפניות (פתוחות)', 'chg72_all');
+  }
+
+  // ---------- Dept scope ----------
   function activeDept(){
     const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
     const el=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
@@ -4112,47 +4148,47 @@ function renderInsights(){
     return rows.filter(r=>String(r[deptCol]??'').trim()===d);
   }
 
-  // ====== Logic: compute groups & wire buttons ======
-  function recomputeChg72(){
+  // ---------- Compute lists & update counters ----------
+  function recompute(){
+    ensureBlock();
     const rows = Array.isArray(window.__dataset)? window.__dataset : [];
-    if(!rows.length) return;
-
+    if(!rows.length){
+      ['ctCountBreach','ctCountOk','ctCountNoDate','ctCountAll'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent='—'; });
+      return;
+    }
     const r0 = rows[0];
-    const statusCol = findCol(r0, ['סטאטוס פניה','סטטוס פניה','סטטוס','Status']);
-    const deptCol   = findCol(r0, ['מחלקה מטפלת','מחלקה']);
-    const changeCol = findCol(r0, ['שעת/תאריך שינוי אחרון','תאריך שינוי אחרון','עדכון אחרון','Last Update']);
+    const statusCol = findCol(r0, ['סטאטוס פניה','סטטוס פניה','סטטוס','Status','status']);
+    const deptCol   = findCol(r0, ['מחלקה מטפלת','מחלקה','מחלקה מטפלת ']);
+    const changeCol = findCol(r0, ['שעת/תאריך שינוי אחרון','תאריך שינוי אחרון','עדכון אחרון','Last Update','תאריך שינוי']);
 
-    let scoped = scopeByDept(rows, deptCol).filter(r=>isOpen(r,statusCol));
+    const scopedOpen = scopeByDept(rows, deptCol).filter(r=>isOpen(r,statusCol));
     const now=Date.now(), LIM=72*60*60*1000;
 
-    const withTs = scoped.map(r=>{
-      const d = parseDate(r[changeCol]);
-      return {row:r, ts: d? d.getTime() : null};
+    const withTs = scopedOpen.map(r=>{
+      const d=parseDate(r[changeCol]);
+      return {row:r, ts:d?d.getTime():null};
     });
 
-    const breach = withTs.filter(x=>x.ts!=null && (now - x.ts) > LIM).map(x=>x.row);
-    const ok     = withTs.filter(x=>x.ts!=null && (now - x.ts) <= LIM).map(x=>x.row);
+    const breach = withTs.filter(x=>x.ts!=null && (now-x.ts)>LIM).map(x=>x.row);
+    const ok     = withTs.filter(x=>x.ts!=null && (now-x.ts)<=LIM).map(x=>x.row);
     const noDate = withTs.filter(x=>x.ts==null).map(x=>x.row);
 
-    window.__CHG72 = {breach, ok, noDate, all: scoped};
+    window.__CT72 = {breach, ok, noDate, all: scopedOpen};
 
-    // חיבור כפתורים לפתיחת טבלה:
-    const wireOpen = (selector, list, title, fnBase)=>{
-      document.querySelectorAll(selector).forEach(btn=>{
-        btn.onclick = ()=> openRowsTable(list, title, fnBase);
-      });
-    };
-    wireOpen('#chg72BtnBreach, [data-open="chg72:breach"]', breach, 'חריגים – שינוי אחרון מעל 72 שעות', 'chg72_breach');
-    wireOpen('#chg72BtnOk, [data-open="chg72:ok"]', ok, 'עומדים בזמנים – שינוי עד 72 שעות', 'chg72_ok');
-    wireOpen('#chg72BtnAll, [data-open="chg72:all"]', scoped, 'כל הפניות (מעקב שינוי אחרון)', 'chg72_all');
-    wireOpen('#chg72BtnNoDate, [data-open="chg72:nodate"]', noDate, 'ללא תאריך שינוי אחרון', 'chg72_nodate');
+    // counters
+    document.getElementById('ctCountBreach').textContent = breach.length.toLocaleString('he-IL');
+    document.getElementById('ctCountOk').textContent     = ok.length.toLocaleString('he-IL');
+    document.getElementById('ctCountNoDate').textContent = noDate.length.toLocaleString('he-IL');
+    document.getElementById('ctCountAll').textContent    = scopedOpen.length.toLocaleString('he-IL');
   }
 
-  // הפעלה ראשונית + האזנה
-  if (Array.isArray(window.__dataset) && window.__dataset.length) recomputeChg72();
-  document.addEventListener('bi:data-loaded', recomputeChg72);
+  // ---------- Boot & listeners ----------
+  // כשהנתונים נטענים (מהעלאת XLSX) נחשב:
+  if (Array.isArray(window.__dataset) && window.__dataset.length) { ensureBlock(); recompute(); }
+  document.addEventListener('bi:data-loaded', ()=>{ ensureBlock(); recompute(); });
   const tabs=document.getElementById('deptTabs');
-  if (tabs){ tabs.addEventListener('click', ()=>setTimeout(recomputeChg72, 50)); }
+  if(tabs){ tabs.addEventListener('click', ()=>setTimeout(recompute, 60)); }
+
 })();
 </script>
 </body>
