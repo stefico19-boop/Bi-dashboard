@@ -3880,4 +3880,82 @@ function renderInsights(){
 
 })();
 </script>
+  <script>
+/* === XLSX Export — Hard Fix (works for all steps/modals) === */
+(function(){
+  // 1) Ensure XLSX is loaded
+  function ensureXLSX(){
+    return new Promise(res=>{
+      if (window.XLSX) return res();
+      const s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js';
+      s.onload=()=>res();
+      document.head.appendChild(s);
+    });
+  }
+
+  // 2) Build a safe filename
+  function fnameSuggestion(){
+    const t = (document.getElementById('biModalTitle')?.dataset?.filename || 'export.xlsx');
+    return t.endsWith('.xlsx') ? t : (t + '.xlsx');
+  }
+
+  // 3) If shaped rows happen to be empty objects, fall back to original rows (if provided)
+  function normalizeRows(rows){
+    const hasKeys = rows && rows.length && Object.keys(rows[0]||{}).length;
+    if (hasKeys) return rows;
+    // try fallback
+    if (Array.isArray(window.__BI_ORIGINAL_ROWS) && window.__BI_ORIGINAL_ROWS.length){
+      return window.__BI_ORIGINAL_ROWS;
+    }
+    return rows; // as-is
+  }
+
+  // 4) Universal exporter
+  async function safeExport(rows, filename){
+    await ensureXLSX();
+    const data = normalizeRows(rows||window.__BI_CURRENT_ROWS||[]);
+    if (!data.length){ alert('אין נתונים לייצוא.'); return; }
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data');
+    XLSX.writeFile(wb, filename || fnameSuggestion());
+  }
+  window.safeExport = safeExport; // make global
+
+  // 5) Wire the global modal export button (whatever its id/text is)
+  function wireGlobalModal(){
+    const modal = document.getElementById('biModal');
+    if (!modal) return;
+    // try a few common ids/selectors
+    const btn = modal.querySelector('#biExportXLSX, #biExportBtn, #biExport, [data-export], button');
+    if (!btn) return;
+    // don’t double–bind
+    if (btn.__wired) return; btn.__wired = true;
+    btn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const name = document.getElementById('biModalTitle')?.dataset?.filename || 'export.xlsx';
+      safeExport(window.__BI_CURRENT_ROWS, name);
+    });
+  }
+
+  // 6) Re-wire on dataset load / when modal appears
+  document.addEventListener('bi:data-loaded', wireGlobalModal);
+  document.addEventListener('click', (e)=>{
+    if (e.target && (e.target.id==='biExportXLSX' || e.target.id==='biExportBtn' || e.target.dataset.export!==undefined)){
+      e.preventDefault(); wireGlobalModal();
+    }
+  });
+
+  // 7) Tiny helper for steps that open the global modal:
+  //    call this *once* when you open a table so export knows original rows too.
+  window.__attachRowsForExport = function(shapedRows, originalRows, filename){
+    window.__BI_CURRENT_ROWS = shapedRows || [];
+    window.__BI_ORIGINAL_ROWS = originalRows || shapedRows || [];
+    const t = document.getElementById('biModalTitle');
+    if (t && filename) t.dataset.filename = filename.endsWith('.xlsx')? filename : (filename + '.xlsx');
+    wireGlobalModal();
+  };
+})();
+</script>
 </body>
