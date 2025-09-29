@@ -3803,29 +3803,28 @@ function renderInsights(){
 
 })();
 </script>
-  <!-- === BI Universal Click→Table + Export (All Stages) === -->
+<!-- === BI Universal Click→Table + Export (v2 — aggressive delegation) === -->
 <script>
 (function(){
-  if (window.__BI_UNIVERSAL_CLICK__) return; window.__BI_UNIVERSAL_CLICK__=true;
+  if (window.__BI_CLICK_V2__) return; window.__BI_CLICK_V2__=true;
 
-  // ---------- Helpers ----------
+  // ---------- Utils ----------
   const DAY=24*60*60*1000, TZ='Asia/Jerusalem';
-  const CLOSED_WORDS=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  const CLOSED=['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
   const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/\s+/g,'').toLowerCase();
   const $=id=>document.getElementById(id);
+
   function dataset(){ return Array.isArray(window.__dataset)? window.__dataset : []; }
   function findCol(row, names){
     if(!row) return null;
-    for(const n of names) if (n in row) return n;
-    const target=names.map(norm);
-    for(const k in row) if (target.includes(norm(k))) return k;
+    for(const n of names) if(n in row) return n;
+    const t=names.map(norm); for(const k in row) if(t.includes(norm(k))) return k;
     return null;
   }
   function isOpenRow(r){
     const k=findCol(r,['סטאטוס פניה','סטטוס פניה','סטאטוס','Status','status']);
-    if(!k) return true;
-    const v=String(r[k]??'').trim();
-    return !CLOSED_WORDS.some(w=>v===w||v.includes(w));
+    if(!k) return true; const v=String(r[k]??'').trim();
+    return !CLOSED.some(w=>v===w||v.includes(w));
   }
   function excelToDate(n){ const e=new Date(Date.UTC(1899,11,30)); return new Date(e.getTime()+n*DAY); }
   function toYMD(d){
@@ -3840,81 +3839,75 @@ function renderInsights(){
     if(m){let[_,dd,mm,yy]=m; if(yy.length===2) yy='20'+yy; return `${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;}
     return null;
   }
-  function todayKey(){ return toYMD(new Date()); }
-  function yesterdayKey(){ return toYMD(new Date(Date.now()-DAY)); }
-  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-  function sanitize(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60); }
+  const todayKey = ()=>toYMD(new Date());
+  const yestKey  = ()=>toYMD(new Date(Date.now()-DAY));
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const sanitize = s => String(s||'').replace(/[\\/:*?"<>|]+/g,'_').slice(0,60);
 
-  // ---------- Modal + Export (reuse if exists, else create) ----------
+  // ---------- Modal + Export ----------
   function ensureModal(){
-    if ($('biModal') && $('biThead') && $('biTbody') && $('biExportBtn') && $('biModalTitle')) return 'bi';
-    if (!$('biModal')) {
-      document.body.insertAdjacentHTML('beforeend', `
-        <div id="biModal" class="fixed inset-0 z-[2000] hidden">
-          <div class="absolute inset-0 bg-black/60"></div>
-          <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
-            <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-              <div class="text-lg font-bold" id="biModalTitle">נתונים</div>
-              <input id="biSearch" placeholder="חיפוש..." class="ms-3 flex-1 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm"/>
-              <button id="biExportBtn" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
-              <button id="biCloseBtn" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
-            </div>
-            <div class="p-4 overflow-auto" style="max-height:70vh">
-              <table id="biTable" class="w-full text-sm border-separate border-spacing-0">
-                <thead id="biThead"></thead><tbody id="biTbody"></tbody>
-              </table>
-              <div id="biEmpty" class="text-ink-200/70 text-sm p-4 hidden">אין נתונים להצגה.</div>
-            </div>
+    if ($('biModal') && $('biThead') && $('biTbody') && $('biExportBtn') && $('biModalTitle')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="biModal" class="fixed inset-0 z-[3000] hidden">
+        <div class="absolute inset-0 bg-black/60"></div>
+        <div class="relative mx-auto my-10 max-w-6xl w-[95%] rounded-3xl bg-[#0b1220] border border-white/10">
+          <div class="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+            <div id="biModalTitle" class="text-lg font-bold">נתונים</div>
+            <input id="biSearch" placeholder="חיפוש..." class="ms-3 flex-1 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm"/>
+            <button id="biExportBtn" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">ייצוא</button>
+            <button id="biCloseBtn" class="px-3 py-1.5 text-sm rounded-full bg-white/10 border border-white/20">סגירה</button>
           </div>
-        </div>`);
-      $('biCloseBtn').onclick=()=>$('biModal').classList.add('hidden');
-      $('biModal').addEventListener('click',e=>{ if(e.target.id==='biModal') $('biModal').classList.add('hidden'); });
-      $('biExportBtn').onclick=()=>exportXLSX(window.__BI_CURRENT_ROWS||[], ($('biModalTitle').dataset.filename||'export')+'.xlsx');
-      $('biSearch').addEventListener('input',()=>{
-        const q=String($('biSearch').value||'').toLowerCase();
-        [...$('biTbody').rows].forEach(tr=>{ tr.style.display = tr.textContent.toLowerCase().includes(q)? '' : 'none'; });
-      });
-    }
-    return 'bi';
+          <div class="p-4 overflow-auto" style="max-height:70vh">
+            <table class="w-full text-sm border-separate border-spacing-0">
+              <thead id="biThead"></thead><tbody id="biTbody"></tbody>
+            </table>
+            <div id="biEmpty" class="text-ink-200/70 text-sm p-4 hidden">אין נתונים להצגה.</div>
+          </div>
+        </div>
+      </div>`);
+    $('biCloseBtn').onclick=()=>$('biModal').classList.add('hidden');
+    $('biModal').addEventListener('click',e=>{ if(e.target.id==='biModal') $('biModal').classList.add('hidden'); });
+    $('biExportBtn').onclick=()=>exportXLSX(window.__BI_ROWS||[], ($('biModalTitle').dataset.filename||'export')+'.xlsx');
+    $('biSearch').addEventListener('input',()=>{
+      const q=String($('biSearch').value||'').toLowerCase();
+      [...$('biTbody').rows].forEach(tr=>{ tr.style.display = tr.textContent.toLowerCase().includes(q)? '' : 'none'; });
+    });
   }
   function renderTable(rows){
     ensureModal();
-    window.__BI_CURRENT_ROWS = rows||[];
-    const tHead=$('biThead'), tBody=$('biTbody'), empty=$('biEmpty');
-    if (!rows || !rows.length){ tHead.innerHTML=''; tBody.innerHTML=''; empty.classList.remove('hidden'); return; }
+    window.__BI_ROWS = rows||[];
+    const thead=$('biThead'), tbody=$('biTbody'), empty=$('biEmpty');
+    if(!rows || !rows.length){ thead.innerHTML=''; tbody.innerHTML=''; empty.classList.remove('hidden'); return; }
     empty.classList.add('hidden');
     const headers=[...new Set(rows.flatMap(r=>Object.keys(r)))];
-    tHead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right border-b border-white/10">${escapeHtml(h)}</th>`).join('')+'</tr>';
-    tBody.innerHTML=rows.map(r=>'<tr class="hover:bg-white/5">'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${escapeHtml(r[h]??'')}</td>`).join('')+'</tr>').join('');
+    thead.innerHTML='<tr>'+headers.map(h=>`<th class="sticky top-0 bg-[#0b1220] px-3 py-2 text-right border-b border-white/10">${esc(h)}</th>`).join('')+'</tr>';
+    tbody.innerHTML=rows.map(r=>'<tr class="hover:bg-white/5">'+headers.map(h=>`<td class="px-3 py-2 border-b border-white/5">${esc(r[h]??'')}</td>`).join('')+'</tr>').join('');
   }
-  function openRowsModal(rows,title,fileBase){
+  function openModal(rows, title, file){
     ensureModal();
-    $('biModalTitle').textContent=title||'נתונים';
-    $('biModalTitle').dataset.filename=(fileBase||'export')+'.xlsx';
+    $('biModalTitle').textContent = title||'נתונים';
+    $('biModalTitle').dataset.filename = (file||'export')+'.xlsx';
     renderTable(rows||[]);
     $('biModal').classList.remove('hidden');
   }
   function exportXLSX(rows, filename){
     try{
-      if (!window.XLSX){ alert('XLSX לא זמין — יוריד CSV'); return exportCSV(rows, filename); }
-      const ws=XLSX.utils.json_to_sheet(rows||[]);
-      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Data');
-      XLSX.writeFile(wb, filename||'export.xlsx');
-    }catch(e){ console.error(e); alert('שגיאת ייצוא XLSX'); }
+      if (!window.XLSX){ // CSV fallback
+        const hdr=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+        const escCSV=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+        const csv=[hdr.join(','),...rows.map(r=>hdr.map(h=>escCSV(r[h])).join(','))].join('\n');
+        const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+        a.download=(filename||'export')+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000); return;
+      }
+      const ws=XLSX.utils.json_to_sheet(rows||[]); const wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,ws,'Data'); XLSX.writeFile(wb, filename||'export.xlsx');
+    }catch(e){ console.error(e); alert('שגיאת ייצוא'); }
   }
-  function exportCSV(rows, filename){
-    const hdr=[...new Set(rows.flatMap(r=>Object.keys(r)))];
-    const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`;
-    const csv=[hdr.join(','),...rows.map(r=>hdr.map(h=>esc(r[h])).join(','))].join('\n');
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
-    a.download=(filename||'export')+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000);
-  }
-  window.exportXLSX = window.exportXLSX || exportXLSX; // חשיפה אם צריך
+  window.exportXLSX = window.exportXLSX || exportXLSX;
 
-  // ---------- Dept scope (מכבד טאבים אם קיימים) ----------
+  // ---------- Dept scope ----------
   function activeDept(){
-    const tabs=$('deptTabs'); if(!tabs) return 'כללי';
+    const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
     const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
     return (btn?.textContent||'כללי').trim();
   }
@@ -3924,39 +3917,30 @@ function renderInsights(){
     return rows.filter(r=>String(r[k]??'').trim()===d);
   }
 
-  // ---------- Precompute common sets ----------
+  // ---------- Compute Sets ----------
   function computeSets(){
-    const rows=dataset(); const sets={};
-    if(!rows.length) return sets;
-
-    const openedCol=findCol(rows[0],['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה']);
-    const scoped=scopeByDept(rows);
-
-    // בסיסיים: פתוחות / היום / אתמול
-    sets.open_total = scoped.filter(isOpenRow);
+    const all=dataset(); const sets={}; if(!all.length) return sets;
+    const openedCol=findCol(all[0],['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה']);
+    const updCol   =findCol(all[0],['שעת/תאריך שינוי אחרון','תאריך שינוי אחרון','עדכון אחרון','Last Update','תאריך שינוי']);
+    const rows=scopeByDept(all);
+    sets.open_total = rows.filter(isOpenRow);
     if (openedCol){
-      const t=todayKey(), y=yesterdayKey();
-      sets.opened_today     = scoped.filter(r=>isOpenRow(r)&&normalizeDateOnly(r[openedCol])===t);
-      sets.opened_yesterday = scoped.filter(r=>isOpenRow(r)&&normalizeDateOnly(r[openedCol])===y);
-    } else {
-      sets.opened_today=[]; sets.opened_yesterday=[];
-    }
+      sets.opened_today     = rows.filter(r=>isOpenRow(r) && normalizeDateOnly(r[openedCol])===todayKey());
+      sets.opened_yesterday = rows.filter(r=>isOpenRow(r) && normalizeDateOnly(r[openedCol])===yestKey());
+    } else { sets.opened_today=[]; sets.opened_yesterday=[]; }
 
-    // SLA (אם יש פונקציה קיימת אצלך)
+    // SLA אם קיימת פונקציה קיימת אצלך
     if (typeof window.rowsSLAStatus==='function'){
       sets.sla_ok   = window.rowsSLAStatus('בזמן');
       sets.sla_over = window.rowsSLAStatus('חריגה');
     }
 
-    // 72 שעות שינוי אחרון (אם קיימת עמודה מתאימה)
-    const changeCol = findCol(rows[0], ['שעת/תאריך שינוי אחרון','תאריך שינוי אחרון','עדכון אחרון','Last Update','תאריך שינוי']);
-    if (changeCol){
+    if (updCol){
       const now=Date.now(), LIM=72*60*60*1000;
-      const openScoped = scoped.filter(isOpenRow);
+      const openScoped=rows.filter(isOpenRow);
       const parsed=openScoped.map(r=>{
-        let val=r[changeCol]; let d=null;
-        if (typeof val==='number') d=excelToDate(val);
-        else { const x=new Date(val); if(!isNaN(x)) d=x; }
+        const v=r[updCol]; let d=null;
+        if(typeof v==='number') d=excelToDate(v); else { const x=new Date(v); if(!isNaN(x)) d=x; }
         return {row:r, ts:d?d.getTime():null};
       });
       sets.chg72_breach = parsed.filter(x=>x.ts!=null && (now-x.ts)>LIM).map(x=>x.row);
@@ -3964,73 +3948,79 @@ function renderInsights(){
       sets.chg72_nodate = parsed.filter(x=>x.ts==null).map(x=>x.row);
       sets.chg72_all    = openScoped;
     }
-
-    // שמור גלובלי לשימוש data-open-set
-    window.__BI_SETS = sets;
-    return sets;
+    window.__BI_SETS = sets; return sets;
   }
 
-  // ---------- Auto-bind known IDs + data-open-set ----------
-  const MAP = {
-    // KPI בסיסיים
-    '#kpiOpenTotal'      : ['open_total','כל הפניות הפתוחות','open_total'],
-    '#kpiOpenedToday'    : ['opened_today','נפתחו היום','opened_today'],
-    '#kpiOpenedYesterday': ['opened_yesterday','נפתחו אתמול','opened_yesterday'],
-    // SLA (אם יש)
-    '#kpiSLAOkVal'       : ['sla_ok','בזמן SLA','sla_ok'],
-    '#kpiSLAOverVal'     : ['sla_over','חריגה SLA','sla_over'],
-    // שינוי אחרון 72 שעות (הפאץ' שלי)
-    '#ctCountBreach,#ctBtnBreach' : ['chg72_breach','חריגים — שינוי אחרון 72h+','chg72_breach'],
-    '#ctCountOk,#ctBtnOk'         : ['chg72_ok','עומדים בזמנים — עד 72h','chg72_ok'],
-    '#ctCountNoDate,#ctBtnNoDate' : ['chg72_nodate','ללא תאריך שינוי','chg72_nodate'],
-    '#ctCountAll,#ctBtnAll'       : ['chg72_all','כל הפניות (פתוחות)','chg72_all'],
-  };
-
-  function beautify(el){
-    el.classList.add('cursor-pointer'); // מינימום רמז
-    if (!el.title) el.title='לחיצה תפתח טבלה עם הנתונים';
-  }
-  function bindSelector(selector, setKey, title, file){
-    document.querySelectorAll(selector).forEach(el=>{
-      if (el.dataset.biBound) return;
-      beautify(el);
-      el.addEventListener('click', ()=>{
-        const sets=computeSets();
-        const rows=sets[setKey]||[];
-        openRowsModal(rows, title, file);
-      });
-      el.dataset.biBound=1;
-    });
+  // ---------- Heuristic map from element id/text -> set key ----------
+  function guessKeyFromId(id=''){
+    id=id.toLowerCase();
+    if (id.includes('openedtoday')) return 'opened_today';
+    if (id.includes('openedyesterday')) return 'opened_yesterday';
+    if (id.includes('opentotal') || id.includes('allopen') || id.includes('kpio')) return 'open_total';
+    if (id.includes('slaover')) return 'sla_over';
+    if (id.includes('slaok'))   return 'sla_ok';
+    if (id.includes('breach'))  return 'chg72_breach';
+    if (id.endsWith('ok') || id.includes('okval')) return 'chg72_ok';
+    if (id.includes('nodate'))  return 'chg72_nodate';
+    if (id.endsWith('all') || id.includes('countall')) return 'chg72_all';
+    return null;
   }
 
-  function bindAll(){
-    // 1) קשר אוטומטי לפי MAP
-    Object.entries(MAP).forEach(([sel,[key,title,file]])=>bindSelector(sel,key,title,file));
-    // 2) קשר כל אלמנט שמצהיר מפורשות על הסט
-    document.querySelectorAll('[data-open-set]').forEach(el=>{
-      if (el.dataset.biBound) return;
-      const key=el.getAttribute('data-open-set'); const title=el.getAttribute('data-title')||key; const file=el.getAttribute('data-file')||key;
-      beautify(el);
-      el.addEventListener('click', ()=>{
-        const sets=computeSets();
-        openRowsModal(sets[key]||[], title, file);
-      });
-      el.dataset.biBound=1;
-    });
+  // ---------- Global click delegation ----------
+  function handleOpenSet(key, el){
+    const sets=computeSets();
+    const rows=sets[key]||[];
+    const title = el?.getAttribute?.('data-title') || el?.title || el?.ariaLabel || el?.innerText?.trim() || key;
+    openModal(rows, title, key);
   }
 
-  // רוץ עכשיו, וגם על כל שינוי DOM / טעינת נתונים / שינוי טאב
-  bindAll(); computeSets();
-  const mo=new MutationObserver(()=>bindAll());
-  mo.observe(document.documentElement,{childList:true,subtree:true});
-  document.addEventListener('bi:data-loaded', ()=>{ computeSets(); bindAll(); });
-  const deptTabs=$('deptTabs'); if (deptTabs){ deptTabs.addEventListener('click', ()=>setTimeout(()=>{ computeSets(); },50)); }
+  // 1) data-open-set מפורש
+  document.addEventListener('click', (e)=>{
+    const target = e.target.closest('[data-open-set]');
+    if (!target) return;
+    e.preventDefault(); e.stopPropagation();
+    const key = target.getAttribute('data-open-set');
+    handleOpenSet(key, target);
+  }, true);
 
-  // ---------- Public mini-API (לא חובה, אבל שימושי) ----------
-  window.BI = window.BI || {};
-  window.BI.openSet = function(key, title, file){ const sets=computeSets(); openRowsModal(sets[key]||[], title||key, file||key); };
-  window.BI.registerSet = function(selector, key, title, file){ MAP[selector]=[key,title||key,file||key]; bindAll(); };
+  // 2) Heuristic: ids/classes נפוצים (kpi*, ctCount*, ctBtn*, …)
+  document.addEventListener('click', (e)=>{
+    const cand = e.target.closest('[id], .kpi, .count, .bi-open, .bi-count');
+    if (!cand) return;
 
+    // אם כבר הוגדר מפורש – עזוב לאזין כאן
+    if (cand.hasAttribute('data-open-set')) return;
+
+    // מזהים נפוצים
+    let key=null;
+    if (cand.id) key = guessKeyFromId(cand.id);
+    if (!key){
+      // נסה בשם class
+      const cls=(cand.className||'').toString().toLowerCase();
+      if (/(opened.?today)/.test(cls)) key='opened_today';
+      else if (/(opened.?yesterday)/.test(cls)) key='opened_yesterday';
+      else if (/(open.?total|all.?open)/.test(cls)) key='open_total';
+      else if (/sla.*over/.test(cls)) key='sla_over';
+      else if (/sla.*ok/.test(cls)) key='sla_ok';
+      else if (/breach/.test(cls)) key='chg72_breach';
+      else if (/\bok\b/.test(cls)) key='chg72_ok';
+      else if (/nodate/.test(cls)) key='chg72_nodate';
+      else if (/\ball\b/.test(cls)) key='chg72_all';
+    }
+    if (!key) return; // לא שלנו
+
+    // פתיחה
+    e.preventDefault(); e.stopPropagation();
+    cand.style.cursor='progress';
+    setTimeout(()=>{ cand.style.cursor='pointer'; },150);
+    handleOpenSet(key, cand);
+  }, true);
+
+  // ---------- Recompute on dataset / tab change ----------
+  computeSets();
+  document.addEventListener('bi:data-loaded', computeSets);
+  const tabs=document.getElementById('deptTabs');
+  if (tabs) tabs.addEventListener('click', ()=>setTimeout(computeSets,60));
 })();
 </script>
 </body>
