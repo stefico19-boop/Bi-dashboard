@@ -3803,4 +3803,199 @@ function renderInsights(){
 
 })();
 </script>
+  <!-- === PERFORMANCE PATCH: cache + batched renders (paste before </body>) === -->
+<script>
+(function(){
+  if (window.__BI_PERF_PATCH__) return; window.__BI_PERF_PATCH__=true;
+
+  // --------- Light utils ----------
+  const HEB=/[\u0591-\u05C7]/g, norm=s=>String(s||'').replace(HEB,'').replace(/[·•:;|/_\-()\[\]{}]/g,'').replace(/\s+/g,'').toLowerCase();
+  function findColumnFlexible(row0, exactList, keywordSets){
+    if(!row0) return null;
+    const headers=Object.keys(row0);
+    for(const h of headers){ if(exactList.includes(h)) return h; const n=norm(h); for(const ex of exactList){ if(n===norm(ex)) return h; } }
+    for(const h of headers){ const n=norm(h); if (keywordSets?.some(set=>set.every(k=>n.includes(norm(k))))) return h; }
+    return null;
+  }
+
+  // --------- Columns we touch a lot (one-time detect per dataset) ----------
+  const COLSPEC = {
+    dept:   { exact:['מחלקה מטפלת','מחלקה','מחלקה מטפלת '], kw:[['מחלקה','מטפלת'],['מחלקה']] },
+    status: { exact:['סטאטוס פניה','סטאטוס','סטטוס פניה','סטטוס מקרה','Status','status'], kw:[['סטטוס']] },
+    city:   { exact:['עיר','יישוב','יישוב/עיר','עיר/יישוב','ישוב','יישוב לקוח','עיר לקוח'], kw:[['עיר'],['יישוב']] },
+    unit:   { exact:['יחידת דואר: שם','שם יחידה','יחידה','שם יחידה מטפלת','שם-יחידה','יחידת דואר שם'], kw:[['יחידת','דואר','שם'],['שם','יחידה']] },
+    opened: { exact:['שעת/תאריך פתיחה ','שעת/תאריך פתיחה','תאריך/שעת פתיחה','תאריך פתיחה','opened_at','date_opened','פתיחה'], kw:[['פתיחה'],['תאריך']] },
+    source: { exact:['מקור פניה','מקור הפניה','ערוץ פניה','ערוץ','מקור','Channel','Source'], kw:[['מקור','פניה'],['ערוץ']] },
+  };
+
+  const CLOSED = ['סגור','סגורה','נסגר','נסגרה','closed','סיום','נסגר בבקרת איכות'];
+  function isOpenRow(r, statusCol){
+    if(!statusCol) return true;
+    const v = String(r[statusCol] ?? '').trim();
+    return !CLOSED.some(c=>v===c || v.includes(c));
+  }
+
+  // --------- Scheduler: coalesce many renders into one frame ----------
+  const queue = new Map(); // key -> fn
+  let rafId = null;
+  function schedule(key, fn){
+    queue.set(key, fn);
+    if (rafId==null) rafId = requestAnimationFrame(()=>{
+      rafId=null;
+      const jobs=[...queue.entries()];
+      queue.clear();
+      for (const [,run] of jobs) try{ run(); }catch(e){ console.error('BI perf job error', e); }
+    });
+  }
+
+  // expose helper so existing code can use it if needed
+  window.biScheduleRender = schedule;
+
+  // --------- Cache layer over __dataset (scoped by dept + openOnly) ----------
+  const Cache = {
+    version: 0,              // increases on file upload
+    cols: null,              // resolved column names
+    byKey: new Map(),        // `${dept}|${openOnly}` -> rows[]
+    // resolve columns once per dataset
+    resolveCols(rows){
+      const r0 = rows && rows[0] || {};
+      const cols = {};
+      for (const [k,spec] of Object.entries(COLSPEC)) cols[k] = findColumnFlexible(r0, spec.exact, spec.kw);
+      this.cols = cols;
+    },
+    keyFor(deptName, openOnly){
+      return `${deptName || 'כללי'}|${openOnly?1:0}|v${this.version}`;
+    },
+    getScopedRows(rowsAll, deptName, openOnly){
+      if (!Array.isArray(rowsAll) || !rowsAll.length) return [];
+      if (!this.cols) this.resolveCols(rowsAll);
+
+      // dept scope
+      let candidate = rowsAll;
+      const dk = this.cols.dept;
+      if (deptName && deptName !== 'כללי' && dk) {
+        candidate = candidate.filter(r => String(r[dk] ?? '').trim() === deptName);
+      }
+
+      const key = this.keyFor(deptName||'כללי', !!openOnly);
+      const hit = this.byKey.get(key);
+      if (hit) return hit;
+
+      const sk = this.cols.status;
+      const scoped = openOnly ? candidate.filter(r => isOpenRow(r, sk)) : candidate.slice(0);
+      this.byKey.set(key, scoped);
+      return scoped;
+    },
+    invalidate(){
+      this.version++;
+      this.byKey.clear();
+      this.cols = null;
+    }
+  };
+
+  // --------- Dept active helper (reads your tabs) ----------
+  function activeDept(){
+    const tabs=document.getElementById('deptTabs'); if(!tabs) return 'כללי';
+    const btn=[...tabs.querySelectorAll('button')].find(b=>b.className.includes('from-brand-600')||b.className.includes('bg-gradient-to-r'));
+    return (btn?.textContent||'כללי').trim();
+  }
+
+  // --------- Central “fast rows” accessor ----------
+  window.BI_FAST = {
+    getRows(openOnly=true){
+      const all = Array.isArray(window.__dataset) ? window.__dataset : [];
+      const dept = activeDept();
+      return Cache.getScopedRows(all, dept, openOnly);
+    },
+    getCols(){ return Cache.cols || {}; },
+  };
+
+  // --------- Speed up common UI interactions ----------
+  // 1) Dept tabs – batch rerenders
+  const deptTabs = document.getElementById('deptTabs');
+  if (deptTabs){
+    deptTabs.addEventListener('pointerdown', (e)=>{
+      if (e.target.tagName==='BUTTON') {
+        // תני ל־UI להחליף עיצוב ואז רנדר בפריים הבא (מהיר)
+        schedule('dept-switch', ()=>{
+          document.dispatchEvent(new CustomEvent('bi:perf-rerender'));
+        });
+      }
+    }, {passive:true});
+  }
+
+  // 2) Checkbox “open-only” (אם יש לך כזה במסכים שונים) – מאזין מאוחד
+  document.addEventListener('change', (e)=>{
+    const id = (e.target && e.target.id) || '';
+    if (id==='biOpenOnly' || id==='insOpenOnly' || id==='kpiOpenOnly'){
+      schedule('open-only', ()=>{
+        document.dispatchEvent(new CustomEvent('bi:perf-rerender'));
+      });
+    }
+  }, {passive:true});
+
+  // --------- Hook: on file load -> invalidate caches & ping renders ----------
+  function onDataReady(){
+    Cache.invalidate();
+    schedule('data-ready', ()=>{
+      // הודעה כללית לכל המודולים “תרעננו מהר”
+      document.dispatchEvent(new CustomEvent('bi:perf-rerender'));
+    });
+  }
+
+  // אם האפליקציה עוטפת updateSuccessUI – נעטוף גם אנחנו
+  if (typeof window.updateSuccessUI==='function' && !window.__BI_PERF_WRAP__){
+    const prev = window.updateSuccessUI;
+    window.updateSuccessUI = function(){
+      prev.apply(this, arguments);
+      onDataReady();
+    };
+    window.__BI_PERF_WRAP__ = true;
+  }
+  // וגם אירוע פרטי אם יש
+  document.addEventListener('bi:data-loaded', onDataReady);
+
+  // --------- OPTIONAL: make our heavy renderers use the scheduler ----------
+  // Stage 13–14 (אם קיים מהתיקון הקודם) – נאציל לו רענון מהיר
+  if (document.getElementById('biStep13_14')){
+    // נמצא את רענון הבלוק ונעטוף אותו אם קיים
+    const btn = document.getElementById('biRerender1314');
+    if (btn){
+      const fast = ()=>{ 
+        // נלחץ על הכפתור הקיים אבל באצווה כדי למנוע כמה קליקים רצופים
+        schedule('stage1314', ()=> btn.__run ? btn.__run() : btn.click());
+      };
+      // אם הכפתור כבר מפעיל render(), נרשום ממנו "runner" כדי להימנע מקליק מדומה
+      const oldOnClick = btn.onclick;
+      btn.onclick = function(ev){
+        if (ev !== true && typeof oldOnClick === 'function') oldOnClick.call(this, ev);
+      };
+      btn.__run = ()=>oldOnClick && oldOnClick(true);
+
+      // כאשר יש רענון כללי – נרנדר את 13–14
+      document.addEventListener('bi:perf-rerender', fast);
+    }
+  }
+
+  // Insights modal – טריגר רענון מהיר כשהמודאל פתוח
+  const insightsBtn = document.getElementById('biInsightsBtn');
+  if (insightsBtn){
+    const rerenderInsights = ()=> {
+      const m = document.getElementById('biInsightsModal');
+      if (m && !m.classList.contains('hidden')){
+        // אם יש פונקציית רינדר פנימית – נקרא לה בפריים
+        schedule('insights', ()=>{
+          const r = window.renderInsights || window.__renderInsights;
+          if (typeof r === 'function') r();
+        });
+      }
+    };
+    document.addEventListener('bi:perf-rerender', rerenderInsights);
+  }
+
+  // --------- Tip: expose cheap helpers to other scripts ---------
+  window.__BI_getActiveDept = activeDept;
+
+})();
+        </script>
 </body>
